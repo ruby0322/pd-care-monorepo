@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import io
+from pathlib import Path
+
+import torch
+import torchvision.transforms as transforms
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from app.config import Settings
+from app.main import create_app
+from app.model_loader import LoadedModel
+
+
+class DummyModel(torch.nn.Module):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[0]
+        logits = torch.tensor([[0.1, 0.2, 0.3, 0.4, 3.0]], dtype=torch.float32)
+        return logits.repeat(batch_size, 1)
+
+
+def make_settings() -> Settings:
+    return Settings(
+        app_name="test-api",
+        app_env="test",
+        model_url="https://example.com/model.pt",
+        model_path=Path("/tmp/model.pt"),
+        model_cache_dir=Path("/tmp"),
+        model_timeout_seconds=5.0,
+        device="cpu",
+        model_backbone="mobilenet_v3_large",
+        model_arch="baseline",
+        transfer_dropout=0.4,
+        threshold=0.5,
+        image_size=384,
+        infection_class_index=4,
+        class_names=("class_0", "class_1", "class_2", "class_3", "class_4"),
+        max_upload_mb=10,
+        log_level="INFO",
+        accepted_content_types=("image/jpeg", "image/png"),
+        workers=1,
+        eval_hflip_tta=False,
+    )
+
+
+def make_loaded_model(settings: Settings) -> LoadedModel:
+    transform = transforms.Compose(
+        [
+            transforms.Resize(settings.image_size),
+            transforms.CenterCrop(settings.image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+    return LoadedModel(model=DummyModel(), device=torch.device("cpu"), transform=transform)
+
+
+def make_image_bytes() -> bytes:
+    image = Image.new("RGB", (512, 512), color=(120, 80, 200))
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def test_health_and_ready_endpoints() -> None:
+    settings = make_settings()
+    app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
+    client = TestClient(app)
+
+    assert client.get("/healthz").json() == {"status": "ok"}
+    assert client.get("/readyz").json() == {
+        "status": "ready",
+        "model_loaded": True,
+        "device": "cpu",
+    }
+
+
+def test_predict_endpoint_returns_screening_payload() -> None:
+    settings = make_settings()
+    app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/predict",
+        files={"file": ("test.jpg", make_image_bytes(), "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["predicted_class_index"] == 4
+    assert payload["predicted_class_name"] == "class_4"
+    assert payload["screening"]["infection_class_index"] == 4
+    assert payload["screening"]["is_infection_positive"] is True
+    assert len(payload["class_probabilities"]) == 5
+
+
+def test_predict_rejects_unsupported_media_type() -> None:
+    settings = make_settings()
+    app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/predict",
+        files={"file": ("test.txt", b"not-an-image", "text/plain")},
+    )
+
+    assert response.status_code == 415
+

@@ -1,0 +1,20 @@
+{
+  "name": "pd-care-monorepo",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -p \"[{name}]\" -c \"blue.bold,magenta.bold\" -n \"FRONTEND,BACKEND\" \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "npm --prefix apps/frontend run dev",
+    "dev:backend": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && if [ -f .env ]; then set -a && . ./.env && set +a; fi && \"$PYTHON_BIN\" -m uvicorn app.main:app --reload'",
+    "build": "npm run build:frontend",
+    "build:frontend": "npm --prefix apps/frontend run build",
+    "lint": "npm run lint:frontend",
+    "lint:frontend": "npm --prefix apps/frontend run lint",
+    "test": "npm run test:backend",
+    "test:backend": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && \"$PYTHON_BIN\" -m pytest'",
+    "docker:up": "docker-compose up --build",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

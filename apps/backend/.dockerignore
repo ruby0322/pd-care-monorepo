@@ -1,0 +1,13 @@
+.pytest_cache/
+__pycache__/
+.venv/
+.git/
+.env
+*.pyc
+*.pyo
+*.pyd
+dist/
+build/
+models/
+tests/
+
