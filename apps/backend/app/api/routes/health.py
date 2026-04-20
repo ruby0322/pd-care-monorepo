@@ -6,7 +6,7 @@ from app.schemas.health import HealthResponse, ReadyResponse
 from app.services.model_loader import LoadedModel
 
 
-router = APIRouter()
+router = APIRouter(tags=["Health"])
 
 
 @router.get("/healthz", response_model=HealthResponse)

@@ -79,6 +79,21 @@ def test_reference_style_backend_modules_exist() -> None:
     assert ServiceLoadedModel is LoadedModel
 
 
+def test_openapi_and_swagger_ui_available() -> None:
+    settings = make_settings()
+    app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
+    client = TestClient(app)
+
+    openapi = client.get("/openapi.json")
+    assert openapi.status_code == 200
+    spec = openapi.json()
+    assert spec["info"]["title"] == settings.app_name
+    assert "/v1/predict" in spec["paths"]
+
+    assert client.get("/docs").status_code == 200
+    assert client.get("/redoc").status_code == 200
+
+
 def test_health_and_ready_endpoints() -> None:
     settings = make_settings()
     app = create_app(settings=settings, loaded_model=make_loaded_model(settings))

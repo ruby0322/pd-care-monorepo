@@ -7,10 +7,18 @@ from app.schemas.prediction import PredictionResponse
 from app.services.model_loader import LoadedModel, predict_bytes
 
 
-router = APIRouter()
+router = APIRouter(tags=["Inference"])
 
 
-@router.post("/v1/predict", response_model=PredictionResponse)
+@router.post(
+    "/v1/predict",
+    response_model=PredictionResponse,
+    summary="Classify exit-site image",
+    description=(
+        "Upload a single image (JPEG, PNG, WebP, BMP, or TIFF). "
+        "Returns class probabilities and infection screening fields."
+    ),
+)
 async def predict(request: Request, file: UploadFile = File(...)) -> PredictionResponse:
     current_settings: Settings = request.app.state.settings
     loaded: LoadedModel | None = getattr(request.app.state, "loaded_model", None)

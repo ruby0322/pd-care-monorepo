@@ -126,7 +126,7 @@ docker build -t pd-exit-site-inference-api .
 ### Run from monorepo root
 
 ```bash
-docker-compose up --build backend
+npm run docker:up:backend
 ```
 
 The root compose file now starts on CPU-only hosts by default. With `DEVICE=auto`, the app will still select CUDA automatically when GPU access is available.
@@ -134,7 +134,14 @@ The root compose file now starts on CPU-only hosts by default. With `DEVICE=auto
 If you want to force the legacy NVIDIA runtime on a GPU host, run:
 
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.gpu.yml up --build backend
+npm run docker:up:gpu
+```
+
+If your machine only has `docker-compose` v1 and fails with `KeyError: 'ContainerConfig'` during recreate, reset the old stack first:
+
+```bash
+docker-compose down --remove-orphans
+docker-compose up --build backend
 ```
 
 That GPU override assumes:

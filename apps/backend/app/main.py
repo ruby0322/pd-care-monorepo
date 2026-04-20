@@ -13,6 +13,17 @@ from app.services.model_loader import LoadedModel, load_model
 
 LOGGER = get_logger(__name__)
 
+OPENAPI_TAGS = [
+    {
+        "name": "Health",
+        "description": "Liveness and readiness probes for orchestration and load balancers.",
+    },
+    {
+        "name": "Inference",
+        "description": "Image classification and screening predictions.",
+    },
+]
+
 
 def create_app(
     settings: Settings | None = None,
@@ -35,6 +46,14 @@ def create_app(
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
+        description=(
+            "HTTP API for exit-site image classification. "
+            "Interactive docs: [Swagger UI](/docs), [ReDoc](/redoc), OpenAPI JSON at `/openapi.json`."
+        ),
+        openapi_tags=OPENAPI_TAGS,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
         lifespan=lifespan,
     )
     app.state.settings = settings

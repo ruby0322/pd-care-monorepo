@@ -130,19 +130,34 @@ The root `docker-compose.yml` starts:
 Bring the full stack up with:
 
 ```bash
-docker-compose up --build
+npm run docker:up
 ```
 
 Or start a single service:
 
 ```bash
-docker-compose up --build frontend
-docker-compose up --build backend
+npm run docker:up:frontend
+npm run docker:up:backend
 ```
 
 The compose file loads backend defaults from `apps/backend/.env.example`. If you need local overrides, copy that file to `apps/backend/.env` and update your local workflow as needed.
 
-The backend container keeps the existing GPU-oriented setup:
+The default compose file now works on CPU-only hosts. The backend still honors `DEVICE=auto`, so it will use CUDA automatically when GPU access is available and fall back to CPU otherwise.
+
+To require the legacy NVIDIA runtime on a GPU host, include the GPU override file:
+
+```bash
+npm run docker:up:gpu
+```
+
+If your host only has deprecated `docker-compose` v1 and you hit `KeyError: 'ContainerConfig'` while recreating containers, use the same fallback the npm scripts use:
+
+```bash
+docker-compose down --remove-orphans
+docker-compose up --build
+```
+
+That override expects:
 
 - NVIDIA drivers must be installed on the host
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) must be configured
