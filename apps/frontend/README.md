@@ -84,7 +84,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 The frontend is also available through the monorepo root compose setup:
 
 ```bash
-docker-compose up --build frontend
+npm run docker:up:frontend
 ```
 
 For client-side API calls, the app reserves `NEXT_PUBLIC_API_BASE_URL`. The example value for local development lives in `.env.example`.

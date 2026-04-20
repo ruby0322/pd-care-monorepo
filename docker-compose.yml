@@ -27,7 +27,6 @@ services:
       - "8000:8000"
     volumes:
       - model-cache:/models
-    runtime: nvidia
     restart: unless-stopped
 
 volumes:
