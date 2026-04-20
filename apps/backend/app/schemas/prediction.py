@@ -1,16 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-
-
-class HealthResponse(BaseModel):
-    status: str = Field(examples=["ok"])
-
-
-class ReadyResponse(BaseModel):
-    status: str = Field(examples=["ready"])
-    model_loaded: bool
-    device: str
+from pydantic import BaseModel
 
 
 class ClassProbability(BaseModel):
@@ -33,4 +23,3 @@ class PredictionResponse(BaseModel):
     predicted_probability: float
     class_probabilities: list[ClassProbability]
     screening: ScreeningResult
-

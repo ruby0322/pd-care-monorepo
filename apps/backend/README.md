@@ -22,12 +22,26 @@ The service is designed around the original training setup:
 
 ```text
 app/
-  config.py
-  logging.py
   main.py
-  model_compat.py
-  model_loader.py
-  schemas.py
+  api/
+    errors.py
+    router.py
+    routes/
+      health.py
+      predict.py
+  core/
+    config.py
+    logging.py
+  schemas/
+    health.py
+    prediction.py
+  services/
+    model_compat.py
+    model_loader.py
+  config.py         compatibility shim
+  logging.py        compatibility shim
+  model_compat.py   compatibility shim
+  model_loader.py   compatibility shim
 tests/
 requirements.txt
 requirements-dev.txt
@@ -115,7 +129,15 @@ docker build -t pd-exit-site-inference-api .
 docker-compose up --build backend
 ```
 
-The root compose file assumes:
+The root compose file now starts on CPU-only hosts by default. With `DEVICE=auto`, the app will still select CUDA automatically when GPU access is available.
+
+If you want to force the legacy NVIDIA runtime on a GPU host, run:
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.gpu.yml up --build backend
+```
+
+That GPU override assumes:
 
 - NVIDIA drivers are installed on the host
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) is configured
@@ -125,7 +147,7 @@ The container uses a single Uvicorn worker by default so one process owns one GP
 
 ## Notes on checkpoint compatibility
 
-The original training code saved full PyTorch modules with `torch.save(model, args.model_out)`, so production loading can depend on the original Python symbol names. This project includes a compatibility shim in `app/model_compat.py` to support deserializing those modules without importing the training repository at runtime.
+The original training code saved full PyTorch modules with `torch.save(model, args.model_out)`, so production loading can depend on the original Python symbol names. This project keeps the active compatibility code in `app/services/model_compat.py`, with `app/model_compat.py` retained as a compatibility shim for legacy imports.
 
 If a future checkpoint is exported as a plain `state_dict`, set `MODEL_BACKBONE` and related fallback env vars correctly so the server can reconstruct the model before loading weights.
 

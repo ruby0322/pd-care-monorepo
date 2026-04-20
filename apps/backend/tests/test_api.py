@@ -63,6 +63,22 @@ def make_image_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def test_reference_style_backend_modules_exist() -> None:
+    from app.api.routes.health import router as health_router
+    from app.api.routes.predict import router as predict_router
+    from app.core.config import Settings as CoreSettings
+    from app.schemas.health import HealthResponse
+    from app.schemas.prediction import PredictionResponse
+    from app.services.model_loader import LoadedModel as ServiceLoadedModel
+
+    assert health_router is not None
+    assert predict_router is not None
+    assert CoreSettings is Settings
+    assert HealthResponse.model_fields["status"] is not None
+    assert PredictionResponse.model_fields["predicted_class_name"] is not None
+    assert ServiceLoadedModel is LoadedModel
+
+
 def test_health_and_ready_endpoints() -> None:
     settings = make_settings()
     app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
