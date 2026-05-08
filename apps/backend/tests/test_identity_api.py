@@ -1,0 +1,106 @@
+from __future__ import annotations
+# pyright: reportMissingImports=false
+
+from pathlib import Path
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
+
+from app.config import Settings
+from app.db.models import Patient
+from app.main import create_app
+
+
+def make_settings(db_path: Path) -> Settings:
+    return Settings(
+        app_name="test-identity-api",
+        app_env="test",
+        model_url="https://example.com/model.pt",
+        model_path=Path("/tmp/model.pt"),
+        model_cache_dir=Path("/tmp"),
+        model_timeout_seconds=5.0,
+        device="cpu",
+        model_backbone="mobilenet_v3_large",
+        model_arch="baseline",
+        transfer_dropout=0.4,
+        threshold=0.5,
+        image_size=384,
+        infection_class_index=4,
+        class_names=("class_0", "class_1", "class_2", "class_3", "class_4"),
+        max_upload_mb=10,
+        log_level="INFO",
+        accepted_content_types=("image/jpeg", "image/png"),
+        cors_allowed_origins=("http://localhost:3000",),
+        cors_allowed_origin_regex=r"^https?://(?:\d{1,3}\.){3}\d{1,3}:3000$",
+        workers=1,
+        eval_hflip_tta=False,
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        s3_endpoint_url="http://localhost:8333",
+        s3_region="us-east-1",
+        s3_access_key="seaweed-access",
+        s3_secret_key="seaweed-secret",
+        s3_bucket_name="pd-care-private",
+        image_access_token_secret="test-secret",
+        image_access_token_ttl_seconds=300,
+    )
+
+
+def seed_patient(client: TestClient, case_number: str, birth_date: str) -> int:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        patient = Patient(case_number=case_number, birth_date=birth_date, full_name="王小明", is_active=True)
+        session.add(patient)
+        session.commit()
+        session.refresh(patient)
+        return patient.id
+
+
+def test_bind_identity_matches_existing_patient(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "matched.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = seed_patient(client, case_number="P123456", birth_date="1980-01-02")
+        response = client.post(
+            "/v1/identity/bind",
+            json={
+                "line_user_id": "U_LINE_001",
+                "display_name": "Patient A",
+                "picture_url": "https://example.com/a.jpg",
+                "case_number": "P123456",
+                "birth_date": "1980-01-02",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "matched"
+        assert payload["patient_id"] == patient_id
+        assert payload["can_upload"] is True
+
+
+def test_bind_identity_creates_pending_request_when_no_match(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "pending.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/identity/bind",
+            json={
+                "line_user_id": "U_LINE_002",
+                "display_name": "Patient B",
+                "picture_url": "https://example.com/b.jpg",
+                "case_number": "P999999",
+                "birth_date": "1970-05-08",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "pending"
+        assert payload["patient_id"] is None
+        assert payload["can_upload"] is False
+
+        status_response = client.get("/v1/identity/bind/status", params={"line_user_id": "U_LINE_002"})
+        assert status_response.status_code == 200
+        status_payload = status_response.json()
+        assert status_payload["status"] == "pending"
+        assert status_payload["can_upload"] is False

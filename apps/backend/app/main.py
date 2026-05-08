@@ -25,6 +25,10 @@ OPENAPI_TAGS = [
         "name": "Inference",
         "description": "Image classification and screening predictions.",
     },
+    {
+        "name": "Identity",
+        "description": "LINE LIFF identity binding and status checks.",
+    },
 ]
 
 
