@@ -1,4 +1,5 @@
 from __future__ import annotations
+# pyright: reportMissingImports=false
 
 import io
 from pathlib import Path
@@ -43,6 +44,7 @@ def make_settings() -> Settings:
         cors_allowed_origin_regex=r"^https?://(?:\d{1,3}\.){3}\d{1,3}:3000$",
         workers=1,
         eval_hflip_tta=False,
+        database_url="sqlite+pysqlite:///:memory:",
     )
 
 
