@@ -10,6 +10,7 @@ from app.api.errors import register_exception_handlers
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging, get_logger
+from app.db.init_db import initialize_database
 from app.services.model_loader import LoadedModel, load_model
 
 
@@ -37,6 +38,9 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = settings
+        engine, session_factory = initialize_database(settings.database_url)
+        app.state.db_engine = engine
+        app.state.db_session_factory = session_factory
         if loaded_model is not None:
             app.state.loaded_model = loaded_model
         else:

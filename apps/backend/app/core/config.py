@@ -66,6 +66,7 @@ class Settings:
     cors_allowed_origin_regex: str
     workers: int
     eval_hflip_tta: bool
+    database_url: str
 
     @property
     def max_upload_bytes(self) -> int:
@@ -116,4 +117,5 @@ def get_settings() -> Settings:
         ),
         workers=_parse_int("WORKERS", 1),
         eval_hflip_tta=_parse_bool("EVAL_HFLIP_TTA", False),
+        database_url=os.getenv("DATABASE_URL", "sqlite+pysqlite:///./pd_care.db"),
     )

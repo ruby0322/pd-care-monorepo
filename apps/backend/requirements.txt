@@ -4,6 +4,8 @@ fastapi
 python-multipart
 Pillow
 requests
+sqlalchemy
+psycopg[binary]
 torch==2.9.1
 torchvision==0.24.1
 uvicorn[standard]

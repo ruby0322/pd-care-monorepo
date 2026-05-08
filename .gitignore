@@ -24,3 +24,4 @@ apps/backend/models/
 apps/backend/.env
 
 __pycache__/
+**/__pycache__/
