@@ -45,6 +45,13 @@ def make_settings() -> Settings:
         workers=1,
         eval_hflip_tta=False,
         database_url="sqlite+pysqlite:///:memory:",
+        s3_endpoint_url="http://localhost:8333",
+        s3_region="us-east-1",
+        s3_access_key="seaweed-access",
+        s3_secret_key="seaweed-secret",
+        s3_bucket_name="pd-care-private",
+        image_access_token_secret="test-secret",
+        image_access_token_ttl_seconds=300,
     )
 
 
