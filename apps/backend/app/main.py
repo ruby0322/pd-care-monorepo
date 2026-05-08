@@ -1,8 +1,10 @@
 from __future__ import annotations
+# pyright: reportMissingImports=false
 
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_exception_handlers
 from app.api.router import api_router
@@ -58,6 +60,14 @@ def create_app(
     )
     app.state.settings = settings
     app.state.loaded_model = loaded_model
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_allowed_origins),
+        allow_origin_regex=settings.cors_allowed_origin_regex,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     register_exception_handlers(app)
     app.include_router(api_router)
 
