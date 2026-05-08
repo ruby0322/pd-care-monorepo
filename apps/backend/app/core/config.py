@@ -67,6 +67,13 @@ class Settings:
     workers: int
     eval_hflip_tta: bool
     database_url: str
+    s3_endpoint_url: str
+    s3_region: str
+    s3_access_key: str
+    s3_secret_key: str
+    s3_bucket_name: str
+    image_access_token_secret: str
+    image_access_token_ttl_seconds: int
 
     @property
     def max_upload_bytes(self) -> int:
@@ -118,4 +125,11 @@ def get_settings() -> Settings:
         workers=_parse_int("WORKERS", 1),
         eval_hflip_tta=_parse_bool("EVAL_HFLIP_TTA", False),
         database_url=os.getenv("DATABASE_URL", "sqlite+pysqlite:///./pd_care.db"),
+        s3_endpoint_url=os.getenv("S3_ENDPOINT_URL", "http://seaweedfs-s3:8333"),
+        s3_region=os.getenv("S3_REGION", "us-east-1"),
+        s3_access_key=os.getenv("S3_ACCESS_KEY", "seaweed-access"),
+        s3_secret_key=os.getenv("S3_SECRET_KEY", "seaweed-secret"),
+        s3_bucket_name=os.getenv("S3_BUCKET_NAME", "pd-care-private"),
+        image_access_token_secret=os.getenv("IMAGE_ACCESS_TOKEN_SECRET", "change-me"),
+        image_access_token_ttl_seconds=_parse_int("IMAGE_ACCESS_TOKEN_TTL_SECONDS", 300),
     )

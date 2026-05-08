@@ -18,6 +18,45 @@ services:
       retries: 5
     restart: unless-stopped
 
+  seaweedfs-master:
+    image: chrislusf/seaweedfs:3.76
+    command: "master -ip=seaweedfs-master -ip.bind=0.0.0.0 -mdir=/data"
+    volumes:
+      - seaweed-master-data:/data
+    ports:
+      - "9333:9333"
+    restart: unless-stopped
+
+  seaweedfs-volume:
+    image: chrislusf/seaweedfs:3.76
+    command: "volume -mserver=seaweedfs-master:9333 -ip=seaweedfs-volume -ip.bind=0.0.0.0 -dir=/data -max=0"
+    depends_on:
+      - seaweedfs-master
+    volumes:
+      - seaweed-volume-data:/data
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  seaweedfs-filer:
+    image: chrislusf/seaweedfs:3.76
+    command: "filer -master=seaweedfs-master:9333 -ip=seaweedfs-filer -ip.bind=0.0.0.0"
+    depends_on:
+      - seaweedfs-master
+      - seaweedfs-volume
+    ports:
+      - "8888:8888"
+    restart: unless-stopped
+
+  seaweedfs-s3:
+    image: chrislusf/seaweedfs:3.76
+    command: "s3 -filer=seaweedfs-filer:8888 -ip.bind=0.0.0.0 -port=8333 -domainName=seaweedfs-s3"
+    depends_on:
+      - seaweedfs-filer
+    ports:
+      - "8333:8333"
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./apps/frontend
@@ -42,6 +81,13 @@ services:
       - ./apps/backend/.env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/pd_care}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://seaweedfs-s3:8333}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-seaweed-access}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-seaweed-secret}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-pd-care-private}
+      IMAGE_ACCESS_TOKEN_SECRET: ${IMAGE_ACCESS_TOKEN_SECRET:-change-me}
+      IMAGE_ACCESS_TOKEN_TTL_SECONDS: ${IMAGE_ACCESS_TOKEN_TTL_SECONDS:-300}
     ports:
       - "8000:8000"
     volumes:
@@ -49,8 +95,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      seaweedfs-s3:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
   model-cache:
   postgres-data:
+  seaweed-master-data:
+  seaweed-volume-data:
