@@ -1,19 +1,18 @@
 "use client";
 
-import { useState, useRef, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Camera, Sun, AlignCenter, Eye } from "lucide-react";
+import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
+import { predictExitSiteImage } from "@/lib/api/predict";
+import { AlignCenter, Camera, ChevronLeft, Eye, Sun } from "lucide-react";
 import Link from "next/link";
-import clsx from "clsx";
-
-type DemoResult = "normal" | "suspected" | "rejected" | null;
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 
 function CameraView({
   onCapture,
   onError,
 }: {
   onCapture: (dataUrl: string) => void;
-  onError: () => void;
+  onError: (message?: string) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -22,7 +21,29 @@ function CameraView({
 
   useEffect(() => {
     let cancelled = false;
-    navigator.mediaDevices
+    const isInsecureContext =
+      typeof window !== "undefined" &&
+      !window.isSecureContext &&
+      window.location.hostname !== "localhost";
+
+    if (isInsecureContext) {
+      onError("目前連線不是 HTTPS，手機瀏覽器通常會封鎖即時相機，請改用下方拍照上傳。");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const mediaDevices =
+      typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+
+    if (!mediaDevices?.getUserMedia) {
+      onError("此裝置不支援即時相機，請改用下方拍照上傳。");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    mediaDevices
       .getUserMedia({ video: { facingMode: "environment" } })
       .then((stream) => {
         if (cancelled) {
@@ -32,11 +53,15 @@ function CameraView({
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.play().then(() => setReady(true));
+          setReady(true);
+          void videoRef.current.play().catch(() => {
+            // Some browsers block autoplay without a user gesture even when camera permission is granted.
+            // Keep camera view active instead of treating it as a hard camera access error.
+          });
         }
       })
       .catch(() => {
-        if (!cancelled) onError();
+        if (!cancelled) onError("無法開啟即時相機，請確認權限或改用下方拍照上傳。");
       });
     return () => {
       cancelled = true;
@@ -58,12 +83,18 @@ function CameraView({
 
   return (
     <>
-      <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
+      <video
+        ref={videoRef}
+        className="absolute inset-0 w-full h-full object-cover"
+        autoPlay
+        playsInline
+        muted
+      />
       <canvas ref={canvasRef} className="hidden" />
       <button
         onClick={handleCapture}
         disabled={!ready}
-        className="mx-auto flex w-16 h-16 items-center justify-center rounded-full border-4 border-white bg-white/20 hover:bg-white/30 transition-colors disabled:opacity-40"
+        className="absolute bottom-28 left-1/2 z-20 flex h-16 w-16 -translate-x-1/2 items-center justify-center rounded-full border-4 border-white bg-white/20 transition-colors hover:bg-white/30 disabled:opacity-40"
       >
         <div className="w-10 h-10 rounded-full bg-white" />
       </button>
@@ -74,38 +105,135 @@ function CameraView({
 function CapturePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const [cameraKey, setCameraKey] = useState(0);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [showDemoModal, setShowDemoModal] = useState(false);
-  const [demoResult, setDemoResult] = useState<DemoResult>(null);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [cameraError, setCameraError] = useState(false);
+  const [cameraErrorMessage, setCameraErrorMessage] = useState("無法存取相機，請確認相機權限");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleCapture = (dataUrl: string) => {
     setCapturedImage(dataUrl);
-    setShowDemoModal(true);
+    setShowSubmitModal(true);
+    setSubmitError(null);
   };
 
   const handleRetake = () => {
     setCapturedImage(null);
-    setShowDemoModal(false);
-    setDemoResult(null);
+    setShowSubmitModal(false);
     setCameraError(false);
+    setCameraErrorMessage("無法存取相機，請確認相機權限");
+    setSubmitError(null);
+    setIsSubmitting(false);
+    if (uploadInputRef.current) {
+      uploadInputRef.current.value = "";
+    }
     setCameraKey((k) => k + 1);
   };
 
-  const handleSimulate = () => {
-    if (!demoResult) return;
-    const params = new URLSearchParams({
-      pain: searchParams.get("pain") ?? "false",
-      discharge: searchParams.get("discharge") ?? "false",
-      cloudyDialysate: searchParams.get("cloudyDialysate") ?? "false",
-      result: demoResult,
+  const handleSelectPhoto = () => {
+    uploadInputRef.current?.click();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        handleCapture(reader.result);
+      }
+    };
+    reader.onerror = () => {
+      setSubmitError("無法讀取照片，請重新選擇");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const dataUrlToJpegFile = async (dataUrl: string): Promise<File> => {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("無法解析照片格式，請改用 JPEG/PNG 再試"));
+      img.src = dataUrl;
     });
-    router.push(`/patient/result?${params.toString()}`);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || image.width;
+    canvas.height = image.naturalHeight || image.height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("瀏覽器不支援影像轉檔");
+    }
+    context.drawImage(image, 0, 0);
+
+    const jpegBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("照片轉成 JPEG 失敗"));
+          return;
+        }
+        resolve(blob);
+      }, "image/jpeg", 0.9);
+    });
+
+    return new File([jpegBlob], `exit-site-${Date.now()}.jpg`, { type: "image/jpeg" });
+  };
+
+  const handleSubmit = async () => {
+    if (!capturedImage) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const file = await dataUrlToJpegFile(capturedImage);
+      const payload = await predictExitSiteImage(file);
+      const result = payload.screening.is_infection_positive ? "suspected" : "normal";
+      const confidence = Math.round(payload.predicted_probability * 100);
+
+      const params = new URLSearchParams({
+        pain: searchParams.get("pain") ?? "false",
+        discharge: searchParams.get("discharge") ?? "false",
+        cloudyDialysate: searchParams.get("cloudyDialysate") ?? "false",
+        result,
+        confidence: String(confidence),
+      });
+      router.push(`/patient/result?${params.toString()}`);
+    } catch (error) {
+      const detail = getApiErrorDetail(error);
+      if (detail) {
+        const params = new URLSearchParams({
+          pain: searchParams.get("pain") ?? "false",
+          discharge: searchParams.get("discharge") ?? "false",
+          cloudyDialysate: searchParams.get("cloudyDialysate") ?? "false",
+          result: "rejected",
+          reason: detail,
+        });
+        router.push(`/patient/result?${params.toString()}`);
+        return;
+      }
+      setSubmitError(getReadableApiError(error));
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCloseModal = () => {
+    if (isSubmitting) return;
+    setShowSubmitModal(false);
+    setSubmitError(null);
+  };
+
+  const handleReopenSubmitModal = () => {
+    setShowSubmitModal(true);
+    setSubmitError(null);
   };
 
   return (
-    <div className="min-h-screen bg-black flex flex-col">
+    <div className="min-h-[100dvh] bg-black flex flex-col">
       <header className="flex items-center gap-3 px-5 pt-12 pb-4 absolute top-0 left-0 right-0 z-10">
         <Link
           href="/patient"
@@ -116,14 +244,20 @@ function CapturePageInner() {
         <span className="text-sm font-medium text-white">出口拍攝</span>
       </header>
 
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden min-h-screen">
+      <div className="relative min-h-[100dvh] flex-1 overflow-hidden">
         {capturedImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={capturedImage} alt="captured" className="w-full h-full object-cover absolute inset-0" />
         ) : cameraError ? (
-          <div className="flex flex-col items-center gap-4 px-8 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
             <Camera className="w-12 h-12 text-zinc-600" strokeWidth={1} />
-            <p className="text-zinc-400 text-sm">無法存取相機，請確認相機權限</p>
+            <p className="text-zinc-400 text-sm">{cameraErrorMessage}</p>
+            <button
+              onClick={handleSelectPhoto}
+              className="px-5 py-2.5 rounded-xl bg-zinc-700 text-white text-sm hover:bg-zinc-600 transition-colors"
+            >
+              改用拍照上傳
+            </button>
             <button
               onClick={handleRetake}
               className="px-5 py-2.5 rounded-xl bg-zinc-800 text-white text-sm hover:bg-zinc-700 transition-colors"
@@ -132,8 +266,23 @@ function CapturePageInner() {
             </button>
           </div>
         ) : (
-          <CameraView key={cameraKey} onCapture={handleCapture} onError={() => setCameraError(true)} />
+          <CameraView
+            key={cameraKey}
+            onCapture={handleCapture}
+            onError={(message) => {
+              setCameraErrorMessage(message ?? "無法存取相機，請確認相機權限");
+              setCameraError(true);
+            }}
+          />
         )}
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handleFileChange}
+        />
 
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="relative w-72 h-72">
@@ -159,79 +308,54 @@ function CapturePageInner() {
             )}
           </div>
 
-          {capturedImage && !showDemoModal && (
+          {capturedImage && !showSubmitModal && (
             <button
-              onClick={handleRetake}
+              onClick={handleReopenSubmitModal}
               className="w-full py-3.5 rounded-2xl border border-white/30 text-white text-sm font-medium hover:bg-white/10 transition-colors"
             >
-              重新拍攝
+              送出分析
             </button>
           )}
         </div>
       </div>
 
-      {showDemoModal && (
+      {showSubmitModal && (
         <div className="fixed inset-0 bg-black/70 flex items-end z-20">
           <div className="w-full bg-white rounded-t-3xl px-6 pt-6 pb-10">
             <div className="w-10 h-1 rounded-full bg-zinc-200 mx-auto mb-6" />
-            <p className="text-xs text-zinc-400 text-center mb-1">僅供展示使用</p>
-            <h2 className="text-base font-semibold text-zinc-900 text-center mb-5">模擬 AI 辨識結果</h2>
-            <div className="flex flex-col gap-3 mb-6">
-              {(
-                [
-                  { value: "normal", label: "正常", desc: "無感染跡象", color: "emerald" },
-                  { value: "suspected", label: "疑似感染", desc: "偵測到異常，建議聯絡護理師", color: "red" },
-                  { value: "rejected", label: "拒絕上傳", desc: "影像品質不足，需重新拍攝", color: "amber" },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setDemoResult(opt.value)}
-                  className={clsx(
-                    "flex items-center gap-4 w-full px-4 py-3.5 rounded-xl border-2 transition-all text-left",
-                    demoResult === opt.value
-                      ? opt.color === "emerald" ? "border-emerald-500 bg-emerald-50"
-                        : opt.color === "red" ? "border-red-500 bg-red-50"
-                        : "border-amber-500 bg-amber-50"
-                      : "border-zinc-100 bg-zinc-50"
-                  )}
-                >
-                  <div
-                    className={clsx(
-                      "w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0",
-                      demoResult === opt.value
-                        ? opt.color === "emerald" ? "border-emerald-500"
-                          : opt.color === "red" ? "border-red-500"
-                          : "border-amber-500"
-                        : "border-zinc-300"
-                    )}
-                  >
-                    {demoResult === opt.value && (
-                      <div className={clsx("w-2 h-2 rounded-full", opt.color === "emerald" ? "bg-emerald-500" : opt.color === "red" ? "bg-red-500" : "bg-amber-500")} />
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-zinc-900">{opt.label}</div>
-                    <div className="text-xs text-zinc-400 mt-0.5">{opt.desc}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
+            <p className="text-xs text-zinc-400 text-center mb-1">即將送至後端分析</p>
+            <h2 className="text-base font-semibold text-zinc-900 text-center mb-2">確認上傳照片</h2>
+            <p className="text-sm text-zinc-500 text-center mb-6">
+              系統會呼叫 AI 服務進行傷口感染風險判讀
+            </p>
+            {submitError && (
+              <div className="mb-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {submitError}
+              </div>
+            )}
             <div className="flex gap-3">
               <button
                 onClick={handleRetake}
+                disabled={isSubmitting}
                 className="flex-1 py-4 rounded-2xl border border-zinc-200 text-zinc-700 text-sm font-medium hover:bg-zinc-50 transition-colors"
               >
                 重新拍攝
               </button>
               <button
-                onClick={handleSimulate}
-                disabled={!demoResult}
+                onClick={handleSubmit}
+                disabled={isSubmitting}
                 className="flex-1 py-4 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-30"
               >
-                確認結果
+                {isSubmitting ? "分析中..." : "送出分析"}
               </button>
             </div>
+            <button
+              onClick={handleCloseModal}
+              disabled={isSubmitting}
+              className="w-full mt-3 text-xs text-zinc-400 hover:text-zinc-500 disabled:opacity-40"
+            >
+              先不要，返回預覽
+            </button>
           </div>
         </div>
       )}

@@ -12,6 +12,12 @@ function ResultPageInner() {
   const pain = searchParams.get("pain") === "true";
   const discharge = searchParams.get("discharge") === "true";
   const cloudyDialysate = searchParams.get("cloudyDialysate") === "true";
+  const rejectionReason = searchParams.get("reason");
+  const confidenceRaw = searchParams.get("confidence");
+  const confidence =
+    confidenceRaw && !Number.isNaN(Number(confidenceRaw))
+      ? Math.max(0, Math.min(100, Number(confidenceRaw)))
+      : null;
 
   const now = new Date().toLocaleString("zh-TW", {
     year: "numeric",
@@ -84,8 +90,19 @@ function ResultPageInner() {
           </div>
         </div>
 
+        {confidence !== null && result !== "rejected" && (
+          <div className="px-5 py-4 rounded-2xl bg-zinc-50 border border-zinc-100">
+            <p className="text-xs text-zinc-400 uppercase tracking-wider mb-1">AI 信心分數</p>
+            <p className="text-lg font-semibold text-zinc-900">{confidence}%</p>
+          </div>
+        )}
+
         <div className="px-5 py-4 rounded-2xl bg-zinc-50 border border-zinc-100">
-          <p className="text-sm text-zinc-700 leading-relaxed">{currentConfig.message}</p>
+          <p className="text-sm text-zinc-700 leading-relaxed">
+            {result === "rejected" && rejectionReason
+              ? `上傳失敗原因：${rejectionReason}`
+              : currentConfig.message}
+          </p>
         </div>
 
         <div className="flex flex-col gap-3">

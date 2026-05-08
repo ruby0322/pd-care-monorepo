@@ -6,12 +6,12 @@ services:
       context: ./apps/frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_BASE_URL: http://backend:8000
+        NEXT_PUBLIC_API_BASE_URL: http://abbey.lu.im.ntu.edu.tw:8000
     environment:
       PORT: 3000
-      NEXT_PUBLIC_API_BASE_URL: http://backend:8000
+      NEXT_PUBLIC_API_BASE_URL: http://abbey.lu.im.ntu.edu.tw:8000
     ports:
-      - "3000:3000"
+      - "80:3000"
     depends_on:
       backend:
         condition: service_healthy
@@ -22,7 +22,7 @@ services:
       context: ./apps/backend
       dockerfile: Dockerfile
     env_file:
-      - ./apps/backend/.env.example
+      - ./apps/backend/.env
     ports:
       - "8000:8000"
     volumes:

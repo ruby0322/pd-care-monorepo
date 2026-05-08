@@ -62,6 +62,8 @@ class Settings:
     max_upload_mb: int
     log_level: str
     accepted_content_types: tuple[str, ...]
+    cors_allowed_origins: tuple[str, ...]
+    cors_allowed_origin_regex: str
     workers: int
     eval_hflip_tta: bool
 
@@ -100,6 +102,18 @@ def get_settings() -> Settings:
         max_upload_mb=_parse_int("MAX_UPLOAD_MB", 10),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         accepted_content_types=_parse_csv("ACCEPTED_CONTENT_TYPES", DEFAULT_IMAGE_CONTENT_TYPES),
+        cors_allowed_origins=_parse_csv(
+            "CORS_ALLOWED_ORIGINS",
+            (
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "https://1910-140-112-106-204.ngrok-free.app",
+            ),
+        ),
+        cors_allowed_origin_regex=os.getenv(
+            "CORS_ALLOWED_ORIGIN_REGEX",
+            r"^https?://(?:\d{1,3}\.){3}\d{1,3}:3000$",
+        ),
         workers=_parse_int("WORKERS", 1),
         eval_hflip_tta=_parse_bool("EVAL_HFLIP_TTA", False),
     )

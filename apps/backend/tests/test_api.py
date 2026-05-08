@@ -39,6 +39,8 @@ def make_settings() -> Settings:
         max_upload_mb=10,
         log_level="INFO",
         accepted_content_types=("image/jpeg", "image/png"),
+        cors_allowed_origins=("http://localhost:3000", "http://127.0.0.1:3000"),
+        cors_allowed_origin_regex=r"^https?://(?:\d{1,3}\.){3}\d{1,3}:3000$",
         workers=1,
         eval_hflip_tta=False,
     )
@@ -137,4 +139,21 @@ def test_predict_rejects_unsupported_media_type() -> None:
     )
 
     assert response.status_code == 415
+
+
+def test_cors_preflight_allows_mobile_lan_origin() -> None:
+    settings = make_settings()
+    app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
+    client = TestClient(app)
+
+    response = client.options(
+        "/v1/predict",
+        headers={
+            "Origin": "http://192.168.1.100:3000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://192.168.1.100:3000"
 
