@@ -126,6 +126,7 @@ export default function PatientPage() {
   if (status === "matched") {
     return (
       <div className="min-h-screen bg-white flex flex-col px-6 py-10">
+        <p className="text-sm text-zinc-500">{profile?.displayName ?? "使用者"}，歡迎回來！</p>
         <h1 className="text-lg font-semibold text-zinc-900">每日出口追蹤</h1>
         <p className="mt-2 text-sm text-zinc-600 leading-relaxed">
           日曆依據已儲存的上傳紀錄顯示風險狀態。紅色代表當日有至少一筆疑似風險判讀，顏色深淺代表上傳次數。

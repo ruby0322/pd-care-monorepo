@@ -47,12 +47,13 @@ WITH new_patient AS (
     RETURNING id
 ),
 new_identity AS (
-    INSERT INTO liff_identities (line_user_id, display_name, picture_url, patient_id)
+    INSERT INTO liff_identities (line_user_id, display_name, picture_url, patient_id, role)
     SELECT
         'Ua330fd0f658e181bb850be04bdb20251',
         'Calendar Demo User',
         'https://example.com/calendar-demo-user.jpg',
-        id
+        id,
+        'patient'
     FROM new_patient
 ),
 -- Day A (green, count=1)

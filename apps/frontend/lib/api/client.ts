@@ -1,5 +1,7 @@
 import axios, { AxiosError } from "axios";
 
+import { getStaffAccessToken } from "@/lib/auth/staff-session";
+
 export function resolveApiBaseUrl(): string {
   const envBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
@@ -40,6 +42,21 @@ export function resolveApiBaseUrl(): string {
 export const apiClient = axios.create({
   baseURL: resolveApiBaseUrl(),
   timeout: 15000,
+});
+
+apiClient.interceptors.request.use((config) => {
+  if (!config.url || config.headers?.Authorization) {
+    return config;
+  }
+  if (!config.url.startsWith("/v1/staff")) {
+    return config;
+  }
+  const token = getStaffAccessToken();
+  if (!token) {
+    return config;
+  }
+  config.headers.Authorization = `Bearer ${token}`;
+  return config;
 });
 
 export function getApiErrorDetail(error: unknown): string | null {

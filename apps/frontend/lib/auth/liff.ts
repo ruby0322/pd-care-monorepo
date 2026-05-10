@@ -6,6 +6,7 @@ declare global {
       init: (config: { liffId: string }) => Promise<void>;
       isLoggedIn: () => boolean;
       login: (config?: { redirectUri?: string }) => void;
+      getIDToken: () => string | null;
       getProfile: () => Promise<{
         userId: string;
         displayName: string;
@@ -141,4 +142,13 @@ export async function getLiffProfile(): Promise<LiffProfile> {
     displayName: profile.displayName,
     pictureUrl: profile.pictureUrl,
   };
+}
+
+export async function getLiffLoginProof(): Promise<{ profile: LiffProfile; idToken: string }> {
+  const profile = await getLiffProfile();
+  const idToken = window.liff?.getIDToken?.();
+  if (!idToken) {
+    throw new Error("LINE 登入憑證不足，請確認 LIFF scope 包含 openid。");
+  }
+  return { profile, idToken };
 }

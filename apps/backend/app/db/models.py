@@ -8,16 +8,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
-class StaffUser(Base):
-    __tablename__ = "staff_users"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    username: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(32), nullable=False, default="staff")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-
 class Patient(Base):
     __tablename__ = "patients"
 
@@ -39,6 +29,7 @@ class LiffIdentity(Base):
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     picture_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="patient")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -95,7 +86,7 @@ class Annotation(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
     upload_id: Mapped[int] = mapped_column(ForeignKey("uploads.id", ondelete="CASCADE"), nullable=False, index=True)
-    staff_user_id: Mapped[int] = mapped_column(ForeignKey("staff_users.id", ondelete="CASCADE"), nullable=False)
+    reviewer_identity_id: Mapped[int] = mapped_column(ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=False)
     label: Mapped[str] = mapped_column(String(64), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

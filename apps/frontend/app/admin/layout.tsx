@@ -1,7 +1,64 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { Activity, Bell, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+
+import { AdminSessionActions } from "@/app/admin/_components/admin-session-actions";
+import { apiClient } from "@/lib/api/client";
+import { clearStaffSession, getStaffSession } from "@/lib/auth/staff-session";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const isLoginRoute = pathname === "/admin/login";
+  const hasSession = isLoginRoute ? true : Boolean(getStaffSession());
+  const [isVerified, setIsVerified] = useState(false);
+
+  useEffect(() => {
+    if (isLoginRoute) {
+      return;
+    }
+    if (!hasSession) {
+      router.replace("/admin/login");
+      return;
+    }
+
+    let cancelled = false;
+    async function verifySession() {
+      try {
+        await apiClient.get("/v1/staff/me");
+        if (!cancelled) {
+          setIsVerified(true);
+        }
+      } catch {
+        clearStaffSession();
+        if (!cancelled) {
+          setIsVerified(false);
+          router.replace("/admin/login");
+        }
+      }
+    }
+
+    void verifySession();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasSession, isLoginRoute, router]);
+
+  if (isLoginRoute) {
+    return <>{children}</>;
+  }
+
+  if (!hasSession || !isVerified) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
+        <p className="text-sm text-zinc-500">正在驗證登入狀態...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 flex">
       <aside className="hidden md:flex w-56 bg-white border-r border-zinc-100 flex-col py-6 px-4 fixed top-0 left-0 bottom-0">
@@ -44,9 +101,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <Bell className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
               <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
             </button>
-            <div className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center text-white text-xs font-medium">
-              護
-            </div>
+            <AdminSessionActions />
           </div>
         </header>
 

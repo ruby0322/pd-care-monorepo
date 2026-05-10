@@ -12,6 +12,7 @@ from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging, get_logger
 from app.db.init_db import initialize_database
 from app.services.model_loader import LoadedModel, load_model
+from app.services.storage import StorageService, build_storage_client
 
 
 LOGGER = get_logger(__name__)
@@ -29,6 +30,18 @@ OPENAPI_TAGS = [
         "name": "Identity",
         "description": "LINE LIFF identity binding and status checks.",
     },
+    {
+        "name": "Patient",
+        "description": "Patient-specific upload orchestration and history.",
+    },
+    {
+        "name": "Auth",
+        "description": "Unified pilot identity login and access token issuance.",
+    },
+    {
+        "name": "Staff",
+        "description": "Protected staff/admin endpoints for notifications and image access.",
+    },
 ]
 
 
@@ -42,9 +55,20 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = settings
-        engine, session_factory = initialize_database(settings.database_url)
+        engine, session_factory = initialize_database(settings.database_url, settings=settings)
         app.state.db_engine = engine
         app.state.db_session_factory = session_factory
+        storage_client = build_storage_client(
+            endpoint_url=settings.s3_endpoint_url,
+            region=settings.s3_region,
+            access_key=settings.s3_access_key,
+            secret_key=settings.s3_secret_key,
+        )
+        app.state.storage_service = StorageService(
+            s3_client=storage_client,
+            bucket=settings.s3_bucket_name,
+            token_secret=settings.image_access_token_secret,
+        )
         if loaded_model is not None:
             app.state.loaded_model = loaded_model
         else:

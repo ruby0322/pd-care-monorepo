@@ -81,6 +81,14 @@ class Settings:
     s3_bucket_name: str
     image_access_token_secret: str
     image_access_token_ttl_seconds: int
+    auth_token_secret: str = "change-me-auth"
+    auth_token_ttl_seconds: int = 28800
+    pilot_admin_identity_ids: tuple[str, ...] = ()
+    pilot_staff_identity_ids: tuple[str, ...] = ()
+    line_verify_mode: str = "line"
+    line_channel_id: str = ""
+    line_verify_endpoint: str = "https://api.line.me/oauth2/v2.1/verify"
+    line_verify_timeout_seconds: float = 5.0
 
     @property
     def max_upload_bytes(self) -> int:
@@ -139,4 +147,12 @@ def get_settings() -> Settings:
         s3_bucket_name=os.getenv("S3_BUCKET_NAME", "pd-care-private"),
         image_access_token_secret=os.getenv("IMAGE_ACCESS_TOKEN_SECRET", "change-me"),
         image_access_token_ttl_seconds=_parse_int("IMAGE_ACCESS_TOKEN_TTL_SECONDS", 300),
+        auth_token_secret=os.getenv("AUTH_TOKEN_SECRET", "change-me-auth"),
+        auth_token_ttl_seconds=_parse_int("AUTH_TOKEN_TTL_SECONDS", 28800),
+        pilot_admin_identity_ids=_parse_csv("PILOT_ADMIN_IDENTITY_IDS", ()),
+        pilot_staff_identity_ids=_parse_csv("PILOT_STAFF_IDENTITY_IDS", ()),
+        line_verify_mode=os.getenv("LINE_VERIFY_MODE", "line").strip().lower(),
+        line_channel_id=os.getenv("LINE_CHANNEL_ID", "").strip(),
+        line_verify_endpoint=os.getenv("LINE_VERIFY_ENDPOINT", "https://api.line.me/oauth2/v2.1/verify").strip(),
+        line_verify_timeout_seconds=_parse_float("LINE_VERIFY_TIMEOUT_SECONDS", 5.0),
     )

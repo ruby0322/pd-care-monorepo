@@ -19,3 +19,63 @@ export async function predictExitSiteImage(file: File): Promise<PredictResponse>
 
   return data;
 }
+
+export type PatientUploadResponse = {
+  upload_id: number;
+  ai_result_id: number;
+  patient_id: number;
+  screening_result: "normal" | "suspected" | "rejected" | "technical_error";
+  model_version: string | null;
+  threshold: number | null;
+  notification_id: number | null;
+  prediction: PredictResponse & {
+    screening: PredictResponse["screening"] & {
+      threshold: number;
+      infection_probability: number;
+    };
+  };
+};
+
+export async function uploadPatientExitSiteImage(
+  lineUserId: string,
+  file: File
+): Promise<PatientUploadResponse> {
+  const formData = new FormData();
+  formData.append("line_user_id", lineUserId);
+  formData.append("file", file);
+
+  const { data } = await apiClient.post<PatientUploadResponse>("/v1/patient/uploads", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+
+  return data;
+}
+
+export type PatientUploadResultResponse = {
+  upload_id: number;
+  ai_result_id: number;
+  patient_id: number;
+  screening_result: "normal" | "suspected" | "rejected" | "technical_error";
+  probability: number | null;
+  threshold: number | null;
+  model_version: string | null;
+  error_reason: string | null;
+  created_at: string;
+};
+
+export async function getPatientUploadResult(params: {
+  lineUserId: string;
+  uploadId?: number;
+  aiResultId?: number;
+}): Promise<PatientUploadResultResponse> {
+  const { data } = await apiClient.get<PatientUploadResultResponse>("/v1/patient/uploads/result", {
+    params: {
+      line_user_id: params.lineUserId,
+      upload_id: params.uploadId,
+      ai_result_id: params.aiResultId,
+    },
+  });
+  return data;
+}
