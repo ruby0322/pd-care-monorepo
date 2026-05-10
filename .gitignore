@@ -19,6 +19,7 @@ apps/backend/*.pyd
 apps/backend/build/
 apps/backend/dist/
 apps/backend/models/
+apps/backend/*.db
 
 .env
 apps/backend/.env
