@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "concurrently -k -p \"[{name}]\" -c \"blue.bold,magenta.bold\" -n \"FRONTEND,BACKEND\" \"npm run dev:frontend\" \"npm run dev:backend\"",
     "dev:frontend": "npm --prefix apps/frontend run dev",
-    "dev:backend": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && if [ -f .env ]; then set -a && . ./.env && set +a; fi && \"$PYTHON_BIN\" -m uvicorn app.main:app --reload'",
+    "dev:backend": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && if [ -f .env ]; then set -a && . ./.env && set +a; fi && UVICORN_HOST=\"${UVICORN_HOST:-0.0.0.0}\" && UVICORN_PORT=\"${UVICORN_PORT:-8000}\" && \"$PYTHON_BIN\" -m uvicorn app.main:app --reload --host \"$UVICORN_HOST\" --port \"$UVICORN_PORT\"'",
     "build": "npm run build:frontend",
     "build:frontend": "npm --prefix apps/frontend run build",
     "lint": "npm run lint:frontend",

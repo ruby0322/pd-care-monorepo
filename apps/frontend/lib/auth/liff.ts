@@ -21,6 +21,58 @@ type LiffProfile = {
   pictureUrl?: string;
 };
 
+const DEV_LINE_USER_STORAGE_KEY = "pdCare.devLineUserId";
+
+/**
+ * Dev-only: when NEXT_PUBLIC_LIFF_ID is unset and NODE_ENV is development,
+ * resolve a fake LINE user id so patient flows (e.g. calendar) can call the backend.
+ * Production builds never use this path.
+ *
+ * Priority: URL ?dev_line_user_id= → NEXT_PUBLIC_DEV_LINE_USER_ID → localStorage.
+ */
+function resolveDevBypassLineUserId(): string | null {
+  if (typeof window !== "undefined") {
+    const fromQuery = new URLSearchParams(window.location.search).get("dev_line_user_id");
+    if (fromQuery?.trim()) {
+      return fromQuery.trim();
+    }
+  }
+
+  const fromEnv = process.env.NEXT_PUBLIC_DEV_LINE_USER_ID?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  if (typeof window !== "undefined") {
+    const fromStorage = window.localStorage.getItem(DEV_LINE_USER_STORAGE_KEY)?.trim();
+    if (fromStorage) {
+      return fromStorage;
+    }
+  }
+
+  return null;
+}
+
+function devBypassProfile(): LiffProfile | null {
+  if (process.env.NODE_ENV !== "development") {
+    return null;
+  }
+  if (process.env.NEXT_PUBLIC_LIFF_ID) {
+    return null;
+  }
+
+  const userId = resolveDevBypassLineUserId();
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    userId,
+    displayName: process.env.NEXT_PUBLIC_DEV_DISPLAY_NAME?.trim() || "開發模式使用者",
+    pictureUrl: process.env.NEXT_PUBLIC_DEV_PICTURE_URL?.trim() || undefined,
+  };
+}
+
 let liffReadyPromise: Promise<void> | null = null;
 
 function loadLiffSdk(): Promise<void> {
@@ -55,8 +107,20 @@ function loadLiffSdk(): Promise<void> {
 }
 
 export async function getLiffProfile(): Promise<LiffProfile> {
+  const bypass = devBypassProfile();
+  if (bypass) {
+    return bypass;
+  }
+
   const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
   if (!liffId) {
+    if (process.env.NODE_ENV === "development") {
+      throw new Error(
+        "開發模式：未設定 NEXT_PUBLIC_LIFF_ID。請在網址加上 ?dev_line_user_id=你的測試_ID、" +
+          "或設定環境變數 NEXT_PUBLIC_DEV_LINE_USER_ID、" +
+          `或在瀏覽器 console 執行 localStorage.setItem("${DEV_LINE_USER_STORAGE_KEY}", "你的測試_ID")。`
+      );
+    }
     throw new Error("尚未設定 NEXT_PUBLIC_LIFF_ID，請先完成 LIFF 環境設定。");
   }
 

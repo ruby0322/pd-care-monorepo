@@ -42,8 +42,16 @@ def bind_identity(
         identity.display_name = display_name
         identity.picture_url = picture_url
 
+    # Once a LINE user is bound to a patient, do not downgrade it back to pending.
+    # This keeps access stable across repeated login/bind attempts.
+    if identity.patient_id is not None:
+        _resolve_pending_bindings(session, line_user_id=line_user_id)
+        session.commit()
+        return ("matched", identity.patient_id, True)
+
     if patient is not None:
         identity.patient_id = patient.id
+        _resolve_pending_bindings(session, line_user_id=line_user_id)
         session.commit()
         return ("matched", patient.id, True)
 
@@ -67,6 +75,17 @@ def bind_identity(
         )
     session.commit()
     return ("pending", None, False)
+
+
+def _resolve_pending_bindings(session: Session, *, line_user_id: str) -> None:
+    pending_rows = session.execute(
+        select(PendingBinding).where(
+            PendingBinding.line_user_id == line_user_id,
+            PendingBinding.status == "pending",
+        )
+    ).scalars().all()
+    for pending in pending_rows:
+        pending.status = "approved"
 
 
 def get_identity_status(session: Session, *, line_user_id: str) -> tuple[str, int | None, bool]:
