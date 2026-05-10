@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 
+import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
 import { getReadableApiError } from "@/lib/api/client";
 import {
   fetchPatientAnnotations,
@@ -26,6 +27,7 @@ import {
   StaffPatientDetailUpload,
   upsertUploadAnnotation,
 } from "@/lib/api/staff";
+import { summarizeUploadsForCalendar } from "@/lib/utils/upload-calendar";
 
 function ResultBadge({ result }: { result: StaffPatientDetailUpload["screening_result"] }) {
   const config = {
@@ -69,6 +71,7 @@ export default function PatientDetailPage() {
   const [editingLabel, setEditingLabel] = useState<Record<number, StaffAnnotationItem["label"]>>({});
   const [editingComment, setEditingComment] = useState<Record<number, string>>({});
   const [savingUploadId, setSavingUploadId] = useState<number | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ url: string; uploadId: number } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -127,6 +130,24 @@ export default function PatientDetailPage() {
     }
     return map;
   }, [annotations]);
+
+  const calendarDays = useMemo(
+    () => summarizeUploadsForCalendar(detail?.uploads ?? []),
+    [detail?.uploads]
+  );
+
+  useEffect(() => {
+    if (!previewImage) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPreviewImage(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewImage]);
 
   async function handleSaveAnnotation(uploadId: number) {
     const label = editingLabel[uploadId] ?? "normal";
@@ -210,6 +231,8 @@ export default function PatientDetailPage() {
         ))}
       </div>
 
+      <PatientDailyCalendar days={calendarDays} />
+
       <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-zinc-50 flex items-center gap-2">
           <Calendar className="w-4 h-4 text-zinc-400" strokeWidth={1.5} />
@@ -224,14 +247,21 @@ export default function PatientDetailPage() {
                 <div className="flex items-start gap-4">
                   <div className="w-20 h-20 rounded-xl overflow-hidden bg-zinc-100 flex items-center justify-center shrink-0">
                     {imageUrl ? (
-                      <Image
-                        src={imageUrl}
-                        alt={`upload-${upload.upload_id}`}
-                        width={80}
-                        height={80}
-                        unoptimized
-                        className="h-full w-full object-cover"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => setPreviewImage({ url: imageUrl, uploadId: upload.upload_id })}
+                        className="h-full w-full cursor-zoom-in"
+                        aria-label={`預覽 upload ${upload.upload_id}`}
+                      >
+                        <Image
+                          src={imageUrl}
+                          alt={`upload-${upload.upload_id}`}
+                          width={80}
+                          height={80}
+                          unoptimized
+                          className="h-full w-full object-cover"
+                        />
+                      </button>
                     ) : (
                       <ImageIcon className="w-5 h-5 text-zinc-400" />
                     )}
@@ -291,6 +321,36 @@ export default function PatientDetailPage() {
           })}
         </div>
       </div>
+
+      {previewImage ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6"
+          onClick={() => setPreviewImage(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            className="absolute right-4 top-4 rounded-lg bg-white/15 px-3 py-2 text-sm text-white hover:bg-white/25"
+            onClick={() => setPreviewImage(null)}
+          >
+            關閉
+          </button>
+          <div
+            className="relative max-h-full w-full max-w-4xl overflow-hidden rounded-2xl bg-black/20"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Image
+              src={previewImage.url}
+              alt={`upload-${previewImage.uploadId}-preview`}
+              width={1600}
+              height={1600}
+              unoptimized
+              className="max-h-[85vh] w-full object-contain"
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

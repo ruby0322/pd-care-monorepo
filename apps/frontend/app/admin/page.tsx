@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
+  Bell,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 
+import { useAdminNotifications } from "@/app/admin/_components/admin-notification-context";
 import { getReadableApiError } from "@/lib/api/client";
 import {
   approvePendingBinding,
@@ -88,6 +90,7 @@ export default function AdminDashboard() {
   const [workingPendingId, setWorkingPendingId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { notifications, unreadCount, markNotificationRead, markingIds, error: notificationError } = useAdminNotifications();
 
   useEffect(() => {
     let cancelled = false;
@@ -209,6 +212,9 @@ export default function AdminDashboard() {
 
       {errorMessage ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>
+      ) : null}
+      {notificationError ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">{notificationError}</div>
       ) : null}
 
       <div className="flex flex-wrap gap-3 items-center">
@@ -397,7 +403,63 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+        <section className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-zinc-500" />
+              <h3 className="text-sm font-medium text-zinc-900">疑似感染通知</h3>
+            </div>
+            <span
+              className={clsx(
+                "max-w-16 whitespace-normal break-words rounded-full px-2 py-0.5 text-center text-xs leading-tight",
+                unreadCount > 0 ? "bg-red-50 text-red-600" : "bg-zinc-100 text-zinc-500"
+              )}
+            >
+              未讀 {unreadCount}
+            </span>
+          </div>
+          <div className="divide-y divide-zinc-50">
+            {notifications.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-zinc-400">目前沒有疑似感染通知。</p>
+            ) : (
+              notifications.map((item) => (
+                <div key={item.id} className="px-4 py-3 flex flex-col gap-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm text-zinc-900">{item.patient_full_name ?? "未命名"} ({item.patient_case_number})</p>
+                      <p className="text-xs text-zinc-500">{new Date(item.created_at).toLocaleString("zh-TW")}</p>
+                      {item.summary ? <p className="text-xs text-zinc-500 mt-1">{item.summary}</p> : null}
+                    </div>
+                    <span
+                      className={clsx(
+                        "max-w-16 whitespace-normal break-words rounded-full px-2 py-0.5 text-center text-[11px] leading-tight",
+                        item.status === "new" ? "bg-red-50 text-red-600" : "bg-zinc-100 text-zinc-500"
+                      )}
+                    >
+                      {item.status === "new" ? "新通知" : item.status === "reviewed" ? "已讀" : "已處理"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Link href={`/admin/patients/${item.patient_id}`} className="text-xs text-zinc-500 hover:text-zinc-800">
+                      檢視病患
+                    </Link>
+                    {item.status === "new" ? (
+                      <button
+                        onClick={() => void markNotificationRead(item.id)}
+                        disabled={Boolean(markingIds[item.id])}
+                        className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 disabled:text-zinc-300"
+                      >
+                        標記已讀
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
         <section className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">
             <Clock3 className="w-4 h-4 text-zinc-500" />

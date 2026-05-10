@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
+from botocore.exceptions import ClientError
 
 from app.api.deps.auth import (
     bearer_scheme,
@@ -17,6 +18,8 @@ from app.schemas.staff_dashboard import (
     StaffAnnotationItem,
     StaffAnnotationListResponse,
     StaffAnnotationUpsertRequest,
+    StaffNotificationItem,
+    StaffNotificationListResponse,
     StaffPatientDetailResponse,
     StaffPatientListResponse,
     StaffPendingBindingItem,
@@ -28,7 +31,11 @@ from app.schemas.staff_dashboard import (
     StaffUploadQueueResponse,
     StaffUploadRecord,
 )
-from app.db.models import LiffIdentity, Patient, PendingBinding, Upload
+from app.db.models import AIResult, LiffIdentity, Patient, PendingBinding, Upload
+from app.services.notifications import (
+    list_staff_notifications,
+    mark_staff_notification_read,
+)
 from app.services.staff_dashboard import (
     calculate_age,
     link_pending_binding,
@@ -68,11 +75,72 @@ async def admin_probe(
 @router.get("/v1/staff/notifications")
 async def staff_notifications(
     request: Request,
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     credentials=Depends(bearer_scheme),
-) -> dict[str, object]:
-    principal = require_staff_or_admin(get_current_principal(request, credentials))
-    # Task 7 boundary endpoint: data integration is handled in Phase 1 Task 8.
-    return {"items": [], "role": principal.role}
+) -> StaffNotificationListResponse:
+    require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows, total, unread_count = list_staff_notifications(session, limit=limit, offset=offset)
+        return StaffNotificationListResponse(
+            items=[
+                StaffNotificationItem(
+                    id=row.notification.id,
+                    patient_id=row.notification.patient_id,
+                    patient_case_number=row.patient.case_number,
+                    patient_full_name=row.patient.full_name,
+                    upload_id=row.notification.upload_id,
+                    ai_result_id=row.notification.ai_result_id,
+                    screening_result=row.ai_result.screening_result if row.ai_result else None,
+                    probability=row.ai_result.probability if row.ai_result else None,
+                    summary=row.notification.summary,
+                    status=row.notification.status,
+                    created_at=row.notification.created_at,
+                )
+                for row in rows
+            ],
+            total=total,
+            unread_count=unread_count,
+            limit=limit,
+            offset=offset,
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/notifications/{notification_id}/read", response_model=StaffNotificationItem)
+async def mark_staff_notification_as_read(
+    request: Request,
+    notification_id: int,
+    credentials=Depends(bearer_scheme),
+) -> StaffNotificationItem:
+    require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            notification = mark_staff_notification_read(session, notification_id=notification_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        patient = session.get(Patient, notification.patient_id)
+        if patient is None:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        ai_result = notification.ai_result_id and session.get(AIResult, notification.ai_result_id)
+        return StaffNotificationItem(
+            id=notification.id,
+            patient_id=notification.patient_id,
+            patient_case_number=patient.case_number,
+            patient_full_name=patient.full_name,
+            upload_id=notification.upload_id,
+            ai_result_id=notification.ai_result_id,
+            screening_result=ai_result.screening_result if ai_result else None,
+            probability=ai_result.probability if ai_result else None,
+            summary=notification.summary,
+            status=notification.status,
+            created_at=notification.created_at,
+        )
+    finally:
+        session.close()
 
 
 @router.get("/v1/staff/patients", response_model=StaffPatientListResponse)
@@ -424,7 +492,8 @@ async def get_staff_upload_image_access(
         ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
         token = storage_service.generate_access_token(upload.object_key, subject="staff", ttl_seconds=ttl_seconds)
         return {
-            "image_url": f"/v1/staff/uploads/{upload_id}/image-public?token={token}",
+            # Frontend production rewrite maps /api/* -> backend; return same-origin /api path to avoid 404 on Next.js routes.
+            "image_url": f"/api/v1/staff/uploads/{upload_id}/image-public?token={token}",
             "expires_in": ttl_seconds,
         }
     finally:
@@ -448,7 +517,13 @@ async def get_staff_upload_image_public(
         is_valid = storage_service.validate_access_token(token, upload.object_key, subject="staff")
         if not is_valid:
             raise HTTPException(status_code=403, detail="Invalid or expired image token")
-        stream = storage_service.open_image_stream(upload.object_key)
+        try:
+            stream = storage_service.open_image_stream(upload.object_key)
+        except ClientError as exc:
+            error_code = str(exc.response.get("Error", {}).get("Code", ""))
+            if error_code in {"NoSuchKey", "NotFound", "404"}:
+                raise HTTPException(status_code=404, detail="Image not found") from exc
+            raise HTTPException(status_code=502, detail="Image storage request failed") from exc
         if hasattr(stream, "iter_chunks"):
             iterator = stream.iter_chunks()
         else:
