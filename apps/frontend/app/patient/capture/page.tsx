@@ -1,7 +1,8 @@
 "use client";
 
 import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
-import { predictExitSiteImage } from "@/lib/api/predict";
+import { uploadPatientExitSiteImage } from "@/lib/api/predict";
+import { getLiffProfile } from "@/lib/auth/liff";
 import { AlignCenter, Camera, ChevronLeft, Eye, Sun } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -113,6 +114,27 @@ function CapturePageInner() {
   const [cameraErrorMessage, setCameraErrorMessage] = useState("無法存取相機，請確認相機權限");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [lineUserId, setLineUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const profile = await getLiffProfile();
+        if (!cancelled) {
+          setLineUserId(profile.userId);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSubmitError(getReadableApiError(error));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleCapture = (dataUrl: string) => {
     setCapturedImage(dataUrl);
@@ -186,14 +208,18 @@ function CapturePageInner() {
 
   const handleSubmit = async () => {
     if (!capturedImage) return;
+    if (!lineUserId) {
+      setSubmitError("尚未取得 LINE 身分，請返回上一頁重新進入。");
+      return;
+    }
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
       const file = await dataUrlToJpegFile(capturedImage);
-      const payload = await predictExitSiteImage(file);
-      const result = payload.screening.is_infection_positive ? "suspected" : "normal";
-      const confidence = Math.round(payload.predicted_probability * 100);
+      const payload = await uploadPatientExitSiteImage(lineUserId, file);
+      const result = payload.screening_result;
+      const confidence = Math.round(payload.prediction.predicted_probability * 100);
 
       const params = new URLSearchParams({
         pain: searchParams.get("pain") ?? "false",
@@ -201,6 +227,8 @@ function CapturePageInner() {
         cloudyDialysate: searchParams.get("cloudyDialysate") ?? "false",
         result,
         confidence: String(confidence),
+        uploadId: String(payload.upload_id),
+        aiResultId: String(payload.ai_result_id),
       });
       router.push(`/patient/result?${params.toString()}`);
     } catch (error) {

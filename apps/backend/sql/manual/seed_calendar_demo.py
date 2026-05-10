@@ -30,7 +30,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
-from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffUser, Upload
+from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, Upload
 from app.db.session import create_engine_from_url, create_session_factory
 
 LINE_USER_ID = "Ua330fd0f658e181bb850be04bdb20251"
@@ -51,7 +51,7 @@ _UPLOAD_ROWS: list[tuple[str, str, str, str, float]] = [
 
 def _ensure_schema(engine: Engine) -> None:
     """Create tables if missing (week-1 schema). No-op when tables already exist."""
-    _ = (StaffUser, Patient, LiffIdentity, PendingBinding, Upload, AIResult, Notification, Annotation)
+    _ = (Patient, LiffIdentity, PendingBinding, Upload, AIResult, Notification, Annotation)
     Base.metadata.create_all(bind=engine)
 
 
@@ -88,6 +88,7 @@ def _seed_demo(session: Session) -> None:
             display_name="Calendar Demo User",
             picture_url="https://example.com/calendar-demo-user.jpg",
             patient_id=patient.id,
+            role="patient",
         )
     )
 

@@ -196,23 +196,30 @@ Acceptance criteria:
 
 Files:
 
-- Add backend auth service and dependencies.
-- Add staff user model/table.
-- Add staff login route or session/token route.
-- Add frontend admin login page or middleware as appropriate.
-- Add tests for protected staff endpoints.
+- Add backend auth service/provider boundary and dependencies.
+- Adjust user identity model support to include role-based authorization (`patient`, `staff`, `admin`) while remaining compatible with current patient identity flow.
+- Add unified user auth/session or token route for passwordless pilot identity login using the shared user model.
+- Add frontend admin login page or middleware integration needed for Task 7 only.
+- Add tests for protected staff/admin endpoints and role behavior.
 
 Implementation notes:
 
-- Built-in accounts are acceptable for the pilot.
-- Passwords must be hashed.
-- Keep provider abstraction so hospital SSO can be added later.
-- Protect image access and notification endpoints.
+- Passwordless pilot auth is acceptable when staff/admin and patient identities use the same user/auth model.
+- Staff/admin users should be pre-provisioned in the same user model with role metadata, then authenticated through the shared identity flow.
+- Phase 1 should support staff/admin LINE LIFF login through the same auth boundary; do not treat LINE as patient-only auth.
+- Keep provider abstraction so hospital SSO can be added later without rewriting business logic.
+- Enforce role checks in backend dependencies/services (not only frontend UI blocking).
+- Protect staff/admin image access and notification endpoints with authenticated auth boundary checks.
+- Frontend admin auth entry and guarded admin surfaces should remain strongly responsive (RWD) for pilot usage on laptop/tablet/mobile, while still being optimized for larger screens.
+- Keep Phase 1 scope minimal: do not expand into Phase 2 staff dashboard feature work.
 
 Acceptance criteria:
 
 - Staff dashboard APIs require authenticated staff/admin identity.
-- Role checks distinguish staff from backend admin where relevant.
+- Role checks distinguish `staff` from `admin` where relevant.
+- `admin` can access both patient features and staff/admin routes; `patient` can only access patient features, enforced by backend authorization.
+- Staff/admin identities can authenticate via LINE LIFF in Phase 1 through the shared auth/session boundary.
+- Task 7 frontend additions remain usable across common viewport sizes without introducing Phase 2 dashboard rebuild scope.
 - Auth implementation does not hard-code future SSO assumptions into business logic.
 
 ### Task 8: Add Dashboard Notification API

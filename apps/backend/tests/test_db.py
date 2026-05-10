@@ -13,7 +13,6 @@ from app.db.models import (
     Notification,
     Patient,
     PendingBinding,
-    StaffUser,
     Upload,
 )
 from app.db.session import create_engine_from_url, create_session_factory, ensure_postgres_database_exists, ping_database
@@ -24,7 +23,6 @@ def test_week1_schema_tables_can_be_created() -> None:
     Base.metadata.create_all(bind=engine)
     table_names = set(inspect(engine).get_table_names())
 
-    assert "staff_users" in table_names
     assert "patients" in table_names
     assert "liff_identities" in table_names
     assert "pending_bindings" in table_names
@@ -34,7 +32,6 @@ def test_week1_schema_tables_can_be_created() -> None:
     assert "annotations" in table_names
 
     # Touch imported models to ensure SQLAlchemy mappers are fully configured.
-    assert StaffUser.__tablename__ == "staff_users"
     assert Patient.__tablename__ == "patients"
     assert LiffIdentity.__tablename__ == "liff_identities"
     assert PendingBinding.__tablename__ == "pending_bindings"
@@ -42,6 +39,10 @@ def test_week1_schema_tables_can_be_created() -> None:
     assert AIResult.__tablename__ == "ai_results"
     assert Notification.__tablename__ == "notifications"
     assert Annotation.__tablename__ == "annotations"
+    liff_identity_columns = {column["name"] for column in inspect(engine).get_columns("liff_identities")}
+    annotation_columns = {column["name"] for column in inspect(engine).get_columns("annotations")}
+    assert "role" in liff_identity_columns
+    assert "reviewer_identity_id" in annotation_columns
 
 
 def test_session_factory_uses_isolated_sqlite_database(tmp_path: Path) -> None:
