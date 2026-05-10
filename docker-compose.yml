@@ -62,12 +62,19 @@ services:
       context: ./apps/frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_BASE_URL: http://abbey.lu.im.ntu.edu.tw:8000
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+        NEXT_PUBLIC_LIFF_ID: ${NEXT_PUBLIC_LIFF_ID:-1657724367-uzPg8SgK}
     environment:
       PORT: 3000
-      NEXT_PUBLIC_API_BASE_URL: http://abbey.lu.im.ntu.edu.tw:8000
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+      NEXT_PUBLIC_LIFF_ID: ${NEXT_PUBLIC_LIFF_ID:-1657724367-uzPg8SgK}
+      TLS_CERT_PATH: /etc/letsencrypt/live/${LETSENCRYPT_DOMAIN:-pd.lu.im.ntu.edu.tw}/fullchain.pem
+      TLS_KEY_PATH: /etc/letsencrypt/live/${LETSENCRYPT_DOMAIN:-pd.lu.im.ntu.edu.tw}/privkey.pem
+      TLS_UPSTREAM: http://127.0.0.1:3000
     ports:
-      - "80:3000"
+      - "443:443"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -80,14 +87,14 @@ services:
     env_file:
       - ./apps/backend/.env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/pd_care}
-      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://seaweedfs-s3:8333}
-      S3_REGION: ${S3_REGION:-us-east-1}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-seaweed-access}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:-seaweed-secret}
-      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-pd-care-private}
-      IMAGE_ACCESS_TOKEN_SECRET: ${IMAGE_ACCESS_TOKEN_SECRET:-change-me}
-      IMAGE_ACCESS_TOKEN_TTL_SECONDS: ${IMAGE_ACCESS_TOKEN_TTL_SECONDS:-300}
+      DATABASE_URL: ${PDCARE_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/pd_care}
+      S3_ENDPOINT_URL: ${PDCARE_S3_ENDPOINT_URL:-http://seaweedfs-s3:8333}
+      S3_REGION: ${PDCARE_S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${PDCARE_S3_ACCESS_KEY:-seaweed-access}
+      S3_SECRET_KEY: ${PDCARE_S3_SECRET_KEY:-seaweed-secret}
+      S3_BUCKET_NAME: ${PDCARE_S3_BUCKET_NAME:-pd-care-private}
+      IMAGE_ACCESS_TOKEN_SECRET: ${PDCARE_IMAGE_ACCESS_TOKEN_SECRET:-change-me}
+      IMAGE_ACCESS_TOKEN_TTL_SECONDS: ${PDCARE_IMAGE_ACCESS_TOKEN_TTL_SECONDS:-300}
     ports:
       - "8000:8000"
     volumes:

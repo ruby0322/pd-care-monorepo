@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import Patient
+from app.db.models import PendingBinding, Patient
 from app.main import create_app
 
 
@@ -104,3 +104,86 @@ def test_bind_identity_creates_pending_request_when_no_match(tmp_path: Path) -> 
         status_payload = status_response.json()
         assert status_payload["status"] == "pending"
         assert status_payload["can_upload"] is False
+
+
+def test_already_bound_user_stays_matched_on_later_bind_attempt(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "already-bound.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = seed_patient(client, case_number="P123456", birth_date="1980-01-02")
+        first = client.post(
+            "/v1/identity/bind",
+            json={
+                "line_user_id": "U_LINE_003",
+                "display_name": "Patient C",
+                "picture_url": "https://example.com/c.jpg",
+                "case_number": "P123456",
+                "birth_date": "1980-01-02",
+            },
+        )
+        assert first.status_code == 200
+        assert first.json()["status"] == "matched"
+        assert first.json()["patient_id"] == patient_id
+
+        second = client.post(
+            "/v1/identity/bind",
+            json={
+                "line_user_id": "U_LINE_003",
+                "display_name": "Patient C",
+                "picture_url": "https://example.com/c.jpg",
+                "case_number": "P-NON-EXIST",
+                "birth_date": "1999-09-09",
+            },
+        )
+        assert second.status_code == 200
+        assert second.json()["status"] == "matched"
+        assert second.json()["patient_id"] == patient_id
+        assert second.json()["can_upload"] is True
+
+        status_response = client.get("/v1/identity/bind/status", params={"line_user_id": "U_LINE_003"})
+        assert status_response.status_code == 200
+        assert status_response.json()["status"] == "matched"
+        assert status_response.json()["patient_id"] == patient_id
+
+
+def test_pending_binding_is_resolved_after_successful_match(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "pending-resolved.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        pending = client.post(
+            "/v1/identity/bind",
+            json={
+                "line_user_id": "U_LINE_004",
+                "display_name": "Patient D",
+                "picture_url": "https://example.com/d.jpg",
+                "case_number": "P-NOT-YET",
+                "birth_date": "1977-07-07",
+            },
+        )
+        assert pending.status_code == 200
+        assert pending.json()["status"] == "pending"
+
+        patient_id = seed_patient(client, case_number="P777777", birth_date="1977-07-07")
+        matched = client.post(
+            "/v1/identity/bind",
+            json={
+                "line_user_id": "U_LINE_004",
+                "display_name": "Patient D",
+                "picture_url": "https://example.com/d.jpg",
+                "case_number": "P777777",
+                "birth_date": "1977-07-07",
+            },
+        )
+        assert matched.status_code == 200
+        assert matched.json()["status"] == "matched"
+        assert matched.json()["patient_id"] == patient_id
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            pending_rows = session.query(PendingBinding).filter(PendingBinding.line_user_id == "U_LINE_004").all()
+            assert pending_rows
+            assert all(row.status == "approved" for row in pending_rows)
+
+        status_response = client.get("/v1/identity/bind/status", params={"line_user_id": "U_LINE_004"})
+        assert status_response.status_code == 200
+        assert status_response.json()["status"] == "matched"

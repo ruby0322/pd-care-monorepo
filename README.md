@@ -71,6 +71,12 @@ The frontend is a Next.js app for patient capture and the broader PD Care web ex
 - Supports local API configuration through `NEXT_PUBLIC_API_BASE_URL`
 - Uses the monorepo root scripts or `apps/frontend` scripts for development
 
+`NEXT_PUBLIC_API_BASE_URL` guidance:
+
+- Local direct backend access: `http://localhost:8000`
+- Reverse-proxy / same-origin production (recommended): `/api`
+- External dedicated API domain: `https://api.example.com`
+
 Start from the monorepo root:
 
 ```bash

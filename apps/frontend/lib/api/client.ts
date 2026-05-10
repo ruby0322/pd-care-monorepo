@@ -4,19 +4,37 @@ export function resolveApiBaseUrl(): string {
   const envBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
   if (process.env.NODE_ENV === "production") {
-    if (envBaseUrl?.startsWith("https://")) {
+    if (!envBaseUrl) {
+      return "/api";
+    }
+    // Production supports either:
+    // 1) same-origin rewrite path (recommended): /api
+    // 2) fully-qualified backend URL: https://api.example.com
+    if (envBaseUrl.startsWith("/")) {
+      return envBaseUrl;
+    }
+    if (envBaseUrl.startsWith("https://")) {
       return envBaseUrl;
     }
     return "/api";
   }
 
+  // Dev: honor NEXT_PUBLIC_API_BASE_URL (must run before the window branch; previously it was never used in-browser).
+  if (envBaseUrl) {
+    return envBaseUrl;
+  }
+
   if (typeof window !== "undefined") {
     const sameHostUrl = new URL(window.location.origin);
     sameHostUrl.port = "8000";
+    // Prefer IPv4: some stacks resolve localhost → ::1 while uvicorn listens on IPv4 only.
+    if (sameHostUrl.hostname === "localhost") {
+      sameHostUrl.hostname = "127.0.0.1";
+    }
     return sameHostUrl.origin;
   }
 
-  return envBaseUrl ?? "http://localhost:8000";
+  return "http://127.0.0.1:8000";
 }
 
 export const apiClient = axios.create({

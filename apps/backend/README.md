@@ -43,6 +43,7 @@ app/
   model_compat.py   compatibility shim
   model_loader.py   compatibility shim
 tests/
+sql/manual/       optional manual seeds (calendar demo); not executed automatically
 requirements.txt
 requirements-dev.txt
 Dockerfile
@@ -157,6 +158,48 @@ The container uses a single Uvicorn worker by default so one process owns one GP
 The original training code saved full PyTorch modules with `torch.save(model, args.model_out)`, so production loading can depend on the original Python symbol names. This project keeps the active compatibility code in `app/services/model_compat.py`, with `app/model_compat.py` retained as a compatibility shim for legacy imports.
 
 If a future checkpoint is exported as a plain `state_dict`, set `MODEL_BACKBONE` and related fallback env vars correctly so the server can reconstruct the model before loading weights.
+
+## Manual calendar demo seed
+
+These assets are **not** run by the app or test suite. Use them when you need a **matched LIFF identity**, a demo **patient**, and **multi-day upload / AI result** rows to exercise the patient calendar UI.
+
+Paths:
+
+- `sql/manual/patient_calendar_demo_seed.sql` — raw SQL (PostgreSQL-oriented `BEGIN`/`COMMIT` flow).
+- `sql/manual/seed_calendar_demo.py` — same data via SQLAlchemy (works with whatever `DATABASE_URL` points at; creates tables if missing).
+
+Requirements:
+
+- Set **`DATABASE_URL`** (for example via `apps/backend/.env`). The Python script loads `.env` automatically when `python-dotenv` is installed.
+
+### Python (recommended if you do not have `psql`)
+
+From `apps/backend`:
+
+```bash
+set -a && . ./.env && set +a
+python sql/manual/seed_calendar_demo.py
+```
+
+Or with the project virtualenv:
+
+```bash
+./.venv/bin/python sql/manual/seed_calendar_demo.py
+```
+
+The script is idempotent for the demo patient / LINE user it manages (it deletes previous demo rows for that case number and LINE user ID, then re-inserts).
+
+### SQL + `psql`
+
+Pipe the file into `psql` so the path does not need to exist inside the database container:
+
+```bash
+docker-compose exec -T postgres psql -U postgres -d pd_care < sql/manual/patient_calendar_demo_seed.sql
+```
+
+Adjust `-U`, `-d`, and service name to match your Compose file.
+
+The bound **`line_user_id`** and demo **`case_number`** / **`birth_date`** are defined inside those files; change them there if you need a different tester account.
 
 ## Tests
 

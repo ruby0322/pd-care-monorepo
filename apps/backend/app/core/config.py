@@ -13,6 +13,13 @@ DEFAULT_MODEL_URL = (
 DEFAULT_CLASS_NAMES = ("class_0", "class_1", "class_2", "class_3", "class_4")
 DEFAULT_IMAGE_CONTENT_TYPES = ("image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff")
 
+# Browser dev servers often bind random ports (e.g. Cursor preview). LAN phones stay on :3000 unless overridden via env.
+DEFAULT_CORS_ALLOWED_ORIGIN_REGEX = (
+    r"^https?://localhost(?::\d+)?$"
+    r"|^https?://127\.0\.0\.1(?::\d+)?$"
+    r"|^https?://(?:\d{1,3}\.){3}\d{1,3}:3000$"
+)
+
 
 def _parse_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -120,7 +127,7 @@ def get_settings() -> Settings:
         ),
         cors_allowed_origin_regex=os.getenv(
             "CORS_ALLOWED_ORIGIN_REGEX",
-            r"^https?://(?:\d{1,3}\.){3}\d{1,3}:3000$",
+            DEFAULT_CORS_ALLOWED_ORIGIN_REGEX,
         ),
         workers=_parse_int("WORKERS", 1),
         eval_hflip_tta=_parse_bool("EVAL_HFLIP_TTA", False),
