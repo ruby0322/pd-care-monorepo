@@ -171,3 +171,31 @@ def test_upload_history_returns_unbound_status_without_day_data(tmp_path: Path) 
         assert payload["patient_id"] is None
         assert payload["can_upload"] is False
         assert payload["days"] == []
+
+
+def test_upload_history_groups_by_taipei_local_date_boundary(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-timezone-boundary.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_TZ_BOUNDARY")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            # 17:10 UTC is next day in Asia/Taipei (+08:00).
+            upload = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/tz-boundary.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 5, 10, 17, 10, tzinfo=timezone.utc),
+            )
+            session.add(upload)
+            session.flush()
+            session.add(AIResult(upload_id=upload.id, screening_result="normal"))
+            session.commit()
+
+        response = client.get("/v1/patient/upload-history", params={"line_user_id": "U_LINE_TZ_BOUNDARY"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "matched"
+        assert payload["days"] == [
+            {"date": "2026-05-11", "upload_count": 1, "has_suspected_risk": False},
+        ]

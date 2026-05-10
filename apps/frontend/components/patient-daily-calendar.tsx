@@ -2,6 +2,8 @@
 
 import clsx from "clsx";
 
+import { getTaipeiTodayKey, listRecentTaipeiDateKeys } from "@/lib/utils/upload-calendar";
+
 type CalendarDay = {
   date: string;
   upload_count: number;
@@ -12,13 +14,6 @@ type PatientDailyCalendarProps = {
   days: CalendarDay[];
   windowDays?: number;
 };
-
-function formatDateKey(value: Date): string {
-  const year = value.getFullYear();
-  const month = `${value.getMonth() + 1}`.padStart(2, "0");
-  const day = `${value.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function dayStyle(uploadCount: number, hasSuspectedRisk: boolean): string {
   if (uploadCount <= 0) {
@@ -38,14 +33,10 @@ function dayStyle(uploadCount: number, hasSuspectedRisk: boolean): string {
 
 export function PatientDailyCalendar({ days, windowDays = 28 }: PatientDailyCalendarProps) {
   const dayMap = new Map(days.map((entry) => [entry.date, entry]));
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const todayKey = getTaipeiTodayKey();
+  const keys = listRecentTaipeiDateKeys(windowDays);
 
-  const cells = Array.from({ length: windowDays }, (_, index) => {
-    const offset = windowDays - 1 - index;
-    const date = new Date(today);
-    date.setDate(date.getDate() - offset);
-    const key = formatDateKey(date);
+  const cells = keys.map((key) => {
     const record = dayMap.get(key);
     const uploadCount = record?.upload_count ?? 0;
     const hasSuspectedRisk = record?.has_suspected_risk ?? false;
@@ -53,7 +44,7 @@ export function PatientDailyCalendar({ days, windowDays = 28 }: PatientDailyCale
       key,
       uploadCount,
       hasSuspectedRisk,
-      isToday: key === formatDateKey(today),
+      isToday: key === todayKey,
     };
   });
 

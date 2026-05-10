@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import AIResult, LiffIdentity, Patient, PendingBinding, Upload
+from app.db.models import AIResult, LiffIdentity, Notification, Patient, PendingBinding, Upload
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
 
@@ -120,6 +120,63 @@ def _seed_pending_binding(client: TestClient) -> int:
         return pending.id
 
 
+def _seed_notifications_for_patient(client: TestClient) -> tuple[int, int]:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        patient = Patient(case_number="P778899", birth_date="1979-08-01", full_name="Patient Notify", is_active=True)
+        session.add(patient)
+        session.flush()
+        session.add(
+            LiffIdentity(
+                line_user_id="U_PATIENT_NOTIFY",
+                display_name="Patient Notify",
+                picture_url=None,
+                patient_id=patient.id,
+                role="patient",
+            )
+        )
+        older_upload = Upload(
+            patient_id=patient.id,
+            object_key="patients/99/uploads/99.jpg",
+            content_type="image/jpeg",
+            created_at=datetime(2026, 5, 8, 0, 0, tzinfo=timezone.utc),
+        )
+        newer_upload = Upload(
+            patient_id=patient.id,
+            object_key="patients/99/uploads/100.jpg",
+            content_type="image/jpeg",
+            created_at=datetime(2026, 5, 10, 0, 0, tzinfo=timezone.utc),
+        )
+        session.add_all([older_upload, newer_upload])
+        session.flush()
+        older_ai = AIResult(upload_id=older_upload.id, screening_result="suspected", probability=0.77, threshold=0.5)
+        newer_ai = AIResult(upload_id=newer_upload.id, screening_result="suspected", probability=0.91, threshold=0.5)
+        session.add_all([older_ai, newer_ai])
+        session.flush()
+        session.add_all(
+            [
+                Notification(
+                    patient_id=patient.id,
+                    upload_id=older_upload.id,
+                    ai_result_id=older_ai.id,
+                    status="reviewed",
+                    summary="Older reviewed alert",
+                    created_at=datetime(2026, 5, 8, 1, 0, tzinfo=timezone.utc),
+                ),
+                Notification(
+                    patient_id=patient.id,
+                    upload_id=newer_upload.id,
+                    ai_result_id=newer_ai.id,
+                    status="new",
+                    summary="Newest unread alert",
+                    created_at=datetime(2026, 5, 10, 1, 0, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        session.commit()
+        return newer_ai.id, newer_upload.id
+
+
 def _login_staff_token(client: TestClient, line_user_id: str = "U_STAFF") -> str:
     response = client.post("/v1/auth/login", json={"line_id_token": f"stub:{line_user_id}"})
     assert response.status_code == 200
@@ -222,3 +279,68 @@ def test_staff_can_link_and_reject_pending_bindings(tmp_path: Path) -> None:
         reject_response = client.post(f"/v1/staff/pending-bindings/{pending_id_2}/reject", headers=headers)
         assert reject_response.status_code == 200
         assert reject_response.json()["status"] == "rejected"
+
+
+def test_staff_can_list_notifications_newest_first(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-notifications-list.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client)
+        _seed_notifications_for_patient(client)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/v1/staff/notifications", headers=headers)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total"] == 2
+        assert payload["unread_count"] == 1
+        assert payload["items"][0]["summary"] == "Newest unread alert"
+        assert payload["items"][0]["status"] == "new"
+        assert payload["items"][1]["summary"] == "Older reviewed alert"
+
+
+def test_staff_can_mark_single_notification_as_read_without_changing_ai_result(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-notifications-read.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client)
+        ai_result_id, _ = _seed_notifications_for_patient(client)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        list_response = client.get("/v1/staff/notifications", headers=headers)
+        notification_id = list_response.json()["items"][0]["id"]
+
+        mark_response = client.post(f"/v1/staff/notifications/{notification_id}/read", headers=headers)
+        assert mark_response.status_code == 200
+        assert mark_response.json()["status"] == "reviewed"
+
+        verify_response = client.get("/v1/staff/notifications", headers=headers)
+        assert verify_response.status_code == 200
+        assert verify_response.json()["unread_count"] == 0
+        assert verify_response.json()["items"][0]["status"] == "reviewed"
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            ai_result = session.get(AIResult, ai_result_id)
+            assert ai_result is not None
+            assert ai_result.screening_result == "suspected"
+            assert ai_result.probability == 0.91
+
+
+def test_patient_token_is_denied_for_notification_endpoints(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-notifications-rbac.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client)
+        _seed_patient_with_uploads(client)
+        _seed_notifications_for_patient(client)
+        token = _issue_patient_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        list_response = client.get("/v1/staff/notifications", headers=headers)
+        assert list_response.status_code == 403
+
+        mark_response = client.post("/v1/staff/notifications/1/read", headers=headers)
+        assert mark_response.status_code == 403

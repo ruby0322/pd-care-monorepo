@@ -37,6 +37,16 @@ def _ensure_annotation_reviewer_column(engine: Engine) -> None:
             )
 
 
+def _ensure_annotation_staff_user_nullable(engine: Engine) -> None:
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("annotations")}
+    if "staff_user_id" not in columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE annotations ALTER COLUMN staff_user_id DROP NOT NULL"))
+
+
 def _seed_pilot_identities(session_factory: sessionmaker, settings: Settings) -> None:
     pilot_accounts = {identity_id: "staff" for identity_id in settings.pilot_staff_identity_ids}
     pilot_accounts.update({identity_id: "admin" for identity_id in settings.pilot_admin_identity_ids})
@@ -80,6 +90,7 @@ def initialize_database(database_url: str, settings: Settings | None = None) -> 
     Base.metadata.create_all(bind=engine)
     _ensure_role_column(engine)
     _ensure_annotation_reviewer_column(engine)
+    _ensure_annotation_staff_user_nullable(engine)
     session_factory = create_session_factory(engine)
     if settings is not None:
         _seed_pilot_identities(session_factory, settings)

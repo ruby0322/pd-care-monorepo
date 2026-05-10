@@ -107,3 +107,25 @@ class StaffPendingBindingListResponse(BaseModel):
 
 class StaffPendingBindingLinkRequest(BaseModel):
     patient_id: int = Field(ge=1)
+
+
+class StaffNotificationItem(BaseModel):
+    id: int
+    patient_id: int
+    patient_case_number: str
+    patient_full_name: str | None
+    upload_id: int
+    ai_result_id: int | None
+    screening_result: str | None
+    probability: float | None
+    summary: str | None
+    status: str
+    created_at: datetime
+
+
+class StaffNotificationListResponse(BaseModel):
+    items: list[StaffNotificationItem]
+    total: int
+    unread_count: int
+    limit: int
+    offset: int

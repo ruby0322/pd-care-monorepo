@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
@@ -21,7 +21,7 @@ def calculate_age(birth_date: str) -> int | None:
     parsed = _parse_birth_date(birth_date)
     if parsed is None:
         return None
-    today = datetime.now(tz=UTC).date()
+    today = datetime.now(tz=timezone.utc).date()
     years = today.year - parsed.year
     if (today.month, today.day) < (parsed.month, parsed.day):
         years -= 1
@@ -45,7 +45,7 @@ def list_staff_patients(
     age_max: int | None,
     infection_status: str,
 ) -> list[StaffPatientRow]:
-    cutoff = datetime.now(tz=UTC).replace(day=1)
+    cutoff = datetime.now(tz=timezone.utc).replace(day=1)
     month = cutoff.month - months
     year = cutoff.year
     while month <= 0:
