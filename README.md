@@ -210,6 +210,22 @@ npm run docker:up:backend
 
 The compose file does not require `apps/backend/.env`. Backend defaults are set in compose, and you can override them from your shell with `PDCARE_*` variables.
 
+Object storage persistence notes:
+
+- SeaweedFS data is persisted with Docker named volumes for `seaweedfs-master`, `seaweedfs-volume`, and `seaweedfs-filer`.
+- `npm run docker:up` (and normal `docker compose down` without `-v`) preserves uploaded objects in named volumes.
+- Avoid `docker compose down -v` unless you intentionally want to remove all persisted object-storage metadata and chunks.
+
+To verify persistence across restarts:
+
+```bash
+npm run docker:up
+# Upload a test image through the app/API
+npm run docker:down
+npm run docker:up
+# Verify the same uploaded image is still retrievable
+```
+
 Common overrides:
 
 - `PDCARE_DATABASE_URL`

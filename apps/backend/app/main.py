@@ -69,6 +69,15 @@ def create_app(
             bucket=settings.s3_bucket_name,
             token_secret=settings.image_access_token_secret,
         )
+        try:
+            app.state.storage_service.ensure_bucket_exists()
+        except Exception:
+            LOGGER.exception(
+                "Failed to initialize object storage bucket '%s' at endpoint '%s'",
+                settings.s3_bucket_name,
+                settings.s3_endpoint_url,
+            )
+            raise RuntimeError("Object storage bucket initialization failed")
         if loaded_model is not None:
             app.state.loaded_model = loaded_model
         else:

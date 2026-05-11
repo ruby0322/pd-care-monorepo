@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 import boto3
+from botocore.exceptions import ClientError
 
 
 def _urlsafe_b64encode(data: bytes) -> str:
@@ -53,6 +54,19 @@ class StorageService:
             Body=content,
             ContentType=content_type,
         )
+
+    def ensure_bucket_exists(self) -> None:
+        try:
+            self._s3_client.head_bucket(Bucket=self._bucket)
+            return
+        except ClientError as exc:
+            error = exc.response.get("Error", {})
+            error_code = str(error.get("Code", ""))
+            status_code = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if error_code in {"404", "NoSuchBucket", "NotFound"} or status_code == 404:
+                self._s3_client.create_bucket(Bucket=self._bucket)
+                return
+            raise
 
     def open_image_stream(self, object_key: str) -> Any:
         response = self._s3_client.get_object(Bucket=self._bucket, Key=object_key)

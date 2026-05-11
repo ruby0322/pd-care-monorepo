@@ -52,12 +52,14 @@ services:
 
   seaweedfs-filer:
     image: chrislusf/seaweedfs:3.76
-    command: "filer -master=seaweedfs-master:9333 -ip=seaweedfs-filer -ip.bind=0.0.0.0"
+    command: "filer -master=seaweedfs-master:9333 -ip=seaweedfs-filer -ip.bind=0.0.0.0 -defaultStoreDir=/data"
     depends_on:
       seaweedfs-master:
         condition: service_healthy
       seaweedfs-volume:
         condition: service_healthy
+    volumes:
+      - seaweed-filer-data:/data
     ports:
       - "8888:8888"
     healthcheck:
@@ -142,5 +144,6 @@ services:
 volumes:
   model-cache:
   postgres-data:
+  seaweed-filer-data:
   seaweed-master-data:
   seaweed-volume-data:
