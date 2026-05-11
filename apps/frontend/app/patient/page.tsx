@@ -57,6 +57,20 @@ export default function PatientPage() {
           setStatus(bindStatus.status);
         }
         if (bindStatus.status === "matched") {
+          let tokenExp: number | null = null;
+          try {
+            const payloadSegment = proof.idToken.split(".")[1];
+            const payloadJson = JSON.parse(atob(payloadSegment));
+            tokenExp = typeof payloadJson?.exp === "number" ? payloadJson.exp : null;
+          } catch {
+            tokenExp = null;
+          }
+          const nowSec = Math.floor(Date.now() / 1000);
+          const tokenExpired = tokenExp !== null && tokenExp <= nowSec;
+          if (tokenExpired) {
+            window.liff?.login({ redirectUri: window.location.href });
+            throw new Error("LINE 登入憑證已過期，正在重新導向登入...");
+          }
           const loginResponse = await apiClient.post<LoginResponse>("/v1/auth/login", {
             line_id_token: proof.idToken,
           });

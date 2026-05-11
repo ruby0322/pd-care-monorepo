@@ -6,6 +6,7 @@ declare global {
       init: (config: { liffId: string }) => Promise<void>;
       isLoggedIn: () => boolean;
       login: (config?: { redirectUri?: string }) => void;
+      logout?: () => void;
       getIDToken: () => string | null;
       getProfile: () => Promise<{
         userId: string;
@@ -23,6 +24,7 @@ type LiffProfile = {
 };
 
 const DEV_LINE_USER_STORAGE_KEY = "pdCare.devLineUserId";
+const EXPIRED_TOKEN_REFRESH_KEY = "pdCare.liffExpiredTokenRefreshExp";
 
 /**
  * Dev-only: when NEXT_PUBLIC_LIFF_ID is unset and NODE_ENV is development,
@@ -149,6 +151,37 @@ export async function getLiffLoginProof(): Promise<{ profile: LiffProfile; idTok
   const idToken = window.liff?.getIDToken?.();
   if (!idToken) {
     throw new Error("LINE 登入憑證不足，請確認 LIFF scope 包含 openid。");
+  }
+  let exp: number | null = null;
+  try {
+    const payloadSegment = idToken.split(".")[1];
+    const payload = JSON.parse(atob(payloadSegment));
+    exp = typeof payload?.exp === "number" ? payload.exp : null;
+  } catch {
+    exp = null;
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const isExpired = exp !== null && exp <= nowSec;
+  if (isExpired) {
+    const refreshMarker = exp !== null ? String(exp) : "unknown";
+    const previousRefreshMarker = window.sessionStorage.getItem(EXPIRED_TOKEN_REFRESH_KEY);
+    const canRetryLogin = previousRefreshMarker !== refreshMarker;
+    if (canRetryLogin) {
+      window.sessionStorage.setItem(EXPIRED_TOKEN_REFRESH_KEY, refreshMarker);
+      if (typeof window.liff?.logout === "function") {
+        try {
+          window.liff.logout();
+        } catch {
+          // no-op
+        }
+      }
+      window.liff?.login({ redirectUri: window.location.href });
+      throw new Error("LINE 登入憑證已過期，正在重新導向登入...");
+    }
+    throw new Error("LINE 登入憑證已過期，且重新登入後仍未刷新。請在 LINE App 內重新開啟頁面或稍後再試。");
+  }
+  if (window.sessionStorage.getItem(EXPIRED_TOKEN_REFRESH_KEY)) {
+    window.sessionStorage.removeItem(EXPIRED_TOKEN_REFRESH_KEY);
   }
   return { profile, idToken };
 }

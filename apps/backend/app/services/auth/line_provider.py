@@ -56,7 +56,17 @@ class LineIdentityProvider:
             raise ValueError("Failed to verify LINE id token") from exc
 
         if response.status_code != 200:
-            raise ValueError("Invalid LINE id token")
+            verify_error = ""
+            try:
+                body_json: Any = response.json()
+                error_code = str(body_json.get("error", "")).strip()
+                error_description = str(body_json.get("error_description", "")).strip()
+                if error_code or error_description:
+                    verify_error = f"{error_code} {error_description}".strip()
+            except ValueError:
+                verify_error = response.text[:200].strip()
+            detail = f" (LINE verify {response.status_code}: {verify_error})" if verify_error else f" (LINE verify {response.status_code})"
+            raise ValueError(f"Invalid LINE id token{detail}")
 
         body: Any = response.json()
         line_user_id = str(body.get("sub", "")).strip()

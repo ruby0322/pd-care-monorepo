@@ -49,9 +49,6 @@ export default function AdminLoginPage() {
   async function handleLineLogin() {
     setErrorMessage(null);
     setIsSubmitting(true);
-    // #region agent log
-    fetch("http://127.0.0.1:7845/ingest/b7de64f7-b8ae-4f59-b51b-2a8d7811e454",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"111446"},body:JSON.stringify({sessionId:"111446",runId:"pre-fix",hypothesisId:"H5",location:"app/admin/login/page.tsx:handleLineLogin:start",message:"Admin LINE login button triggered",data:{pathname:typeof window!=="undefined"?window.location.pathname:"ssr"},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     try {
       const { idToken } = await getLiffLoginProof();
       const response = await apiClient.post<LoginResponse>("/v1/auth/login", {
@@ -67,9 +64,6 @@ export default function AdminLoginPage() {
       router.replace("/admin");
       router.refresh();
     } catch (error) {
-      // #region agent log
-      fetch("http://127.0.0.1:7845/ingest/b7de64f7-b8ae-4f59-b51b-2a8d7811e454",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"111446"},body:JSON.stringify({sessionId:"111446",runId:"pre-fix",hypothesisId:"H5",location:"app/admin/login/page.tsx:handleLineLogin:catch",message:"Admin LINE login flow caught error",data:{errorName:error instanceof Error?error.name:"unknown",errorMessage:error instanceof Error?error.message:"non-error"},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       setErrorMessage(getLoginErrorMessage(error));
     } finally {
       setIsSubmitting(false);

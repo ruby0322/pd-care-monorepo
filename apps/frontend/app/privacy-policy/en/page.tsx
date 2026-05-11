@@ -16,10 +16,10 @@ export default function PrivacyPolicyEnPage() {
 
         <section className="space-y-3 text-sm leading-7 text-zinc-700">
           <p>
-            This system (AI-based recognition for peritoneal dialysis catheter exit-site infection risk) uses artificial intelligence and deep learning technologies to assist patients with standardized exit-site image capture and early risk alerts.
+            This system (AI-assisted real-time monitoring of peritoneal dialysis catheter exit wounds) uses artificial intelligence and deep learning technologies to assist peritoneal dialysis (PD) patients with standardized exit-site imaging capture and early risk alerts.
           </p>
           <p>
-            To support clinical care and review workflows, the system collects and processes necessary data, including LINE identity information, patient matching data, uploaded images, AI analysis outputs, and operation logs, solely for care delivery, clinical review, and research analysis.
+            To support clinical care and review workflows, the system collects and processes necessary data, including LINE identity information, patient matching data, uploaded images, AI analysis outputs, and operation logs, solely for medical care, clinical review, and research analysis at National Taiwan University Hospital.
           </p>
           <p>
             All images and related records are stored in protected backend systems with role-based access control and audit mechanisms; only authorized medical staff or administrators may access and process data when required.
