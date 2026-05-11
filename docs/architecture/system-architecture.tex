@@ -1,0 +1,64 @@
+\documentclass[tikz,border=12pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
+
+\begin{document}
+\begin{tikzpicture}[
+  font=\small,
+  >=Latex,
+  node distance=16mm and 24mm,
+  component/.style={draw, rounded corners, align=center, minimum width=42mm, minimum height=13mm},
+  subsystem/.style={draw, rounded corners, align=left, minimum width=58mm, minimum height=24mm},
+  store/.style={draw, cylinder, shape border rotate=90, align=center, aspect=0.28, minimum width=13mm, minimum height=28mm},
+  ext/.style={draw, rounded corners, dashed, align=center, minimum width=43mm, minimum height=12mm},
+  flow/.style={->, thick},
+  authflow/.style={->, thick, dashed},
+  startup/.style={->, thick, dotted}
+]
+
+% Client and frontend
+\node[component] (patient) {Patient Browser\\(LIFF app)};
+\node[component, below=16mm of patient] (staff) {Staff/Admin Browser};
+\node[component, right=26mm of patient, yshift=-8mm] (frontend) {Next.js Frontend\\(TLS gateway, App Router)};
+
+% Backend
+\node[subsystem, right=36mm of frontend] (backend) {
+  \textbf{FastAPI Backend}\\
+  Routes: auth, identity, patient, predict, staff\\
+  Startup: DB init, S3 client, model load
+};
+
+% Data and storage layer
+\node[store, right=34mm of backend, yshift=18mm] (postgres) {PostgreSQL};
+\node[store, right=34mm of backend, yshift=-18mm] (s3) {SeaweedFS\\S3};
+
+% External services
+\node[ext, above=23mm of backend] (lineapi) {LINE OAuth Verify API};
+\node[ext, above=23mm of postgres, xshift=-2mm] (modelsrc) {Model Artifact Source\\(Hugging Face URL)};
+
+% Flows
+\draw[flow] (patient.east) -- (frontend.west);
+\draw[flow] (staff.east) -- (frontend.west);
+\draw[flow] (frontend.east) -- node[midway, above=2mm, fill=white, inner sep=1pt] {/api/* rewrite} (backend.west);
+\draw[flow] (backend.east) -- node[midway, above=1mm, sloped, fill=white, inner sep=1pt] {ORM queries} (postgres.west);
+\draw[flow] (backend.east) -- node[midway, below=1mm, sloped, fill=white, inner sep=1pt] {S3 put/get objects} (s3.west);
+\draw[authflow] (backend.north) -- node[pos=0.78, right=2mm, fill=white, inner sep=1pt] {LINE token verify} (lineapi.south);
+\draw[startup] (backend.north east) -- node[pos=0.55, right=2mm, fill=white, inner sep=1pt, align=left] {Startup model\\download} (modelsrc.south west);
+
+% Layer groups
+\begin{scope}[on background layer]
+  \node[draw, rounded corners, inner sep=9mm, fit=(patient)(staff)(frontend), label={[yshift=3mm]above:Client/UI Layer}] {};
+  \node[draw, rounded corners, inner sep=8mm, fit=(backend), label={[yshift=3mm]above:Service Layer}] {};
+  \node[draw, rounded corners, inner sep=8mm, fit=(postgres)(s3), label={[yshift=3mm]above:Data Layer}] {};
+\end{scope}
+
+% Legend
+\node[draw, rounded corners, align=left, below=28mm of backend, xshift=66mm, minimum width=62mm] (legend) {
+  \textbf{Legend}\\
+  \tikz{\draw[flow] (0,0)--(0.8,0);} Runtime request/data flow\\
+  \tikz{\draw[authflow] (0,0)--(0.8,0);} Auth boundary flow\\
+  \tikz{\draw[startup] (0,0)--(0.8,0);} Startup/init dependency
+};
+
+\end{tikzpicture}
+\end{document}
