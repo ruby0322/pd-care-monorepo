@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
-from app.api.deps.auth import bearer_scheme, get_optional_principal
+from app.api.deps.auth import bearer_scheme, get_current_principal
 from app.schemas.upload_history import UploadHistoryDayResponse, UploadHistoryResponse
 from app.schemas.upload import PatientUploadResponse, PatientUploadResultResponse
+from app.services.auth.token_service import AuthPrincipal
 from app.services.identity import get_identity_status
 from app.services.model_loader import LoadedModel
 from app.services.storage import StorageService
@@ -39,17 +40,10 @@ def _get_storage_service(request: Request) -> StorageService:
 
 
 def _resolve_patient_line_user_id(
-    request: Request,
     *,
+    principal: AuthPrincipal,
     provided_line_user_id: str | None,
-    credentials: HTTPAuthorizationCredentials | None,
 ) -> str:
-    principal = get_optional_principal(request, credentials)
-    if principal is None:
-        if not provided_line_user_id:
-            raise HTTPException(status_code=400, detail="line_user_id is required")
-        return provided_line_user_id
-
     if principal.role == "staff":
         raise HTTPException(status_code=403, detail="Staff role cannot access patient endpoints")
 
@@ -69,10 +63,10 @@ async def patient_upload_history(
     line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> UploadHistoryResponse:
+    principal = get_current_principal(request, credentials)
     resolved_line_user_id = _resolve_patient_line_user_id(
-        request,
+        principal=principal,
         provided_line_user_id=line_user_id,
-        credentials=credentials,
     )
     session = _get_session(request)
     try:
@@ -105,10 +99,10 @@ async def upload_patient_image(
     file: UploadFile = File(...),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientUploadResponse:
+    principal = get_current_principal(request, credentials)
     resolved_line_user_id = _resolve_patient_line_user_id(
-        request,
+        principal=principal,
         provided_line_user_id=line_user_id,
-        credentials=credentials,
     )
     settings = request.app.state.settings
     loaded_model = _get_loaded_model(request)
@@ -172,10 +166,10 @@ async def get_patient_upload_result(
     ai_result_id: int | None = Query(default=None, ge=1),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientUploadResultResponse:
+    principal = get_current_principal(request, credentials)
     resolved_line_user_id = _resolve_patient_line_user_id(
-        request,
+        principal=principal,
         provided_line_user_id=line_user_id,
-        credentials=credentials,
     )
     if upload_id is None and ai_result_id is None:
         raise HTTPException(status_code=400, detail="Either upload_id or ai_result_id is required")

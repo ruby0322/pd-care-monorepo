@@ -30,7 +30,7 @@ async def login_staff_or_admin(request: Request, payload: StaffLineLoginRequest)
     try:
         auth_service = _build_auth_service(request)
         try:
-            result = auth_service.login_staff_or_admin(
+            result = auth_service.login_by_line_identity(
                 session,
                 line_id_token=payload.line_id_token,
             )

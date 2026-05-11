@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.db.models import AIResult, LiffIdentity, Patient, PendingBinding, Upload
 from app.main import create_app
+from app.services.auth.token_service import AuthTokenService
 
 
 def make_settings(db_path: Path) -> Settings:
@@ -123,14 +124,33 @@ def _seed_upload_history(client: TestClient, patient_id: int) -> None:
         session.commit()
 
 
+def _issue_token_for_line_user(client: TestClient, *, line_user_id: str, role: str = "patient") -> str:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        identity = session.query(LiffIdentity).filter(LiffIdentity.line_user_id == line_user_id).one()
+    token_service = AuthTokenService(secret=client.app.state.settings.auth_token_secret)
+    return token_service.issue_token(
+        identity_id=identity.id,
+        line_user_id=identity.line_user_id,
+        role=role,
+        patient_id=identity.patient_id,
+        ttl_seconds=client.app.state.settings.auth_token_ttl_seconds,
+    )
+
+
 def test_upload_history_returns_aggregated_days_for_matched_patient(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "history-matched.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         patient_id = _seed_matched_identity(client, line_user_id="U_LINE_HISTORY")
         _seed_upload_history(client, patient_id=patient_id)
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_HISTORY")
 
-        response = client.get("/v1/patient/upload-history", params={"line_user_id": "U_LINE_HISTORY"})
+        response = client.get(
+            "/v1/patient/upload-history",
+            params={"line_user_id": "U_LINE_HISTORY"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
         assert response.status_code == 200
         payload = response.json()
@@ -148,8 +168,13 @@ def test_upload_history_returns_pending_status_without_day_data(tmp_path: Path) 
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         _seed_pending_identity(client)
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_PENDING")
 
-        response = client.get("/v1/patient/upload-history", params={"line_user_id": "U_LINE_PENDING"})
+        response = client.get(
+            "/v1/patient/upload-history",
+            params={"line_user_id": "U_LINE_PENDING"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
         assert response.status_code == 200
         payload = response.json()
@@ -163,14 +188,8 @@ def test_upload_history_returns_unbound_status_without_day_data(tmp_path: Path) 
     settings = make_settings(tmp_path / "history-unbound.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        response = client.get("/v1/patient/upload-history", params={"line_user_id": "U_LINE_UNBOUND"})
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "unbound"
-        assert payload["patient_id"] is None
-        assert payload["can_upload"] is False
-        assert payload["days"] == []
+        response = client.get("/v1/patient/upload-history")
+        assert response.status_code == 401
 
 
 def test_upload_history_groups_by_taipei_local_date_boundary(tmp_path: Path) -> None:
@@ -178,6 +197,7 @@ def test_upload_history_groups_by_taipei_local_date_boundary(tmp_path: Path) -> 
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         patient_id = _seed_matched_identity(client, line_user_id="U_LINE_TZ_BOUNDARY")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_TZ_BOUNDARY")
         session_factory = client.app.state.db_session_factory
         with session_factory() as session:
             # 17:10 UTC is next day in Asia/Taipei (+08:00).
@@ -192,7 +212,11 @@ def test_upload_history_groups_by_taipei_local_date_boundary(tmp_path: Path) -> 
             session.add(AIResult(upload_id=upload.id, screening_result="normal"))
             session.commit()
 
-        response = client.get("/v1/patient/upload-history", params={"line_user_id": "U_LINE_TZ_BOUNDARY"})
+        response = client.get(
+            "/v1/patient/upload-history",
+            params={"line_user_id": "U_LINE_TZ_BOUNDARY"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "matched"

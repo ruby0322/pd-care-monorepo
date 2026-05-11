@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 
+import { getPatientAccessToken } from "@/lib/auth/patient-session";
 import { getStaffAccessToken } from "@/lib/auth/staff-session";
 
 export function resolveApiBaseUrl(): string {
@@ -48,14 +49,24 @@ apiClient.interceptors.request.use((config) => {
   if (!config.url || config.headers?.Authorization) {
     return config;
   }
-  if (!config.url.startsWith("/v1/staff")) {
+  if (config.url.startsWith("/v1/staff")) {
+    const token = getStaffAccessToken();
+    if (!token) {
+      return config;
+    }
+    config.headers.Authorization = `Bearer ${token}`;
     return config;
   }
-  const token = getStaffAccessToken();
-  if (!token) {
+
+  if (!config.url.startsWith("/v1/patient")) {
     return config;
   }
-  config.headers.Authorization = `Bearer ${token}`;
+
+  const patientToken = getPatientAccessToken();
+  if (!patientToken) {
+    return config;
+  }
+  config.headers.Authorization = `Bearer ${patientToken}`;
   return config;
 });
 

@@ -190,6 +190,22 @@ def test_admin_token_can_access_patient_endpoint(tmp_path: Path) -> None:
         assert response.json()["status"] == "matched"
 
 
+def test_staff_token_is_denied_for_patient_endpoint(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-patient-denied.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_STAFF_PATIENT_DENY", role="staff")
+        _seed_patient(client, line_user_id="U_PATIENT_X")
+        token = _login_and_get_token(client, "U_STAFF_PATIENT_DENY")
+
+        response = client.get(
+            "/v1/patient/upload-history",
+            params={"line_user_id": "U_PATIENT_X"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+
+
 def test_login_rejects_invalid_stub_token(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "invalid-stub.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
@@ -197,3 +213,20 @@ def test_login_rejects_invalid_stub_token(tmp_path: Path) -> None:
         _seed_identity(client, line_user_id="U_ADMIN_X", role="admin")
         response = client.post("/v1/auth/login", json={"line_id_token": "invalid-token"})
         assert response.status_code == 400 or response.status_code == 422 or response.status_code == 403
+
+
+def test_patient_identity_can_login_and_access_own_patient_endpoint(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "patient-login-and-own-access.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_patient(client, line_user_id="U_PATIENT_LOGIN")
+
+        login_response = client.post("/v1/auth/login", json={"line_id_token": "stub:U_PATIENT_LOGIN"})
+        assert login_response.status_code == 200
+        payload = login_response.json()
+        assert payload["role"] == "patient"
+        token = payload["access_token"]
+
+        response = client.get("/v1/patient/upload-history", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        assert response.json()["status"] == "matched"

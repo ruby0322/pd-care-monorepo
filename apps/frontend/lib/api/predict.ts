@@ -37,11 +37,9 @@ export type PatientUploadResponse = {
 };
 
 export async function uploadPatientExitSiteImage(
-  lineUserId: string,
   file: File
 ): Promise<PatientUploadResponse> {
   const formData = new FormData();
-  formData.append("line_user_id", lineUserId);
   formData.append("file", file);
 
   const { data } = await apiClient.post<PatientUploadResponse>("/v1/patient/uploads", formData, {
@@ -66,13 +64,11 @@ export type PatientUploadResultResponse = {
 };
 
 export async function getPatientUploadResult(params: {
-  lineUserId: string;
   uploadId?: number;
   aiResultId?: number;
 }): Promise<PatientUploadResultResponse> {
   const { data } = await apiClient.get<PatientUploadResultResponse>("/v1/patient/uploads/result", {
     params: {
-      line_user_id: params.lineUserId,
       upload_id: params.uploadId,
       ai_result_id: params.aiResultId,
     },

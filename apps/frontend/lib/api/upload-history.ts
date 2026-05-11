@@ -13,9 +13,7 @@ export type UploadHistoryResponse = {
   days: UploadHistoryDay[];
 };
 
-export async function fetchUploadHistory(lineUserId: string): Promise<UploadHistoryResponse> {
-  const { data } = await apiClient.get<UploadHistoryResponse>("/v1/patient/upload-history", {
-    params: { line_user_id: lineUserId },
-  });
+export async function fetchUploadHistory(): Promise<UploadHistoryResponse> {
+  const { data } = await apiClient.get<UploadHistoryResponse>("/v1/patient/upload-history");
   return data;
 }
