@@ -1,0 +1,6 @@
+services:
+  backend:
+    # Keep GPU concerns isolated in an opt-in override file.
+    gpus: all
+    environment:
+      DEVICE: ${PDCARE_DEVICE:-auto}
