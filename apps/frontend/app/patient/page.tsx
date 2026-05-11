@@ -1,9 +1,10 @@
 "use client";
 
 import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
-import { getApiErrorDetail } from "@/lib/api/client";
+import { apiClient, getApiErrorDetail } from "@/lib/api/client";
 import { fetchUploadHistory, UploadHistoryDay } from "@/lib/api/upload-history";
-import { getLiffProfile } from "@/lib/auth/liff";
+import { clearPatientSession, setPatientSession } from "@/lib/auth/patient-session";
+import { getLiffLoginProof } from "@/lib/auth/liff";
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -12,6 +13,13 @@ type LiffProfileState = {
   userId: string;
   displayName: string;
   pictureUrl: string | null;
+};
+
+type LoginResponse = {
+  access_token: string;
+  expires_in: number;
+  role: "patient" | "staff" | "admin";
+  line_user_id: string;
 };
 
 export default function PatientPage() {
@@ -33,7 +41,8 @@ export default function PatientPage() {
       try {
         setLoading(true);
         setError(null);
-        const liffProfile = await getLiffProfile();
+        const proof = await getLiffLoginProof();
+        const liffProfile = proof.profile;
         if (cancelled) {
           return;
         }
@@ -48,12 +57,28 @@ export default function PatientPage() {
           setStatus(bindStatus.status);
         }
         if (bindStatus.status === "matched") {
+          const loginResponse = await apiClient.post<LoginResponse>("/v1/auth/login", {
+            line_id_token: proof.idToken,
+          });
+          if (cancelled) {
+            return;
+          }
+          const loginPayload = loginResponse.data;
+          if (loginPayload.role !== "patient" && loginPayload.role !== "admin") {
+            throw new Error("目前 LINE 帳號角色無法使用病患端功能。");
+          }
+          setPatientSession({
+            accessToken: loginPayload.access_token,
+            expiresAt: Date.now() + loginPayload.expires_in * 1000,
+            role: loginPayload.role,
+            lineUserId: loginPayload.line_user_id,
+          });
           if (!cancelled) {
             setHistoryLoading(true);
             setHistoryError(null);
           }
           try {
-            const history = await fetchUploadHistory(profileState.userId);
+            const history = await fetchUploadHistory();
             if (!cancelled) {
               setHistoryDays(history.days);
             }
@@ -67,6 +92,7 @@ export default function PatientPage() {
             }
           }
         } else if (!cancelled) {
+          clearPatientSession();
           setHistoryDays([]);
           setHistoryLoading(false);
           setHistoryError(null);

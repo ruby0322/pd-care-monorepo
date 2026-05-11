@@ -15,6 +15,7 @@ from app.config import Settings
 from app.db.models import AIResult, LiffIdentity, Notification, Patient, PendingBinding, Upload
 from app.main import create_app
 from app.model_loader import LoadedModel
+from app.services.auth.token_service import AuthTokenService
 
 
 class _NormalModel(torch.nn.Module):
@@ -145,6 +146,25 @@ def _seed_pending_identity(client: TestClient, line_user_id: str) -> None:
         session.commit()
 
 
+def _issue_token_for_line_user(
+    client: TestClient,
+    *,
+    line_user_id: str,
+    role: str = "patient",
+) -> str:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        identity = session.query(LiffIdentity).filter(LiffIdentity.line_user_id == line_user_id).one()
+    token_service = AuthTokenService(secret=client.app.state.settings.auth_token_secret)
+    return token_service.issue_token(
+        identity_id=identity.id,
+        line_user_id=identity.line_user_id,
+        role=role,
+        patient_id=identity.patient_id,
+        ttl_seconds=client.app.state.settings.auth_token_ttl_seconds,
+    )
+
+
 def test_patient_upload_persists_upload_and_ai_result(tmp_path: Path) -> None:
     settings = _make_settings(tmp_path / "upload-success.db")
     app = create_app(settings=settings, loaded_model=_make_loaded_model(_NormalModel(), settings))
@@ -152,11 +172,13 @@ def test_patient_upload_persists_upload_and_ai_result(tmp_path: Path) -> None:
         patient_id = _seed_bound_identity(client, line_user_id="U_LINE_BOUND")
         fake_storage = _FakeStorageService()
         client.app.state.storage_service = fake_storage
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_BOUND")
 
         response = client.post(
             "/v1/patient/uploads",
             data={"line_user_id": "U_LINE_BOUND"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         assert response.status_code == 200
@@ -189,11 +211,13 @@ def test_patient_upload_creates_notification_for_suspected_risk(tmp_path: Path) 
     with TestClient(app) as client:
         patient_id = _seed_bound_identity(client, line_user_id="U_LINE_BOUND_2")
         client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_BOUND_2")
 
         response = client.post(
             "/v1/patient/uploads",
             data={"line_user_id": "U_LINE_BOUND_2"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         assert response.status_code == 200
@@ -218,11 +242,13 @@ def test_patient_upload_rejects_unsupported_media_type(tmp_path: Path) -> None:
     with TestClient(app) as client:
         _seed_bound_identity(client, line_user_id="U_LINE_BOUND_3")
         client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_BOUND_3")
 
         response = client.post(
             "/v1/patient/uploads",
             data={"line_user_id": "U_LINE_BOUND_3"},
             files={"file": ("capture.txt", b"not-image", "text/plain")},
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         assert response.status_code == 415
@@ -234,11 +260,13 @@ def test_patient_upload_rejects_pending_identity(tmp_path: Path) -> None:
     with TestClient(app) as client:
         _seed_pending_identity(client, line_user_id="U_LINE_PENDING")
         client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_PENDING")
 
         response = client.post(
             "/v1/patient/uploads",
             data={"line_user_id": "U_LINE_PENDING"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         assert response.status_code == 403
@@ -250,12 +278,14 @@ def test_patient_upload_storage_failure_does_not_persist_partial_records(tmp_pat
     with TestClient(app) as client:
         _seed_bound_identity(client, line_user_id="U_LINE_BOUND_4")
         client.app.state.storage_service = _FakeStorageService(fail_on_store=True)
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_BOUND_4")
 
         with pytest.raises(RuntimeError, match="storage write failed"):
             client.post(
                 "/v1/patient/uploads",
                 data={"line_user_id": "U_LINE_BOUND_4"},
                 files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+                headers={"Authorization": f"Bearer {token}"},
             )
         session_factory = client.app.state.db_session_factory
         with session_factory() as session:
@@ -270,11 +300,13 @@ def test_get_patient_result_by_upload_id_returns_persisted_record(tmp_path: Path
     with TestClient(app) as client:
         patient_id = _seed_bound_identity(client, line_user_id="U_LINE_RESULT_UPLOAD")
         client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_RESULT_UPLOAD")
 
         upload_response = client.post(
             "/v1/patient/uploads",
             data={"line_user_id": "U_LINE_RESULT_UPLOAD"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert upload_response.status_code == 200
         upload_payload = upload_response.json()
@@ -285,6 +317,7 @@ def test_get_patient_result_by_upload_id_returns_persisted_record(tmp_path: Path
                 "line_user_id": "U_LINE_RESULT_UPLOAD",
                 "upload_id": upload_payload["upload_id"],
             },
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         assert response.status_code == 200
@@ -302,11 +335,13 @@ def test_get_patient_result_by_ai_result_id_returns_persisted_record(tmp_path: P
     with TestClient(app) as client:
         patient_id = _seed_bound_identity(client, line_user_id="U_LINE_RESULT_AI")
         client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_RESULT_AI")
 
         upload_response = client.post(
             "/v1/patient/uploads",
             data={"line_user_id": "U_LINE_RESULT_AI"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert upload_response.status_code == 200
         upload_payload = upload_response.json()
@@ -317,6 +352,7 @@ def test_get_patient_result_by_ai_result_id_returns_persisted_record(tmp_path: P
                 "line_user_id": "U_LINE_RESULT_AI",
                 "ai_result_id": upload_payload["ai_result_id"],
             },
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         assert response.status_code == 200
@@ -341,11 +377,13 @@ def test_get_patient_result_rejects_other_patient_access(tmp_path: Path) -> None
             full_name="Patient B",
         )
         client.app.state.storage_service = _FakeStorageService()
+        owner_token = _issue_token_for_line_user(client, line_user_id="U_LINE_RESULT_OWNER")
 
         upload_response = client.post(
             "/v1/patient/uploads",
             data={"line_user_id": "U_LINE_RESULT_OWNER"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {owner_token}"},
         )
         assert upload_response.status_code == 200
         upload_payload = upload_response.json()
@@ -356,6 +394,32 @@ def test_get_patient_result_rejects_other_patient_access(tmp_path: Path) -> None
                 "line_user_id": "U_LINE_RESULT_OTHER",
                 "upload_id": upload_payload["upload_id"],
             },
+            headers={"Authorization": f"Bearer {owner_token}"},
         )
 
         assert response.status_code == 403
+
+
+def test_patient_upload_requires_authentication(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path / "upload-auth-required.db")
+    app = create_app(settings=settings, loaded_model=_make_loaded_model(_NormalModel(), settings))
+    with TestClient(app) as client:
+        _seed_bound_identity(client, line_user_id="U_LINE_AUTH_REQUIRED")
+        client.app.state.storage_service = _FakeStorageService()
+
+        response = client.post(
+            "/v1/patient/uploads",
+            data={"line_user_id": "U_LINE_AUTH_REQUIRED"},
+            files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+        )
+
+        assert response.status_code == 401
+
+
+def test_patient_upload_history_requires_authentication(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path / "history-auth-required.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_bound_identity(client, line_user_id="U_LINE_HISTORY_AUTH_REQUIRED")
+        response = client.get("/v1/patient/upload-history", params={"line_user_id": "U_LINE_HISTORY_AUTH_REQUIRED"})
+        assert response.status_code == 401

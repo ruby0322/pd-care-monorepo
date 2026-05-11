@@ -1,8 +1,9 @@
 "use client";
 
-import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
+import { apiClient, getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
 import { getPatientUploadResult } from "@/lib/api/predict";
-import { getLiffProfile } from "@/lib/auth/liff";
+import { getLiffLoginProof } from "@/lib/auth/liff";
+import { getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -46,9 +47,28 @@ function ResultPageInner() {
       try {
         setIsHydrating(true);
         setHydrateError(null);
-        const profile = await getLiffProfile();
+        if (!getPatientSession()) {
+          const { idToken } = await getLiffLoginProof();
+          const response = await apiClient.post<{
+            access_token: string;
+            expires_in: number;
+            role: "patient" | "staff" | "admin";
+            line_user_id: string;
+          }>("/v1/auth/login", {
+            line_id_token: idToken,
+          });
+          const payload = response.data;
+          if (payload.role !== "patient" && payload.role !== "admin") {
+            throw new Error("目前 LINE 帳號角色無法讀取病患端判讀結果。");
+          }
+          setPatientSession({
+            accessToken: payload.access_token,
+            expiresAt: Date.now() + payload.expires_in * 1000,
+            role: payload.role,
+            lineUserId: payload.line_user_id,
+          });
+        }
         const payload = await getPatientUploadResult({
-          lineUserId: profile.userId,
           uploadId: uploadId ?? undefined,
           aiResultId: aiResultId ?? undefined,
         });

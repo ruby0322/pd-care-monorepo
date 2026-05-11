@@ -24,7 +24,7 @@ class AuthService:
         self._token_service = token_service
         self._token_ttl_seconds = token_ttl_seconds
 
-    def login_staff_or_admin(
+    def login_by_line_identity(
         self,
         session: Session,
         *,
@@ -40,9 +40,9 @@ class AuthService:
         identity.display_name = profile.display_name
         identity.picture_url = profile.picture_url
         role = identity.role.strip().lower()
-        if role not in {"staff", "admin"}:
+        if role not in {"patient", "staff", "admin"}:
             session.rollback()
-            raise PermissionError("此帳號角色無法登入護理師後台")
+            raise PermissionError("此帳號角色無法登入系統")
 
         token = self._token_service.issue_token(
             identity_id=identity.id,
@@ -58,3 +58,15 @@ class AuthService:
             role=role,
             line_user_id=identity.line_user_id,
         )
+
+    def login_staff_or_admin(
+        self,
+        session: Session,
+        *,
+        line_id_token: str,
+    ) -> AuthLoginResult:
+        result = self.login_by_line_identity(session, line_id_token=line_id_token)
+        if result.role not in {"staff", "admin"}:
+            session.rollback()
+            raise PermissionError("此帳號角色無法登入護理師後台")
+        return result
