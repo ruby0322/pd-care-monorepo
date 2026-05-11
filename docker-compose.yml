@@ -25,6 +25,12 @@ services:
       - seaweed-master-data:/data
     ports:
       - "9333:9333"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:9333/cluster/status >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   seaweedfs-volume:
@@ -36,25 +42,46 @@ services:
       - seaweed-volume-data:/data
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/status >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   seaweedfs-filer:
     image: chrislusf/seaweedfs:3.76
     command: "filer -master=seaweedfs-master:9333 -ip=seaweedfs-filer -ip.bind=0.0.0.0"
     depends_on:
-      - seaweedfs-master
-      - seaweedfs-volume
+      seaweedfs-master:
+        condition: service_healthy
+      seaweedfs-volume:
+        condition: service_healthy
     ports:
       - "8888:8888"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8888/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   seaweedfs-s3:
     image: chrislusf/seaweedfs:3.76
     command: "s3 -filer=seaweedfs-filer:8888 -ip.bind=0.0.0.0 -port=8333 -domainName=seaweedfs-s3"
     depends_on:
-      - seaweedfs-filer
+      seaweedfs-filer:
+        condition: service_healthy
     ports:
       - "8333:8333"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8333/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   frontend:
@@ -72,7 +99,7 @@ services:
       TLS_KEY_PATH: /etc/letsencrypt/live/${LETSENCRYPT_DOMAIN:-pd.lu.im.ntu.edu.tw}/privkey.pem
       TLS_UPSTREAM: http://127.0.0.1:3000
     ports:
-      - "443:443"
+      - "${PDCARE_HTTPS_PORT:-443}:443"
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
@@ -84,8 +111,6 @@ services:
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
-    env_file:
-      - ./apps/backend/.env
     environment:
       DATABASE_URL: ${PDCARE_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/pd_care}
       S3_ENDPOINT_URL: ${PDCARE_S3_ENDPOINT_URL:-http://seaweedfs-s3:8333}
@@ -103,7 +128,7 @@ services:
       postgres:
         condition: service_healthy
       seaweedfs-s3:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

@@ -130,8 +130,10 @@ Important backend environment variables:
 
 The root `docker-compose.yml` starts:
 
-- `frontend` on `http://localhost:3000`
+- `frontend` on `https://localhost` (host port `443`)
 - `backend` on `http://localhost:8000`
+- `postgres` on `localhost:5432`
+- SeaweedFS S3 on `http://localhost:8333`
 
 Bring the full stack up with:
 
@@ -146,11 +148,34 @@ npm run docker:up:frontend
 npm run docker:up:backend
 ```
 
-The compose file loads backend defaults from `apps/backend/.env.example`. If you need local overrides, copy that file to `apps/backend/.env` and update your local workflow as needed.
+The compose file does not require `apps/backend/.env`. Backend defaults are set in compose, and you can override them from your shell with `PDCARE_*` variables.
+
+Common overrides:
+
+- `PDCARE_DATABASE_URL`
+- `PDCARE_S3_ENDPOINT_URL`
+- `PDCARE_S3_REGION`
+- `PDCARE_S3_ACCESS_KEY`
+- `PDCARE_S3_SECRET_KEY`
+- `PDCARE_S3_BUCKET_NAME`
+- `PDCARE_IMAGE_ACCESS_TOKEN_SECRET`
+- `PDCARE_IMAGE_ACCESS_TOKEN_TTL_SECONDS`
+
+Frontend runtime/build overrides:
+
+- `NEXT_PUBLIC_API_BASE_URL` (defaults to `/api`)
+- `NEXT_PUBLIC_LIFF_ID`
+- `LETSENCRYPT_DOMAIN` (used to resolve cert/key under `/etc/letsencrypt/live/<domain>/`)
+- `PDCARE_HTTPS_PORT` (defaults to `443` on the host)
+
+TLS note:
+
+- Compose frontend uses `apps/frontend/tls-gateway.cjs` and expects valid cert files mounted from host `/etc/letsencrypt`.
+- If your certs are not present at the default domain path, set `LETSENCRYPT_DOMAIN` or provide your own TLS paths through env.
 
 The default compose file now works on CPU-only hosts. The backend still honors `DEVICE=auto`, so it will use CUDA automatically when GPU access is available and fall back to CPU otherwise.
 
-To require the legacy NVIDIA runtime on a GPU host, include the GPU override file:
+To require GPU access on a compatible host, include the GPU override file:
 
 ```bash
 npm run docker:up:gpu
