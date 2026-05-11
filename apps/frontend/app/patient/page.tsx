@@ -1,13 +1,15 @@
 "use client";
 
-import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
-import { apiClient, getApiErrorDetail } from "@/lib/api/client";
-import { fetchUploadHistory, UploadHistoryDay } from "@/lib/api/upload-history";
-import { clearPatientSession, setPatientSession } from "@/lib/auth/patient-session";
-import { getLiffLoginProof } from "@/lib/auth/liff";
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
-import { useEffect, useState } from "react";
+import { apiClient, getApiErrorDetail } from "@/lib/api/client";
+import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
+import { fetchUploadHistory, UploadHistoryDay, UploadHistorySummary28d } from "@/lib/api/upload-history";
+import { getLiffLoginProof } from "@/lib/auth/liff";
+import { clearPatientSession, setPatientSession } from "@/lib/auth/patient-session";
+import { Camera, Home, UserRound } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 type LiffProfileState = {
   userId: string;
@@ -23,9 +25,15 @@ type LoginResponse = {
 };
 
 export default function PatientPage() {
+  const router = useRouter();
   const [profile, setProfile] = useState<LiffProfileState | null>(null);
   const [status, setStatus] = useState<IdentityStatus | null>(null);
   const [historyDays, setHistoryDays] = useState<UploadHistoryDay[]>([]);
+  const [summary28d, setSummary28d] = useState<UploadHistorySummary28d>({
+    all_upload_count_28d: 0,
+    suspected_upload_count_28d: 0,
+    continuous_upload_streak_days: 0,
+  });
   const [caseNumber, setCaseNumber] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -95,6 +103,7 @@ export default function PatientPage() {
             const history = await fetchUploadHistory();
             if (!cancelled) {
               setHistoryDays(history.days);
+              setSummary28d(history.summary_28d);
             }
           } catch (historyRequestError) {
             if (!cancelled) {
@@ -108,6 +117,11 @@ export default function PatientPage() {
         } else if (!cancelled) {
           clearPatientSession();
           setHistoryDays([]);
+          setSummary28d({
+            all_upload_count_28d: 0,
+            suspected_upload_count_28d: 0,
+            continuous_upload_streak_days: 0,
+          });
           setHistoryLoading(false);
           setHistoryError(null);
         }
@@ -164,13 +178,30 @@ export default function PatientPage() {
   }
 
   if (status === "matched") {
+    const suspectedRate =
+      summary28d.all_upload_count_28d > 0
+        ? Math.round((summary28d.suspected_upload_count_28d / summary28d.all_upload_count_28d) * 100)
+        : 0;
+
     return (
       <div className="min-h-screen bg-white flex flex-col px-6 py-10">
-        <p className="text-sm text-zinc-500">{profile?.displayName ?? "使用者"}，歡迎回來！</p>
-        <h1 className="text-lg font-semibold text-zinc-900">每日出口追蹤</h1>
-        <p className="mt-2 text-sm text-zinc-600 leading-relaxed">
-          日曆依據已儲存的上傳紀錄顯示風險狀態。紅色代表當日有至少一筆疑似風險判讀，顏色深淺代表上傳次數。
-        </p>
+        <h1 className="text-xl font-semibold text-zinc-900">{profile?.displayName ?? "使用者"}，歡迎回來！</h1>
+        <p className="mt-2 text-sm text-zinc-600 leading-relaxed">最近 28 天上傳狀態摘要與每日追蹤紀錄。</p>
+
+        <div className="mt-5 grid grid-cols-3 gap-3">
+          <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
+            <p className="text-[11px] text-zinc-500">疑似感染率</p>
+            <p className="mt-1 text-base font-semibold text-zinc-900">{suspectedRate}%</p>
+          </div>
+          <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
+            <p className="text-[11px] text-zinc-500">連續上傳</p>
+            <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.continuous_upload_streak_days} 天</p>
+          </div>
+          <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
+            <p className="text-[11px] text-zinc-500">上傳次數</p>
+            <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.all_upload_count_28d}</p>
+          </div>
+        </div>
 
         <div className="mt-6">
           {historyLoading ? (
@@ -178,26 +209,42 @@ export default function PatientPage() {
               正在載入上傳日曆...
             </div>
           ) : (
-            <PatientDailyCalendar days={historyDays} />
+            <PatientDailyCalendar
+              days={historyDays}
+              onDayClick={(dayKey) => {
+                router.push(`/patient/day/${dayKey}`);
+              }}
+            />
           )}
         </div>
 
         {historyError && <p className="mt-3 text-sm text-amber-700">{historyError}</p>}
 
-        <Link
-          href="/patient/capture?pain=false&discharge=false&cloudyDialysate=false"
-          className="mt-8 flex items-center justify-center w-full py-4 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors"
-        >
-          開始今日拍攝
-        </Link>
-        <p className="mt-3 text-xs text-zinc-400">今日已上傳仍可再次拍攝，系統會保留全部紀錄。</p>
+        <div className="mt-auto pt-10 grid grid-cols-3 items-end">
+          <Link
+            href="/"
+            className="justify-self-start flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
+          >
+            <Home className="h-4 w-4" strokeWidth={1.8} />
+            <span className="mt-0.5 text-[10px] font-medium">首頁</span>
+          </Link>
 
-        <Link
-          href="/"
-          className="mt-auto pt-10 text-center text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
-        >
-          返回首頁
-        </Link>
+          <Link
+            href="/patient/capture?pain=false&discharge=false&cloudyDialysate=false"
+            className="justify-self-center flex h-20 w-20 flex-col items-center justify-center rounded-full bg-zinc-900 text-white hover:bg-zinc-800 transition-colors"
+          >
+            <Camera className="h-6 w-6" strokeWidth={1.8} />
+            <span className="mt-0.5 text-[11px] font-medium">拍攝</span>
+          </Link>
+
+          <Link
+            href="/patient/profile"
+            className="justify-self-end flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
+          >
+            <UserRound className="h-4 w-4" strokeWidth={1.8} />
+            <span className="mt-0.5 text-[10px] font-medium">個人</span>
+          </Link>
+        </div>
       </div>
     );
   }

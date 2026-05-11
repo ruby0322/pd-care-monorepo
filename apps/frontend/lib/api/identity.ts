@@ -8,6 +8,18 @@ export type IdentityStatusResponse = {
   can_upload: boolean;
 };
 
+export type PatientProfileResponse = {
+  status: IdentityStatus;
+  can_upload: boolean;
+  line_user_id: string;
+  display_name: string | null;
+  picture_url: string | null;
+  patient_id: number | null;
+  full_name: string | null;
+  case_number: string | null;
+  birth_date: string | null;
+};
+
 type BindIdentityPayload = {
   line_user_id: string;
   display_name: string | null;
@@ -25,5 +37,10 @@ export async function fetchIdentityStatus(lineUserId: string): Promise<IdentityS
 
 export async function bindIdentity(payload: BindIdentityPayload): Promise<IdentityStatusResponse> {
   const { data } = await apiClient.post<IdentityStatusResponse>("/v1/identity/bind", payload);
+  return data;
+}
+
+export async function fetchPatientProfile(): Promise<PatientProfileResponse> {
+  const { data } = await apiClient.get<PatientProfileResponse>("/v1/patient/profile");
   return data;
 }

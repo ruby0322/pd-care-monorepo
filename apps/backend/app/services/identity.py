@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
@@ -105,3 +107,33 @@ def get_identity_status(session: Session, *, line_user_id: str) -> tuple[str, in
         return ("pending", None, False)
 
     return ("unbound", None, False)
+
+
+@dataclass(frozen=True)
+class IdentityProfile:
+    line_user_id: str
+    display_name: str | None
+    picture_url: str | None
+    patient_id: int | None
+    full_name: str | None
+    case_number: str | None
+    birth_date: str | None
+
+
+def get_identity_profile(session: Session, *, line_user_id: str) -> IdentityProfile:
+    identity = session.execute(
+        select(LiffIdentity).where(LiffIdentity.line_user_id == line_user_id)
+    ).scalar_one_or_none()
+    if identity is None:
+        raise LookupError("Identity not found")
+
+    patient = session.get(Patient, identity.patient_id) if identity.patient_id is not None else None
+    return IdentityProfile(
+        line_user_id=identity.line_user_id,
+        display_name=identity.display_name,
+        picture_url=identity.picture_url,
+        patient_id=identity.patient_id,
+        full_name=patient.full_name if patient else None,
+        case_number=patient.case_number if patient else None,
+        birth_date=patient.birth_date if patient else None,
+    )

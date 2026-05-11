@@ -286,6 +286,15 @@ function ResultPageInner() {
         )}
 
         <div className="mt-auto flex flex-col gap-3 pt-4">
+          {uploadId ? (
+            <Link
+              href={`/patient/uploads/${uploadId}`}
+              className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl border border-zinc-200 text-zinc-700 text-sm font-medium hover:bg-zinc-50 transition-colors"
+            >
+              <CalendarDays className="w-4 h-4" strokeWidth={1.5} />
+              查看本次上傳明細
+            </Link>
+          ) : null}
           {result === "rejected" || result === "technical_error" ? (
             <Link
               href="/patient/capture"
