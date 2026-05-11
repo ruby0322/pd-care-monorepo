@@ -13,6 +13,7 @@ type CalendarDay = {
 type PatientDailyCalendarProps = {
   days: CalendarDay[];
   windowDays?: number;
+  onDayClick?: (dateKey: string) => void;
 };
 
 function dayStyle(uploadCount: number, hasSuspectedRisk: boolean): string {
@@ -31,7 +32,7 @@ function dayStyle(uploadCount: number, hasSuspectedRisk: boolean): string {
   return "bg-emerald-400";
 }
 
-export function PatientDailyCalendar({ days, windowDays = 28 }: PatientDailyCalendarProps) {
+export function PatientDailyCalendar({ days, windowDays = 28, onDayClick }: PatientDailyCalendarProps) {
   const dayMap = new Map(days.map((entry) => [entry.date, entry]));
   const todayKey = getTaipeiTodayKey();
   const keys = listRecentTaipeiDateKeys(windowDays);
@@ -57,15 +58,20 @@ export function PatientDailyCalendar({ days, windowDays = 28 }: PatientDailyCale
 
       <div className="mt-4 grid grid-cols-7 gap-2">
         {cells.map((cell) => (
-          <div
+          <button
+            type="button"
             key={cell.key}
             className={clsx(
               "h-8 rounded-md border border-white/80",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-700/80 focus-visible:ring-offset-1",
               dayStyle(cell.uploadCount, cell.hasSuspectedRisk),
-              cell.isToday && "ring-2 ring-zinc-800/70 ring-offset-1"
+              cell.isToday && "ring-2 ring-zinc-800/70 ring-offset-1",
+              onDayClick ? "cursor-pointer hover:opacity-90 transition-opacity" : "cursor-default"
             )}
             title={`${cell.key}：${cell.uploadCount} 次上傳`}
             aria-label={`${cell.key} ${cell.uploadCount} uploads`}
+            onClick={() => onDayClick?.(cell.key)}
+            disabled={!onDayClick}
           />
         ))}
       </div>

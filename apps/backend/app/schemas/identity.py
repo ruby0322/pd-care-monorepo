@@ -21,3 +21,15 @@ class IdentityStatusResponse(BaseModel):
     status: str = Field(examples=["matched", "pending", "unbound"])
     patient_id: int | None
     can_upload: bool
+
+
+class PatientProfileResponse(BaseModel):
+    status: str = Field(examples=["matched", "pending", "unbound"])
+    can_upload: bool
+    line_user_id: str
+    display_name: str | None
+    picture_url: str | None
+    patient_id: int | None
+    full_name: str | None
+    case_number: str | None
+    birth_date: str | None
