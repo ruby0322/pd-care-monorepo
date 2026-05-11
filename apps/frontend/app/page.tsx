@@ -46,6 +46,14 @@ export default function Home() {
         <p className="text-xs text-zinc-300 text-center">
           臺大醫院 · 腹膜透析出口影像感染警示系統 PoC
         </p>
+        <div className="flex items-center gap-4 text-xs text-zinc-500">
+          <Link href="/privacy-policy" className="underline underline-offset-4 hover:text-zinc-800">
+            隱私權政策
+          </Link>
+          <Link href="/terms-of-use" className="underline underline-offset-4 hover:text-zinc-800">
+            使用條款
+          </Link>
+        </div>
       </div>
     </div>
   );
