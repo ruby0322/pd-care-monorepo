@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Activity } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AxiosError } from "axios";
 
@@ -48,6 +49,9 @@ export default function AdminLoginPage() {
   async function handleLineLogin() {
     setErrorMessage(null);
     setIsSubmitting(true);
+    // #region agent log
+    fetch("http://127.0.0.1:7845/ingest/b7de64f7-b8ae-4f59-b51b-2a8d7811e454",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"111446"},body:JSON.stringify({sessionId:"111446",runId:"pre-fix",hypothesisId:"H5",location:"app/admin/login/page.tsx:handleLineLogin:start",message:"Admin LINE login button triggered",data:{pathname:typeof window!=="undefined"?window.location.pathname:"ssr"},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     try {
       const { idToken } = await getLiffLoginProof();
       const response = await apiClient.post<LoginResponse>("/v1/auth/login", {
@@ -63,6 +67,9 @@ export default function AdminLoginPage() {
       router.replace("/admin");
       router.refresh();
     } catch (error) {
+      // #region agent log
+      fetch("http://127.0.0.1:7845/ingest/b7de64f7-b8ae-4f59-b51b-2a8d7811e454",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"111446"},body:JSON.stringify({sessionId:"111446",runId:"pre-fix",hypothesisId:"H5",location:"app/admin/login/page.tsx:handleLineLogin:catch",message:"Admin LINE login flow caught error",data:{errorName:error instanceof Error?error.name:"unknown",errorMessage:error instanceof Error?error.message:"non-error"},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       setErrorMessage(getLoginErrorMessage(error));
     } finally {
       setIsSubmitting(false);
@@ -96,6 +103,14 @@ export default function AdminLoginPage() {
         <p className="text-xs leading-5 text-zinc-400">
           僅限已由系統預先建立為 staff/admin 角色的帳號登入。
         </p>
+        <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
+          <Link href="/privacy-policy" className="underline underline-offset-4 hover:text-zinc-800">
+            隱私權政策
+          </Link>
+          <Link href="/terms-of-use" className="underline underline-offset-4 hover:text-zinc-800">
+            使用條款
+          </Link>
+        </div>
       </div>
     </div>
   );
