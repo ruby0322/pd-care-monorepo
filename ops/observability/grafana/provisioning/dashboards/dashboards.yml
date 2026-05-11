@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: pd-care-observability
+    orgId: 1
+    folder: PD Care
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

@@ -14,7 +14,9 @@
     "docker:up": "bash -lc 'if docker compose version >/dev/null 2>&1; then docker compose up --build; else docker-compose down --remove-orphans && docker-compose up --build; fi'",
     "docker:up:frontend": "bash -lc 'if docker compose version >/dev/null 2>&1; then docker compose up --build frontend; else docker-compose down --remove-orphans && docker-compose up --build frontend; fi'",
     "docker:up:backend": "bash -lc 'if docker compose version >/dev/null 2>&1; then docker compose up --build backend; else docker-compose down --remove-orphans && docker-compose up --build backend; fi'",
+    "docker:up:obs": "bash -lc 'if docker compose version >/dev/null 2>&1; then docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build; else docker-compose -f docker-compose.yml -f docker-compose.observability.yml down --remove-orphans && docker-compose -f docker-compose.yml -f docker-compose.observability.yml up --build; fi'",
     "docker:up:gpu": "bash -lc 'if docker compose version >/dev/null 2>&1; then docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build; else docker-compose -f docker-compose.yml -f docker-compose.gpu.yml down --remove-orphans && docker-compose -f docker-compose.yml -f docker-compose.gpu.yml up --build; fi'",
+    "docker:down:obs": "bash -lc 'if docker compose version >/dev/null 2>&1; then docker compose -f docker-compose.yml -f docker-compose.observability.yml down --remove-orphans; else docker-compose -f docker-compose.yml -f docker-compose.observability.yml down --remove-orphans; fi'",
     "docker:down": "bash -lc 'if docker compose version >/dev/null 2>&1; then docker compose down --remove-orphans; else docker-compose down --remove-orphans; fi'"
   },
   "devDependencies": {

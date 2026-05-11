@@ -64,7 +64,16 @@ class StorageService:
             error_code = str(error.get("Code", ""))
             status_code = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
             if error_code in {"404", "NoSuchBucket", "NotFound"} or status_code == 404:
-                self._s3_client.create_bucket(Bucket=self._bucket)
+                try:
+                    self._s3_client.create_bucket(Bucket=self._bucket)
+                except ClientError as create_exc:
+                    create_error = create_exc.response.get("Error", {})
+                    create_code = str(create_error.get("Code", ""))
+                    # Some S3-compatible stores can return NotFound for head_bucket and
+                    # then BucketAlreadyExists for create_bucket on an existing bucket.
+                    if create_code in {"BucketAlreadyExists", "BucketAlreadyOwnedByYou"}:
+                        return
+                    raise
                 return
             raise
 
