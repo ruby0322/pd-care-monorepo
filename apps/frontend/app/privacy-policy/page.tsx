@@ -5,7 +5,12 @@ export default function PrivacyPolicyPage() {
     <main className="min-h-screen bg-white px-6 py-10">
       <div className="mx-auto w-full max-w-3xl space-y-8">
         <header className="space-y-2">
-          <h1 className="text-2xl font-semibold text-zinc-900">隱私權政策</h1>
+          <div className="flex items-center justify-between gap-4">
+            <h1 className="text-2xl font-semibold text-zinc-900">隱私權政策</h1>
+            <Link href="/privacy-policy/en" className="text-sm text-zinc-500 underline underline-offset-4 hover:text-zinc-900">
+              English
+            </Link>
+          </div>
           <p className="text-sm text-zinc-500">PD Care 腹膜透析出口照護系統</p>
         </header>
 
