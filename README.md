@@ -1,8 +1,93 @@
 # PD Care Monorepo
 
-PD Care is a peritoneal dialysis exit-site imaging and infection alert system. This repository contains the patient-facing frontend and the backend inference API used to screen uploaded images and support healthcare review workflows.
+PD Care is a peritoneal dialysis exit-site imaging and infection alert system. This repository contains the patient-facing frontend, backend API/inference services, PostgreSQL metadata storage, and SeaweedFS object-storage services that together power guided capture, AI screening, clinical review, and alert workflows.
 
-## Quick Start
+## Table of Contents
+
+- [1) Functions / Features](#section-1-functions-features)
+- [2) System Architecture](#section-2-system-architecture)
+- [3) Project Startup](#section-3-project-startup)
+
+<a id="section-1-functions-features"></a>
+## 1) Functions / Features
+
+### Product Objective
+
+- Standardize exit-site image capture quality for peritoneal dialysis patients.
+- Provide AI-assisted infection risk alerts while keeping diagnosis and treatment decisions with physicians.
+- Build a reviewable image database for care follow-up and research.
+
+### Role-Based Functions
+
+| Role | Function Scope | Key Requirements |
+|------|----------------|------------------|
+| Patient | Capture images and receive guidance/alerts | Guided UI, alignment prompts, image upload |
+| Healthcare staff | Review image history and model outputs | Filtering/sorting, detail review, manual annotation, follow-up tracking |
+| Backend admin | Operate and maintain platform services | User management, model versioning, data access control |
+
+### Core Workflow Features
+
+- **Patient-side guided capture**
+  - Single-step image capture with on-screen guidance (lighting, exit-site alignment, catheter-line visibility).
+- **Backend validation and AI pipeline**
+  - Preliminary image checks reject low-quality uploads with explicit reasons.
+  - `YOLODetection` stage verifies exit-site and catheter-line targets and supports ROI generation.
+  - `CNNBinaryClassification` stage returns normal vs suspected infection screening output.
+- **Clinical review workflow**
+  - Healthcare staff review upload history, model outputs, rejected reasons, and follow-up status.
+  - Filtered/sorted table workflows and export support operational monitoring.
+- **Follow-up communication**
+  - `LINEAlert` notification channel sends guidance alerts for suspected cases.
+  - Alert messages are assistive only and do not constitute diagnosis.
+
+<a id="section-2-system-architecture"></a>
+## 2) System Architecture
+
+This architecture is aligned with service boundaries and dependencies in `docker-compose.yml`.
+
+### Microservice Topology and Relationships
+
+- `frontend` is the HTTPS entrypoint and depends on a healthy `backend`.
+- `backend` provides API, inference, and workflow logic, and depends on healthy `postgres` and `seaweedfs-s3`.
+- SeaweedFS object storage is composed as:
+  - `seaweedfs-s3 -> seaweedfs-filer -> (seaweedfs-master + seaweedfs-volume)`.
+- Persistence responsibilities:
+  - `postgres` stores structured metadata and workflow records.
+  - SeaweedFS S3-compatible endpoint stores image assets and related binary objects.
+
+```mermaid
+flowchart LR
+    userClient[UserClientBrowserLIFF] --> frontendSvc[frontend]
+    frontendSvc --> backendSvc[backend]
+    backendSvc --> postgresSvc[postgres]
+    backendSvc --> seaweedS3Svc[seaweedfs_s3]
+    seaweedS3Svc --> seaweedFilerSvc[seaweedfs_filer]
+    seaweedFilerSvc --> seaweedMasterSvc[seaweedfs_master]
+    seaweedFilerSvc --> seaweedVolumeSvc[seaweedfs_volume]
+```
+
+### Clinical Inference and Alert Flow
+
+```mermaid
+flowchart TD
+    patientApp[PatientFrontendLIFF] --> apiBackend[BackendAPI]
+    apiBackend --> precheck[ImagePrecheck]
+    precheck --> yoloDetect[YOLODetection]
+    yoloDetect --> cnnClassify[CNNBinaryClassification]
+    cnnClassify --> reviewPortal[HealthcareReviewPortal]
+    cnnClassify --> lineNotify[LINEAlert]
+    reviewPortal --> dataExport[FilteredDataExport]
+```
+
+### Component Planning Focus
+
+- `YOLODetection`: CV pre-classification component for target detection and quality gating.
+- `LINEAlert`: downstream notification component triggered by screening outcomes.
+
+<a id="section-3-project-startup"></a>
+## 3) Project Startup
+
+### Quick Start
 
 Start the frontend and backend together from the repository root:
 
@@ -12,9 +97,7 @@ npm run dev
 
 The root `npm run dev` command starts both servers at the same time and prefixes log lines with color-coded `FRONTEND` and `BACKEND` labels.
 
-For focused development, use the app-specific commands in the `Applications` section below.
-
-## Root Commands
+### Root Commands
 
 ```bash
 npm run dev:frontend
@@ -27,30 +110,7 @@ npm run docker:up
 npm run docker:down
 ```
 
-## Product Overview
-
-### Objective
-
-- Standardize exit-site image capture for peritoneal dialysis patients.
-- Provide AI-assisted infection risk alerts while leaving diagnosis to physicians.
-- Build a reviewable image database for clinical follow-up and research.
-
-### User Roles
-
-| Role | Scope | Key Requirements |
-|------|-------|------------------|
-| Patient | Capture images and receive alerts | Guided camera UI, alignment prompts, image upload |
-| Healthcare staff | Review images and model outputs | Image history, filtering, manual annotation, alert follow-up |
-| Backend admin | Operate the system | User management, model versioning, data access control |
-
-### Workflow
-
-1. Patients capture an image with guidance to keep the exit site aligned, visible, and well lit.
-2. The backend performs upload validation and image screening.
-3. If validation passes, the model returns an infection screening result for staff review.
-4. Staff can review history, annotations, alerts, and exported data in the administrative workflow.
-
-## Repository Layout
+### Repository Layout
 
 ```text
 apps/
@@ -61,9 +121,9 @@ package.json
 README.md
 ```
 
-## Applications
+### Applications
 
-### Frontend
+#### Frontend
 
 The frontend is a Next.js app for patient capture and the broader PD Care web experience.
 
@@ -91,7 +151,7 @@ npm install
 npm run dev
 ```
 
-### Backend
+#### Backend
 
 The backend is a FastAPI inference service that serves the production PyTorch checkpoint and exposes screening endpoints.
 
@@ -126,7 +186,7 @@ Important backend environment variables:
 - `MODEL_BACKBONE`: fallback backbone for `state_dict` reconstruction
 - `MODEL_ARCH`: fallback architecture when `MODEL_BACKBONE=none`
 
-## Docker Compose
+### Docker Compose
 
 The root `docker-compose.yml` starts:
 
@@ -194,16 +254,16 @@ That override expects:
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) must be configured
 - Docker Compose must be able to launch the service with the NVIDIA runtime
 
-## Backend API
+### Backend API
 
-### Health Endpoints
+#### Health Endpoints
 
 ```bash
 curl http://127.0.0.1:8000/healthz
 curl http://127.0.0.1:8000/readyz
 ```
 
-### Predict
+#### Predict
 
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/predict \
@@ -231,7 +291,7 @@ Example response shape:
 }
 ```
 
-## Model Notes
+### Model Notes
 
 The backend is designed around the current production checkpoint and training setup:
 
@@ -241,7 +301,7 @@ The backend is designed around the current production checkpoint and training se
 
 If a future checkpoint is exported as a plain `state_dict`, set `MODEL_BACKBONE` and related fallback environment variables correctly so the service can reconstruct the model before loading weights.
 
-## Sources
+### Sources
 
 - [Training repository](https://github.com/ruby0322/ntuh-pd-exit-site-classification)
 - [Model repository](https://huggingface.co/ruby0322/pd-exit-site-classification)
