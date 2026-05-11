@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, ClipboardCheck, LayoutDashboard } from "lucide-react";
+import { Activity, ChartNoAxesCombined, ClipboardCheck, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -78,17 +78,36 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <nav className="flex flex-col gap-1">
             <Link
               href="/admin"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors text-sm"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
             >
               <LayoutDashboard className="w-4 h-4" strokeWidth={1.5} />
               儀表板
             </Link>
             <Link
               href="/admin/review"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors text-sm"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/review"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
             >
               <ClipboardCheck className="w-4 h-4" strokeWidth={1.5} />
               快速審核
+            </Link>
+            <Link
+              href="/admin/monitoring"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/monitoring"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <ChartNoAxesCombined className="w-4 h-4" strokeWidth={1.5} />
+              監控中心
             </Link>
           </nav>
 

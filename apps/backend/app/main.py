@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.errors import register_exception_handlers
 from app.api.router import api_router
@@ -109,6 +110,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
     register_exception_handlers(app)
     app.include_router(api_router)
 
