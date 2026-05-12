@@ -4,19 +4,47 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, ChevronRight, RefreshCw } from "lucide-react";
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
+import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getReadableApiError } from "@/lib/api/client";
-import { createStaffPatient, fetchStaffPatients, StaffPatientSummary, updateStaffPatientStatus } from "@/lib/api/staff";
+import {
+  createStaffPatient,
+  fetchAdminAgeHistogram,
+  fetchAdminGenderDistribution,
+  fetchStaffMe,
+  fetchStaffPatients,
+  StaffPatientSummary,
+  updateStaffPatientStatus,
+} from "@/lib/api/staff";
 
 type ActiveFilter = "all" | "active" | "inactive";
+
+const GENDER_LABELS: Record<string, string> = {
+  male: "男性",
+  female: "女性",
+  other: "其他",
+  unknown: "未填寫",
+};
+
+const GENDER_COLORS: Record<string, string> = {
+  male: "#2563eb",
+  female: "#db2777",
+  other: "#7c3aed",
+  unknown: "#71717a",
+};
 
 export default function AdminPatientsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [genderDistribution, setGenderDistribution] = useState<{ gender: string; count: number }[]>([]);
+  const [ageHistogram, setAgeHistogram] = useState<{ label: string; count: number }[]>([]);
   const [patients, setPatients] = useState<StaffPatientSummary[]>([]);
   const [keyword, setKeyword] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -53,6 +81,36 @@ export default function AdminPatientsPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadPatients]);
+
+  const loadAnalytics = useCallback(async () => {
+    setAnalyticsError(null);
+    try {
+      const me = await fetchStaffMe();
+      if (me.role !== "admin") {
+        setIsAdmin(false);
+        setGenderDistribution([]);
+        setAgeHistogram([]);
+        return;
+      }
+      setIsAdmin(true);
+      const [genderData, ageData] = await Promise.all([
+        fetchAdminGenderDistribution(),
+        fetchAdminAgeHistogram({ bucketSize: 10 }),
+      ]);
+      setGenderDistribution(genderData.items);
+      setAgeHistogram(ageData.items.map((item) => ({ label: item.label, count: item.count })));
+    } catch (requestError) {
+      setIsAdmin(false);
+      setAnalyticsError(getReadableApiError(requestError));
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadAnalytics();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadAnalytics]);
 
   async function togglePatientStatus(patient: StaffPatientSummary) {
     setWorkingPatientId(patient.patient_id);
@@ -113,6 +171,25 @@ export default function AdminPatientsPage() {
       );
     });
   }, [keyword, patients]);
+
+  const genderChartData = useMemo(
+    () =>
+      genderDistribution.map((item) => ({
+        gender: item.gender,
+        label: GENDER_LABELS[item.gender] ?? item.gender,
+        count: item.count,
+        fill: GENDER_COLORS[item.gender] ?? "#52525b",
+      })),
+    [genderDistribution]
+  );
+
+  const genderChartConfig: ChartConfig = {
+    male: { label: "男性", color: GENDER_COLORS.male },
+    female: { label: "女性", color: GENDER_COLORS.female },
+    other: { label: "其他", color: GENDER_COLORS.other },
+    unknown: { label: "未填寫", color: GENDER_COLORS.unknown },
+    count: { label: "人數" },
+  };
 
   const columns: ColumnDef<StaffPatientSummary>[] = [
       {
@@ -263,6 +340,48 @@ export default function AdminPatientsPage() {
       </header>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      {analyticsError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{analyticsError}</div>
+      ) : null}
+
+      {isAdmin ? (
+        <section className="flex flex-col gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900">病患族群圖表</h2>
+            <p className="text-xs text-zinc-500">性別長條圖與年齡直方圖</p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-zinc-900">性別長條圖</h3>
+              <ChartContainer className="h-64 w-full" config={genderChartConfig}>
+                <BarChart data={genderChartData}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" radius={6}>
+                    {genderChartData.map((item) => (
+                      <Cell key={item.gender} fill={item.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ChartContainer>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-zinc-900">年齡直方圖</h3>
+              <ChartContainer className="h-64 w-full" config={{ count: { label: "人數", color: "#2563eb" } }}>
+                <BarChart data={ageHistogram}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" fill="#2563eb" radius={4} />
+                </BarChart>
+              </ChartContainer>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {isCreateOpen ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
