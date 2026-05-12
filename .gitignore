@@ -26,3 +26,5 @@ apps/backend/.env
 
 __pycache__/
 **/__pycache__/
+
+pd_care.db

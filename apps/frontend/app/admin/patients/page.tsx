@@ -1,9 +1,9 @@
 "use client";
 
+import { flexRender, getCoreRowModel, getSortedRowModel, useReactTable, type ColumnDef, type SortingState } from "@tanstack/react-table";
+import { ArrowUpDown, ChevronRight, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowUpDown, ChevronRight, RefreshCw } from "lucide-react";
-import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -346,10 +346,6 @@ export default function AdminPatientsPage() {
 
       {isAdmin ? (
         <section className="flex flex-col gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-900">病患族群圖表</h2>
-            <p className="text-xs text-zinc-500">性別長條圖與年齡直方圖</p>
-          </div>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-zinc-900">性別長條圖</h3>
