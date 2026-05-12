@@ -43,7 +43,7 @@ import {
   StaffUploadQueueItem,
 } from "@/lib/api/staff";
 
-const PERIOD_OPTIONS = [1, 2, 3, 6, 12, 24, 36, 60] as const;
+const PERIOD_OPTIONS = ["today", 1, 2, 3, 6, 12, 24, 36, 60] as const;
 type Period = (typeof PERIOD_OPTIONS)[number];
 type InfectionStatus = "all" | "suspected" | "normal";
 
@@ -82,7 +82,7 @@ function exportCSV(items: StaffPatientSummary[]) {
 }
 
 export default function AdminDashboard() {
-  const [months, setMonths] = useState<Period>(12);
+  const [months, setMonths] = useState<Period>("today");
   const [ageMin, setAgeMin] = useState("");
   const [ageMax, setAgeMax] = useState("");
   const [infectionStatus, setInfectionStatus] = useState<InfectionStatus>("all");
@@ -115,6 +115,7 @@ export default function AdminDashboard() {
   >([]);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const { notifications, unreadCount, markNotificationRead, markingIds, error: notificationError } = useAdminNotifications();
+  const queryMonths = months === "today" ? 1 : months;
 
   useEffect(() => {
     let cancelled = false;
@@ -123,7 +124,7 @@ export default function AdminDashboard() {
       try {
         const [patientsData, queueData, pendingData] = await Promise.all([
           fetchStaffPatients({
-            months,
+            months: queryMonths,
             ageMin: ageMin ? Number(ageMin) : undefined,
             ageMax: ageMax ? Number(ageMax) : undefined,
             infectionStatus,
@@ -155,7 +156,7 @@ export default function AdminDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [ageMax, ageMin, infectionStatus, months]);
+  }, [ageMax, ageMin, infectionStatus, queryMonths]);
 
   useEffect(() => {
     let cancelled = false;
@@ -367,7 +368,7 @@ export default function AdminDashboard() {
                 months === option ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-zinc-800"
               )}
             >
-              {option}月
+              {option === "today" ? "今日" : `${option}月`}
             </button>
           ))}
         </div>
@@ -444,7 +445,12 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 order-2">
         {[
           { icon: Users, label: "篩選病患數", value: stats.totalPatients, color: "zinc" },
-          { icon: Upload, label: `${months} 月上傳次數`, value: stats.totalUploads, color: "zinc" },
+          {
+            icon: Upload,
+            label: months === "today" ? "今日上傳次數" : `${months} 月上傳次數`,
+            value: months === "today" ? (todaySummary?.total_uploads ?? stats.totalUploads) : stats.totalUploads,
+            color: "zinc",
+          },
           { icon: AlertTriangle, label: "疑似感染人數", value: stats.suspectedPatients, color: "red" },
         ].map(({ icon: Icon, label, value, color }) => (
           <div key={label} className="bg-white border border-zinc-100 rounded-2xl p-5 flex flex-col gap-3">
