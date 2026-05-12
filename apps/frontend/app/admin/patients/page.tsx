@@ -1,11 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ChevronRight, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowUpDown, ChevronRight, RefreshCw } from "lucide-react";
+import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
+import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getReadableApiError } from "@/lib/api/client";
-import { fetchStaffPatients, StaffPatientSummary, updateStaffPatientStatus } from "@/lib/api/staff";
+import { createStaffPatient, fetchStaffPatients, StaffPatientSummary, updateStaffPatientStatus } from "@/lib/api/staff";
 
 type ActiveFilter = "all" | "active" | "inactive";
 
@@ -14,10 +19,16 @@ export default function AdminPatientsPage() {
   const [error, setError] = useState<string | null>(null);
   const [patients, setPatients] = useState<StaffPatientSummary[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [sorting, setSorting] = useState<SortingState>([]);
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("all");
   const [workingPatientId, setWorkingPatientId] = useState<number | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newCaseNumber, setNewCaseNumber] = useState("");
+  const [newBirthDate, setNewBirthDate] = useState("");
+  const [newFullName, setNewFullName] = useState("");
 
-  async function loadPatients() {
+  const loadPatients = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -34,31 +45,203 @@ export default function AdminPatientsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [activeFilter]);
 
   useEffect(() => {
-    void loadPatients();
-  }, [activeFilter]);
+    const timer = window.setTimeout(() => {
+      void loadPatients();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadPatients]);
 
   async function togglePatientStatus(patient: StaffPatientSummary) {
     setWorkingPatientId(patient.patient_id);
-    setError(null);
     try {
       await updateStaffPatientStatus(patient.patient_id, { is_active: !patient.is_active });
       await loadPatients();
+      toast.success(patient.is_active ? "已停權病患" : "已恢復病患");
     } catch (requestError) {
-      setError(getReadableApiError(requestError));
+      toast.error(getReadableApiError(requestError));
     } finally {
       setWorkingPatientId(null);
     }
   }
 
-  const filtered = patients.filter((item) => {
+  async function handleCreatePatient() {
+    const caseNumber = newCaseNumber.trim();
+    const birthDate = newBirthDate.trim();
+    const fullName = newFullName.trim();
+    if (!caseNumber || !birthDate || !fullName) {
+      toast.error("請完整填寫病例號、生日與姓名。");
+      return;
+    }
+    setCreating(true);
+    try {
+      await createStaffPatient({
+        case_number: caseNumber,
+        birth_date: birthDate,
+        full_name: fullName,
+      });
+      setNewCaseNumber("");
+      setNewBirthDate("");
+      setNewFullName("");
+      setIsCreateOpen(false);
+      await loadPatients();
+      toast.success("已建立病患資料");
+    } catch (requestError) {
+      const message = getReadableApiError(requestError);
+      if (message.includes("same case number and birth date already exists")) {
+        toast.error("病例號與生日已存在，請改用現有病患資料。");
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const filtered = useMemo(() => {
     if (!keyword.trim()) {
-      return true;
+      return patients;
     }
     const key = keyword.trim().toLowerCase();
-    return (item.full_name ?? "").toLowerCase().includes(key) || item.case_number.toLowerCase().includes(key);
+    return patients.filter((item) => {
+      return (
+        (item.full_name ?? "").toLowerCase().includes(key) ||
+        (item.line_display_name ?? "").toLowerCase().includes(key) ||
+        item.case_number.toLowerCase().includes(key)
+      );
+    });
+  }, [keyword, patients]);
+
+  const columns: ColumnDef<StaffPatientSummary>[] = [
+      {
+        accessorKey: "case_number",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            病例號
+            <ArrowUpDown className="h-3.5 w-3.5" />
+          </button>
+        ),
+        cell: ({ row }) => <span className="font-mono text-zinc-700">{row.original.case_number}</span>,
+      },
+      {
+        accessorKey: "full_name",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            姓名
+            <ArrowUpDown className="h-3.5 w-3.5" />
+          </button>
+        ),
+        cell: ({ row }) => <span className="text-zinc-900">{row.original.full_name ?? "未命名"}</span>,
+      },
+      {
+        accessorKey: "line_display_name",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            LINE 名稱
+            <ArrowUpDown className="h-3.5 w-3.5" />
+          </button>
+        ),
+        cell: ({ row }) => row.original.line_display_name ?? "-",
+      },
+      {
+        accessorKey: "age",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            年齡
+            <ArrowUpDown className="h-3.5 w-3.5" />
+          </button>
+        ),
+        cell: ({ row }) => row.original.age ?? "-",
+      },
+      {
+        accessorKey: "upload_count",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            上傳次數
+            <ArrowUpDown className="h-3.5 w-3.5" />
+          </button>
+        ),
+      },
+      {
+        accessorKey: "is_active",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            狀態
+            <ArrowUpDown className="h-3.5 w-3.5" />
+          </button>
+        ),
+        cell: ({ row }) => (
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${
+              row.original.is_active ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-700"
+            }`}
+          >
+            {row.original.is_active ? "啟用中" : "停權"}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: () => <span className="text-xs font-medium text-zinc-500">操作</span>,
+        cell: ({ row }) => {
+          const patient = row.original;
+          return (
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void togglePatientStatus(patient)}
+                disabled={workingPatientId === patient.patient_id}
+              >
+                {patient.is_active ? "停權" : "恢復"}
+              </Button>
+              <Link
+                href={`/admin/patients/${patient.patient_id}`}
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 transition-colors hover:bg-zinc-50"
+              >
+                詳情
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          );
+        },
+      },
+  ];
+
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data: filtered,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   });
 
   return (
@@ -66,26 +249,44 @@ export default function AdminPatientsPage() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-zinc-900">病患管理</h1>
-          <p className="text-xs text-zinc-500">列表、搜尋、停權/恢復與病患詳情</p>
+          <p className="text-xs text-zinc-500">列表、搜尋、預建檔、停權/恢復與病患詳情</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void loadPatients()}
-          className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-        >
-          <RefreshCw className="h-4 w-4" />
-          重新整理
-        </button>
+        <div className="flex items-center gap-2">
+          <Button type="button" onClick={() => setIsCreateOpen((current) => !current)} variant="outline">
+            {isCreateOpen ? "取消新增" : "新增病患"}
+          </Button>
+          <Button type="button" onClick={() => void loadPatients()} variant="outline">
+            <RefreshCw className="h-4 w-4" />
+            重新整理
+          </Button>
+        </div>
       </header>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
+      {isCreateOpen ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+          <h2 className="text-sm font-medium text-zinc-900">預先建立病患資料</h2>
+          <p className="mt-1 text-xs text-zinc-500">建立後，尚未綁定的用戶輸入相同病例號與生日即可直接使用。</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <Input value={newCaseNumber} onChange={(event) => setNewCaseNumber(event.target.value)} placeholder="病例號" />
+            <Input type="date" value={newBirthDate} onChange={(event) => setNewBirthDate(event.target.value)} />
+            <Input value={newFullName} onChange={(event) => setNewFullName(event.target.value)} placeholder="姓名" />
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button type="button" onClick={() => void handleCreatePatient()} disabled={creating}>
+              {creating ? "建立中..." : "建立病患"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2">
-        <input
+        <Input
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
-          className="w-56 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-          placeholder="搜尋姓名/病例號"
+          className="w-56"
+          placeholder="搜尋姓名 / LINE 名稱 / 病例號"
         />
         <select
           value={activeFilter}
@@ -99,70 +300,47 @@ export default function AdminPatientsPage() {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-zinc-50">
-              <th className="px-4 py-3 text-left text-xs text-zinc-500">病例號</th>
-              <th className="px-4 py-3 text-left text-xs text-zinc-500">姓名</th>
-              <th className="px-4 py-3 text-left text-xs text-zinc-500">年齡</th>
-              <th className="px-4 py-3 text-left text-xs text-zinc-500">上傳次數</th>
-              <th className="px-4 py-3 text-left text-xs text-zinc-500">狀態</th>
-              <th className="px-4 py-3 text-right text-xs text-zinc-500">操作</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100">
+        <Table>
+          <TableHeader className="bg-zinc-50">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id} className="hover:bg-zinc-50">
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id} className={header.id === "actions" ? "text-right" : undefined}>
+                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
             {loading ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-zinc-500">
+              <TableRow>
+                <TableCell colSpan={7} className="py-8 text-center text-sm text-zinc-500">
                   載入中...
-                </td>
-              </tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-zinc-500">
+                </TableCell>
+              </TableRow>
+            ) : table.getRowModel().rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="py-8 text-center text-sm text-zinc-500">
                   找不到符合條件的病患
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ) : (
-              filtered.map((patient) => (
-                <tr key={patient.patient_id}>
-                  <td className="px-4 py-3 text-sm font-mono text-zinc-700">{patient.case_number}</td>
-                  <td className="px-4 py-3 text-sm text-zinc-900">{patient.full_name ?? "未命名"}</td>
-                  <td className="px-4 py-3 text-sm text-zinc-700">{patient.age ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-zinc-700">{patient.upload_count}</td>
-                  <td className="px-4 py-3 text-sm">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs ${
-                        patient.is_active ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-700"
-                      }`}
-                    >
-                      {patient.is_active ? "啟用中" : "停權"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void togglePatientStatus(patient)}
-                        disabled={workingPatientId === patient.patient_id}
-                        className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                      >
-                        {patient.is_active ? "停權" : "恢復"}
-                      </button>
-                      <Link
-                        href={`/admin/patients/${patient.patient_id}`}
-                        className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
-                      >
-                        詳情
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id} className={cell.column.id === "actions" ? "text-right" : undefined}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
               ))
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
+        <div className="border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
+          顯示 {table.getRowModel().rows.length} / {patients.length} 位病患
+        </div>
       </div>
     </div>
   );

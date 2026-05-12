@@ -312,6 +312,91 @@ def test_staff_can_create_patient_and_link_pending_binding(tmp_path: Path) -> No
         assert isinstance(response.json()["patient_id"], int)
 
 
+def test_staff_and_admin_can_precreate_patient_record(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-precreate-patient.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_STAFF_CREATE")
+        _seed_staff(client, line_user_id="U_ADMIN_CREATE", role="admin")
+
+        staff_token = _login_staff_token(client, "U_STAFF_CREATE")
+        staff_headers = {"Authorization": f"Bearer {staff_token}"}
+        staff_response = client.post(
+            "/v1/staff/patients",
+            headers=staff_headers,
+            json={"case_number": "PRE001", "birth_date": "1985-05-05", "full_name": "Pre Created Staff"},
+        )
+        assert staff_response.status_code == 200
+        assert staff_response.json()["case_number"] == "PRE001"
+        assert staff_response.json()["birth_date"] == "1985-05-05"
+        assert staff_response.json()["is_active"] is True
+
+        admin_token = _login_staff_token(client, "U_ADMIN_CREATE")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        admin_response = client.post(
+            "/v1/staff/patients",
+            headers=admin_headers,
+            json={"case_number": "PRE002", "birth_date": "1986-06-06", "full_name": "Pre Created Admin"},
+        )
+        assert admin_response.status_code == 200
+        assert admin_response.json()["case_number"] == "PRE002"
+        assert admin_response.json()["birth_date"] == "1986-06-06"
+        assert admin_response.json()["is_active"] is True
+
+
+def test_precreate_patient_rejects_duplicate_case_birth(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-precreate-duplicate.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        first_response = client.post(
+            "/v1/staff/patients",
+            headers=headers,
+            json={"case_number": "PRE003", "birth_date": "1987-07-07", "full_name": "First Name"},
+        )
+        assert first_response.status_code == 200
+
+        duplicate_response = client.post(
+            "/v1/staff/patients",
+            headers=headers,
+            json={"case_number": "PRE003", "birth_date": "1987-07-07", "full_name": "Second Name"},
+        )
+        assert duplicate_response.status_code == 409
+        assert "already exists" in duplicate_response.json()["detail"]
+
+
+def test_precreated_patient_can_match_identity_without_review(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-precreate-bind-match.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+        create_response = client.post(
+            "/v1/staff/patients",
+            headers=headers,
+            json={"case_number": "PRE004", "birth_date": "1988-08-08", "full_name": "Pre Bound Patient"},
+        )
+        assert create_response.status_code == 200
+
+        bind_response = client.post(
+            "/v1/identity/bind",
+            json={
+                "line_user_id": "U_PRECREATE_MATCH",
+                "display_name": "Line User",
+                "picture_url": "https://example.com/match.jpg",
+                "case_number": "PRE004",
+                "birth_date": "1988-08-08",
+            },
+        )
+        assert bind_response.status_code == 200
+        assert bind_response.json()["status"] == "matched"
+        assert bind_response.json()["can_upload"] is True
+
+
 def test_staff_can_list_notifications_newest_first(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-notifications-list.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

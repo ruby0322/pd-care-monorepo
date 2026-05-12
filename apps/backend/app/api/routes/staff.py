@@ -18,6 +18,8 @@ from app.schemas.staff_dashboard import (
     StaffAnnotationItem,
     StaffAnnotationListResponse,
     StaffAnnotationUpsertRequest,
+    StaffPatientCreateRequest,
+    StaffPatientCreateResponse,
     StaffNotificationItem,
     StaffNotificationListResponse,
     StaffPatientDetailResponse,
@@ -58,7 +60,9 @@ from app.services.notifications import (
 )
 from app.services.staff_dashboard import (
     calculate_age,
+    create_patient_record,
     create_patient_and_link_pending_binding,
+    DuplicatePatientError,
     ensure_staff_assignment,
     link_pending_binding,
     list_assigned_patient_ids,
@@ -401,6 +405,42 @@ async def mark_staff_notification_as_read(
         session.close()
 
 
+@router.post("/v1/staff/patients", response_model=StaffPatientCreateResponse)
+async def create_staff_patient(
+    request: Request,
+    payload: StaffPatientCreateRequest,
+    credentials=Depends(bearer_scheme),
+) -> StaffPatientCreateResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            patient = create_patient_record(
+                session,
+                case_number=payload.case_number,
+                birth_date=payload.birth_date,
+                full_name=payload.full_name,
+            )
+            if principal.role == "staff":
+                ensure_staff_assignment(
+                    session,
+                    staff_identity_id=principal.identity_id,
+                    patient_id=patient.id,
+                )
+                session.commit()
+        except DuplicatePatientError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return StaffPatientCreateResponse(
+            patient_id=patient.id,
+            case_number=patient.case_number,
+            birth_date=patient.birth_date,
+            full_name=patient.full_name,
+            is_active=patient.is_active,
+        )
+    finally:
+        session.close()
+
+
 @router.get("/v1/staff/patients", response_model=StaffPatientListResponse)
 async def get_staff_patients(
     request: Request,
@@ -447,6 +487,7 @@ async def get_staff_patients(
                 patient_id=row.patient.id,
                 case_number=row.patient.case_number,
                 full_name=row.patient.full_name,
+                line_display_name=row.line_display_name,
                 line_user_id=row.line_user_id,
                 age=calculate_age(row.patient.birth_date),
                 upload_count=row.upload_count,
@@ -487,16 +528,17 @@ async def get_staff_patient_detail(
         )
 
         uploads = list_patient_upload_records(session, patient_id=patient_id)
-        line_user_id = session.execute(
-            select(LiffIdentity.line_user_id).where(LiffIdentity.patient_id == patient_id).limit(1)
-        ).scalars().first()
+        line_identity = session.execute(
+            select(LiffIdentity.display_name, LiffIdentity.line_user_id).where(LiffIdentity.patient_id == patient_id).limit(1)
+        ).first()
         return StaffPatientDetailResponse(
             patient_id=patient.id,
             case_number=patient.case_number,
             full_name=patient.full_name,
             birth_date=patient.birth_date,
             age=calculate_age(patient.birth_date),
-            line_user_id=line_user_id,
+            line_display_name=line_identity[0] if line_identity else None,
+            line_user_id=line_identity[1] if line_identity else None,
             is_active=patient.is_active,
             total_uploads=len(uploads),
             suspected_uploads=sum(1 for _, ai_result, _ in uploads if ai_result.screening_result == "suspected"),
@@ -912,6 +954,7 @@ async def update_staff_patient_status(
             patient_id=picked.patient.id,
             case_number=picked.patient.case_number,
             full_name=picked.patient.full_name,
+            line_display_name=picked.line_display_name,
             line_user_id=picked.line_user_id,
             age=calculate_age(picked.patient.birth_date),
             upload_count=picked.upload_count,

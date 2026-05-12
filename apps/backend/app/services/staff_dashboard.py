@@ -4,10 +4,15 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, PendingBinding, StaffPatientAssignment, Upload
+
+
+class DuplicatePatientError(ValueError):
+    pass
 
 
 def _parse_birth_date(raw: str) -> datetime | None:
@@ -31,6 +36,7 @@ def calculate_age(birth_date: str) -> int | None:
 @dataclass
 class StaffPatientRow:
     patient: Patient
+    line_display_name: str | None
     line_user_id: str | None
     upload_count: int
     suspected_count: int
@@ -84,10 +90,10 @@ def list_staff_patients(
         patient_query = patient_query.where(Patient.id.in_(accessible_patient_ids))
     patients = session.execute(patient_query).scalars().all()
     identities = session.execute(select(LiffIdentity).where(LiffIdentity.patient_id.is_not(None))).scalars().all()
-    line_by_patient: dict[int, str] = {}
+    line_identity_by_patient: dict[int, tuple[str | None, str]] = {}
     for identity in identities:
-        if identity.patient_id is not None and identity.patient_id not in line_by_patient:
-            line_by_patient[identity.patient_id] = identity.line_user_id
+        if identity.patient_id is not None and identity.patient_id not in line_identity_by_patient:
+            line_identity_by_patient[identity.patient_id] = (identity.display_name, identity.line_user_id)
 
     uploads = session.execute(
         select(Upload, AIResult)
@@ -122,10 +128,12 @@ def list_staff_patients(
         if infection_status == "normal" and suspected_count > 0:
             continue
 
+        identity_info = line_identity_by_patient.get(patient.id)
         rows.append(
             StaffPatientRow(
                 patient=patient,
-                line_user_id=line_by_patient.get(patient.id),
+                line_display_name=identity_info[0] if identity_info else None,
+                line_user_id=identity_info[1] if identity_info else None,
                 upload_count=upload_count,
                 suspected_count=suspected_count,
                 latest_upload_at=patient_metric["latest_upload_at"],
@@ -326,5 +334,28 @@ def update_patient_active_status(session: Session, *, patient_id: int, is_active
         raise LookupError("Patient not found")
     patient.is_active = is_active
     session.commit()
+    session.refresh(patient)
+    return patient
+
+
+def create_patient_record(
+    session: Session,
+    *,
+    case_number: str,
+    birth_date: str,
+    full_name: str,
+) -> Patient:
+    patient = Patient(
+        case_number=case_number.strip(),
+        birth_date=birth_date.strip(),
+        full_name=full_name.strip(),
+        is_active=True,
+    )
+    session.add(patient)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise DuplicatePatientError("Patient with the same case number and birth date already exists") from exc
     session.refresh(patient)
     return patient
