@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import AIResult, LiffIdentity, Notification, Patient, PendingBinding, Upload
+from app.db.models import AIResult, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
 
@@ -50,19 +50,20 @@ def make_settings(db_path: Path) -> Settings:
     )
 
 
-def _seed_staff(client: TestClient, *, line_user_id: str = "U_STAFF", role: str = "staff") -> None:
+def _seed_staff(client: TestClient, *, line_user_id: str = "U_STAFF", role: str = "staff") -> int:
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
-        session.add(
-            LiffIdentity(
-                line_user_id=line_user_id,
-                display_name="Staff",
-                picture_url=None,
-                patient_id=None,
-                role=role,
-            )
+        staff_identity = LiffIdentity(
+            line_user_id=line_user_id,
+            display_name="Staff",
+            picture_url=None,
+            patient_id=None,
+            role=role,
         )
+        session.add(staff_identity)
         session.commit()
+        session.refresh(staff_identity)
+        return staff_identity.id
 
 
 def _seed_patient_with_uploads(client: TestClient) -> int:
@@ -105,6 +106,13 @@ def _seed_patient_with_uploads(client: TestClient) -> int:
         return patient.id
 
 
+def _assign_staff_patient(client: TestClient, *, staff_identity_id: int, patient_id: int) -> None:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        session.add(StaffPatientAssignment(staff_identity_id=staff_identity_id, patient_id=patient_id))
+        session.commit()
+
+
 def _seed_pending_binding(client: TestClient) -> int:
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
@@ -120,7 +128,7 @@ def _seed_pending_binding(client: TestClient) -> int:
         return pending.id
 
 
-def _seed_notifications_for_patient(client: TestClient) -> tuple[int, int]:
+def _seed_notifications_for_patient(client: TestClient) -> tuple[int, int, int]:
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
         patient = Patient(case_number="P778899", birth_date="1979-08-01", full_name="Patient Notify", is_active=True)
@@ -174,7 +182,7 @@ def _seed_notifications_for_patient(client: TestClient) -> tuple[int, int]:
             ]
         )
         session.commit()
-        return newer_ai.id, newer_upload.id
+        return patient.id, newer_ai.id, newer_upload.id
 
 
 def _login_staff_token(client: TestClient, line_user_id: str = "U_STAFF") -> str:
@@ -201,8 +209,9 @@ def test_staff_patient_list_and_queue_are_accessible(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-list.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_staff(client)
-        _seed_patient_with_uploads(client)
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
         token = _login_staff_token(client)
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -220,8 +229,9 @@ def test_patient_token_is_denied_for_staff_dashboard_endpoints(tmp_path: Path) -
     settings = make_settings(tmp_path / "staff-dashboard-denied.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_staff(client)
-        _seed_patient_with_uploads(client)
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
         token = _issue_patient_token(client)
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -233,8 +243,9 @@ def test_staff_can_upsert_annotation(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-annotation.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_staff(client)
+        staff_identity_id = _seed_staff(client)
         patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
         token = _login_staff_token(client)
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -257,8 +268,9 @@ def test_staff_can_link_and_reject_pending_bindings(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-pending.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_staff(client)
+        staff_identity_id = _seed_staff(client)
         patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
         pending_id = _seed_pending_binding(client)
         token = _login_staff_token(client)
         headers = {"Authorization": f"Bearer {token}"}
@@ -281,12 +293,32 @@ def test_staff_can_link_and_reject_pending_bindings(tmp_path: Path) -> None:
         assert reject_response.json()["status"] == "rejected"
 
 
+def test_staff_can_create_patient_and_link_pending_binding(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-create-and-link.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client)
+        pending_id = _seed_pending_binding(client)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.post(
+            f"/v1/staff/pending-bindings/{pending_id}/create-patient",
+            headers=headers,
+            json={"full_name": "New Pending Patient"},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "approved"
+        assert isinstance(response.json()["patient_id"], int)
+
+
 def test_staff_can_list_notifications_newest_first(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-notifications-list.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_staff(client)
-        _seed_notifications_for_patient(client)
+        staff_identity_id = _seed_staff(client)
+        patient_id, _, _ = _seed_notifications_for_patient(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
         token = _login_staff_token(client)
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -304,8 +336,9 @@ def test_staff_can_mark_single_notification_as_read_without_changing_ai_result(t
     settings = make_settings(tmp_path / "staff-dashboard-notifications-read.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_staff(client)
-        ai_result_id, _ = _seed_notifications_for_patient(client)
+        staff_identity_id = _seed_staff(client)
+        patient_id, ai_result_id, _ = _seed_notifications_for_patient(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
         token = _login_staff_token(client)
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -333,9 +366,11 @@ def test_patient_token_is_denied_for_notification_endpoints(tmp_path: Path) -> N
     settings = make_settings(tmp_path / "staff-dashboard-notifications-rbac.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_staff(client)
-        _seed_patient_with_uploads(client)
-        _seed_notifications_for_patient(client)
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        notify_patient_id, _, _ = _seed_notifications_for_patient(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=notify_patient_id)
         token = _issue_patient_token(client)
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -344,3 +379,43 @@ def test_patient_token_is_denied_for_notification_endpoints(tmp_path: Path) -> N
 
         mark_response = client.post("/v1/staff/notifications/1/read", headers=headers)
         assert mark_response.status_code == 403
+
+
+def test_staff_cannot_access_unassigned_patient_detail(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-unassigned-forbidden.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client)
+        patient_id = _seed_patient_with_uploads(client)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        detail = client.get(f"/v1/staff/patients/{patient_id}", headers=headers)
+        assert detail.status_code == 403
+
+
+def test_staff_can_toggle_assigned_patient_status(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-toggle-status.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        disable_response = client.post(
+            f"/v1/staff/patients/{patient_id}/status",
+            headers=headers,
+            json={"is_active": False},
+        )
+        assert disable_response.status_code == 200
+        assert disable_response.json()["is_active"] is False
+
+        restore_response = client.post(
+            f"/v1/staff/patients/{patient_id}/status",
+            headers=headers,
+            json={"is_active": True},
+        )
+        assert restore_response.status_code == 200
+        assert restore_response.json()["is_active"] is True

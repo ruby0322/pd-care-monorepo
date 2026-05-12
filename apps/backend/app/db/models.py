@@ -30,6 +30,7 @@ class LiffIdentity(Base):
     picture_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="patient")
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -42,6 +43,19 @@ class PendingBinding(Base):
     birth_date: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class StaffPatientAssignment(Base):
+    __tablename__ = "staff_patient_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    staff_identity_id: Mapped[int] = mapped_column(
+        ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (UniqueConstraint("staff_identity_id", "patient_id", name="uq_staff_patient_assignment"),)
 
 
 class Upload(Base):
@@ -89,4 +103,35 @@ class Annotation(Base):
     reviewer_identity_id: Mapped[int] = mapped_column(ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=False)
     label: Mapped[str] = mapped_column(String(64), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class HealthcareAccessRequest(Base):
+    __tablename__ = "healthcare_access_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requester_identity_id: Mapped[int] = mapped_column(
+        ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decision_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    decided_by_identity_id: Mapped[int | None] = mapped_column(
+        ForeignKey("liff_identities.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AuthorizationAuditEvent(Base):
+    __tablename__ = "authorization_audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    actor_identity_id: Mapped[int] = mapped_column(ForeignKey("liff_identities.id", ondelete="SET NULL"), nullable=True)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_identity_id: Mapped[int] = mapped_column(ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    before_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

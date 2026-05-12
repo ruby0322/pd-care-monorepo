@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, ChartNoAxesCombined, ClipboardCheck, LayoutDashboard } from "lucide-react";
+import { Activity, ChartNoAxesCombined, ClipboardCheck, Hospital, LayoutDashboard, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -108,6 +108,28 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               <ChartNoAxesCombined className="w-4 h-4" strokeWidth={1.5} />
               監控中心
+            </Link>
+            <Link
+              href="/admin/patients"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/patients" || pathname.startsWith("/admin/patients/")
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <Hospital className="w-4 h-4" strokeWidth={1.5} />
+              病患管理
+            </Link>
+            <Link
+              href="/admin/users"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/users"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <Users className="w-4 h-4" strokeWidth={1.5} />
+              用戶管理
             </Link>
           </nav>
 

@@ -15,6 +15,7 @@ class StaffPatientSummary(BaseModel):
     upload_count: int
     suspected_count: int
     latest_upload_at: datetime | None
+    is_active: bool
 
 
 class StaffPatientListResponse(BaseModel):
@@ -44,6 +45,7 @@ class StaffPatientDetailResponse(BaseModel):
     birth_date: str
     age: int | None
     line_user_id: str | None
+    is_active: bool
     total_uploads: int
     suspected_uploads: int
     rejected_uploads: int
@@ -107,6 +109,14 @@ class StaffPendingBindingListResponse(BaseModel):
 
 class StaffPendingBindingLinkRequest(BaseModel):
     patient_id: int = Field(ge=1)
+
+
+class StaffPendingBindingCreatePatientRequest(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+
+
+class StaffPatientStatusUpdateRequest(BaseModel):
+    is_active: bool
 
 
 class StaffNotificationItem(BaseModel):

@@ -24,31 +24,69 @@ from app.schemas.staff_dashboard import (
     StaffPatientListResponse,
     StaffPendingBindingItem,
     StaffPendingBindingLinkRequest,
+    StaffPendingBindingCreatePatientRequest,
     StaffPendingBindingListResponse,
+    StaffPatientStatusUpdateRequest,
     StaffPendingCandidatePatient,
     StaffPatientSummary,
     StaffUploadQueueItem,
     StaffUploadQueueResponse,
     StaffUploadRecord,
 )
+from app.schemas.admin_user_management import (
+    AdminApproveHealthcarePermissionRequest,
+    AdminHealthcarePermissionRequestItem,
+    AdminHealthcarePermissionRequestListResponse,
+    AdminIdentityItem,
+    AdminIdentityListResponse,
+    AdminRejectHealthcarePermissionRequest,
+    AdminUpdateIdentityRoleRequest,
+    AdminUpdateIdentityStatusRequest,
+)
 from app.db.models import AIResult, LiffIdentity, Patient, PendingBinding, Upload
+from app.services.admin_user_management import (
+    approve_healthcare_permission_request,
+    list_healthcare_permission_requests,
+    list_identities,
+    reject_healthcare_permission_request,
+    update_identity_role,
+    update_identity_status,
+)
 from app.services.notifications import (
     list_staff_notifications,
     mark_staff_notification_read,
 )
 from app.services.staff_dashboard import (
     calculate_age,
+    create_patient_and_link_pending_binding,
+    ensure_staff_assignment,
     link_pending_binding,
+    list_assigned_patient_ids,
     list_annotations_for_patient,
     list_patient_upload_records,
     list_pending_bindings,
     list_staff_patients,
     list_upload_queue,
     update_pending_binding_status,
+    update_patient_active_status,
     upsert_annotation_for_upload,
 )
 
 router = APIRouter(tags=["Staff"])
+
+
+def _get_accessible_patient_ids(session, *, role: str, identity_id: int) -> set[int] | None:
+    if role == "admin":
+        return None
+    return list_assigned_patient_ids(session, staff_identity_id=identity_id)
+
+
+def _assert_patient_access(session, *, role: str, identity_id: int, patient_id: int) -> None:
+    if role == "admin":
+        return
+    allowed = list_assigned_patient_ids(session, staff_identity_id=identity_id)
+    if patient_id not in allowed:
+        raise HTTPException(status_code=403, detail="Forbidden: patient is not assigned to this staff")
 
 
 @router.get("/v1/staff/me")
@@ -70,6 +108,226 @@ async def admin_probe(
 ) -> dict[str, str]:
     principal = require_admin(get_current_principal(request, credentials))
     return {"status": "ok", "role": principal.role}
+
+
+@router.get("/v1/staff/admin/users", response_model=AdminIdentityListResponse)
+async def list_admin_users(
+    request: Request,
+    query: str | None = Query(default=None, min_length=1, max_length=128),
+    role: str | None = Query(default=None, pattern="^(patient|staff|admin)$"),
+    is_active: bool | None = Query(default=None),
+    credentials=Depends(bearer_scheme),
+) -> AdminIdentityListResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = list_identities(session, query=query, role=role, is_active=is_active)
+        return AdminIdentityListResponse(
+            items=[
+                AdminIdentityItem(
+                    id=row.id,
+                    line_user_id=row.line_user_id,
+                    display_name=row.display_name,
+                    role=row.role,  # type: ignore[arg-type]
+                    is_active=row.is_active,
+                    patient_id=row.patient_id,
+                    created_at=row.created_at,
+                )
+                for row in rows
+            ]
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/admin/users/{identity_id}/role", response_model=AdminIdentityItem)
+async def update_admin_user_role(
+    request: Request,
+    identity_id: int,
+    payload: AdminUpdateIdentityRoleRequest,
+    credentials=Depends(bearer_scheme),
+) -> AdminIdentityItem:
+    principal = require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            identity = update_identity_role(
+                session,
+                actor_identity_id=principal.identity_id,
+                actor_role=principal.role,
+                target_identity_id=identity_id,
+                role=payload.role,
+                reason=payload.reason,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return AdminIdentityItem(
+            id=identity.id,
+            line_user_id=identity.line_user_id,
+            display_name=identity.display_name,
+            role=identity.role,  # type: ignore[arg-type]
+            is_active=identity.is_active,
+            patient_id=identity.patient_id,
+            created_at=identity.created_at,
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/admin/users/{identity_id}/status", response_model=AdminIdentityItem)
+async def update_admin_user_status(
+    request: Request,
+    identity_id: int,
+    payload: AdminUpdateIdentityStatusRequest,
+    credentials=Depends(bearer_scheme),
+) -> AdminIdentityItem:
+    principal = require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            identity = update_identity_status(
+                session,
+                actor_identity_id=principal.identity_id,
+                actor_role=principal.role,
+                target_identity_id=identity_id,
+                is_active=payload.is_active,
+                reason=payload.reason,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return AdminIdentityItem(
+            id=identity.id,
+            line_user_id=identity.line_user_id,
+            display_name=identity.display_name,
+            role=identity.role,  # type: ignore[arg-type]
+            is_active=identity.is_active,
+            patient_id=identity.patient_id,
+            created_at=identity.created_at,
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/admin/access-requests", response_model=AdminHealthcarePermissionRequestListResponse)
+async def list_admin_access_requests(
+    request: Request,
+    status: str | None = Query(default=None, pattern="^(pending|approved|rejected)$"),
+    credentials=Depends(bearer_scheme),
+) -> AdminHealthcarePermissionRequestListResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = list_healthcare_permission_requests(session, status=status)
+        return AdminHealthcarePermissionRequestListResponse(
+            items=[
+                AdminHealthcarePermissionRequestItem(
+                    id=access_request.id,
+                    requester_identity_id=identity.id,
+                    line_user_id=identity.line_user_id,
+                    display_name=identity.display_name,
+                    requester_role=identity.role,  # type: ignore[arg-type]
+                    status=access_request.status,  # type: ignore[arg-type]
+                    reject_reason=access_request.reject_reason,
+                    decision_role=access_request.decision_role,  # type: ignore[arg-type]
+                    created_at=access_request.created_at,
+                    decided_at=access_request.decided_at,
+                )
+                for access_request, identity in rows
+            ]
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/admin/access-requests/{request_id}/approve", response_model=AdminHealthcarePermissionRequestItem)
+async def approve_admin_access_request(
+    request: Request,
+    request_id: int,
+    payload: AdminApproveHealthcarePermissionRequest,
+    credentials=Depends(bearer_scheme),
+) -> AdminHealthcarePermissionRequestItem:
+    principal = require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            access_request = approve_healthcare_permission_request(
+                session,
+                request_id=request_id,
+                actor_identity_id=principal.identity_id,
+                actor_role=principal.role,
+                role=payload.role,
+                reason=payload.reason,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        identity = session.get(LiffIdentity, access_request.requester_identity_id)
+        if identity is None:
+            raise HTTPException(status_code=404, detail="Requester identity not found")
+        return AdminHealthcarePermissionRequestItem(
+            id=access_request.id,
+            requester_identity_id=identity.id,
+            line_user_id=identity.line_user_id,
+            display_name=identity.display_name,
+            requester_role=identity.role,  # type: ignore[arg-type]
+            status=access_request.status,  # type: ignore[arg-type]
+            reject_reason=access_request.reject_reason,
+            decision_role=access_request.decision_role,  # type: ignore[arg-type]
+            created_at=access_request.created_at,
+            decided_at=access_request.decided_at,
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/admin/access-requests/{request_id}/reject", response_model=AdminHealthcarePermissionRequestItem)
+async def reject_admin_access_request(
+    request: Request,
+    request_id: int,
+    payload: AdminRejectHealthcarePermissionRequest,
+    credentials=Depends(bearer_scheme),
+) -> AdminHealthcarePermissionRequestItem:
+    principal = require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            access_request = reject_healthcare_permission_request(
+                session,
+                request_id=request_id,
+                actor_identity_id=principal.identity_id,
+                actor_role=principal.role,
+                reason=payload.reason,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        identity = session.get(LiffIdentity, access_request.requester_identity_id)
+        if identity is None:
+            raise HTTPException(status_code=404, detail="Requester identity not found")
+        return AdminHealthcarePermissionRequestItem(
+            id=access_request.id,
+            requester_identity_id=identity.id,
+            line_user_id=identity.line_user_id,
+            display_name=identity.display_name,
+            requester_role=identity.role,  # type: ignore[arg-type]
+            status=access_request.status,  # type: ignore[arg-type]
+            reject_reason=access_request.reject_reason,
+            decision_role=access_request.decision_role,  # type: ignore[arg-type]
+            created_at=access_request.created_at,
+            decided_at=access_request.decided_at,
+        )
+    finally:
+        session.close()
 
 
 @router.get("/v1/staff/notifications")
@@ -150,19 +408,27 @@ async def get_staff_patients(
     age_min: int | None = Query(default=None, ge=0),
     age_max: int | None = Query(default=None, ge=0),
     infection_status: str = Query(default="all", pattern="^(all|suspected|normal)$"),
+    is_active_filter: str = Query(default="all", pattern="^(all|active|inactive)$"),
     sort_key: str = Query(default="latest_upload", pattern="^(latest_upload|case_number|upload_count|suspected_count|age)$"),
     sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     credentials=Depends(bearer_scheme),
 ) -> StaffPatientListResponse:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
         rows = list_staff_patients(
             session,
             months=months,
             age_min=age_min,
             age_max=age_max,
             infection_status=infection_status,
+            is_active_filter=is_active_filter,
+            accessible_patient_ids=accessible_patient_ids,
         )
         reverse = sort_dir == "desc"
         if sort_key == "case_number":
@@ -186,6 +452,7 @@ async def get_staff_patients(
                 upload_count=row.upload_count,
                 suspected_count=row.suspected_count,
                 latest_upload_at=row.latest_upload_at,
+                is_active=row.patient.is_active,
             )
             for row in rows
         ]
@@ -206,12 +473,18 @@ async def get_staff_patient_detail(
     patient_id: int,
     credentials=Depends(bearer_scheme),
 ) -> StaffPatientDetailResponse:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
         patient = session.get(Patient, patient_id)
         if patient is None:
             raise HTTPException(status_code=404, detail="Patient not found")
+        _assert_patient_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            patient_id=patient_id,
+        )
 
         uploads = list_patient_upload_records(session, patient_id=patient_id)
         line_user_id = session.execute(
@@ -224,6 +497,7 @@ async def get_staff_patient_detail(
             birth_date=patient.birth_date,
             age=calculate_age(patient.birth_date),
             line_user_id=line_user_id,
+            is_active=patient.is_active,
             total_uploads=len(uploads),
             suspected_uploads=sum(1 for _, ai_result, _ in uploads if ai_result.screening_result == "suspected"),
             rejected_uploads=sum(1 for _, ai_result, _ in uploads if ai_result.screening_result == "rejected"),
@@ -253,10 +527,20 @@ async def get_staff_upload_queue(
     suspected_only: bool = Query(default=False),
     credentials=Depends(bearer_scheme),
 ) -> StaffUploadQueueResponse:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
-        rows = list_upload_queue(session, limit=limit, suspected_only=suspected_only)
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        rows = list_upload_queue(
+            session,
+            limit=limit,
+            suspected_only=suspected_only,
+            accessible_patient_ids=accessible_patient_ids,
+        )
         return StaffUploadQueueResponse(
             items=[
                 StaffUploadQueueItem(
@@ -382,16 +666,55 @@ async def link_pending_binding_route(
     payload: StaffPendingBindingLinkRequest,
     credentials=Depends(bearer_scheme),
 ) -> dict[str, str]:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
         try:
             pending = link_pending_binding(session, pending_id=pending_id, patient_id=payload.patient_id)
+            if principal.role == "staff":
+                ensure_staff_assignment(
+                    session,
+                    staff_identity_id=principal.identity_id,
+                    patient_id=payload.patient_id,
+                )
+                session.commit()
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": pending.status}
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/pending-bindings/{pending_id}/create-patient")
+async def create_patient_and_link_pending_binding_route(
+    request: Request,
+    pending_id: int,
+    payload: StaffPendingBindingCreatePatientRequest,
+    credentials=Depends(bearer_scheme),
+) -> dict[str, str | int]:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            pending, patient = create_patient_and_link_pending_binding(
+                session,
+                pending_id=pending_id,
+                full_name=payload.full_name,
+            )
+            if principal.role == "staff":
+                ensure_staff_assignment(
+                    session,
+                    staff_identity_id=principal.identity_id,
+                    patient_id=patient.id,
+                )
+                session.commit()
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": pending.status, "patient_id": patient.id}
     finally:
         session.close()
 
@@ -402,7 +725,7 @@ async def approve_pending_binding_route(
     pending_id: int,
     credentials=Depends(bearer_scheme),
 ) -> dict[str, str]:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
         pending = session.get(PendingBinding, pending_id)
@@ -418,6 +741,13 @@ async def approve_pending_binding_route(
         if len(candidates) != 1:
             raise HTTPException(status_code=400, detail="Approval requires exactly one matched patient; use link endpoint")
         resolved = link_pending_binding(session, pending_id=pending_id, patient_id=candidates[0].id)
+        if principal.role == "staff":
+            ensure_staff_assignment(
+                session,
+                staff_identity_id=principal.identity_id,
+                patient_id=candidates[0].id,
+            )
+            session.commit()
         return {"status": resolved.status}
     finally:
         session.close()
@@ -534,5 +864,60 @@ async def get_staff_upload_image_public(
 
             iterator = _single_chunk()
         return StreamingResponse(iterator, media_type=upload.content_type)
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/patients/{patient_id}/status", response_model=StaffPatientSummary)
+async def update_staff_patient_status(
+    request: Request,
+    patient_id: int,
+    payload: StaffPatientStatusUpdateRequest,
+    credentials=Depends(bearer_scheme),
+) -> StaffPatientSummary:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        _assert_patient_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            patient_id=patient_id,
+        )
+        try:
+            patient = update_patient_active_status(
+                session,
+                patient_id=patient_id,
+                is_active=payload.is_active,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        row = list_staff_patients(
+            session,
+            months=12,
+            age_min=None,
+            age_max=None,
+            infection_status="all",
+            is_active_filter="all",
+            accessible_patient_ids=_get_accessible_patient_ids(
+                session,
+                role=principal.role,
+                identity_id=principal.identity_id,
+            ),
+        )
+        picked = next((item for item in row if item.patient.id == patient.id), None)
+        if picked is None:
+            raise HTTPException(status_code=403, detail="Forbidden: patient is not assigned to this staff")
+        return StaffPatientSummary(
+            patient_id=picked.patient.id,
+            case_number=picked.patient.case_number,
+            full_name=picked.patient.full_name,
+            line_user_id=picked.line_user_id,
+            age=calculate_age(picked.patient.birth_date),
+            upload_count=picked.upload_count,
+            suspected_count=picked.suspected_count,
+            latest_upload_at=picked.latest_upload_at,
+            is_active=picked.patient.is_active,
+        )
     finally:
         session.close()

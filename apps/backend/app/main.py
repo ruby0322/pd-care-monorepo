@@ -5,7 +5,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_fastapi_instrumentator import Instrumentator
+
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    Instrumentator = None
 
 from app.api.errors import register_exception_handlers
 from app.api.router import api_router
@@ -110,7 +114,10 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    if Instrumentator is not None:
+        Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    else:
+        LOGGER.warning("prometheus_fastapi_instrumentator not installed; /metrics endpoint disabled")
     register_exception_handlers(app)
     app.include_router(api_router)
 

@@ -8,6 +8,7 @@ import { AxiosError } from "axios";
 
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { getApiErrorDetail, apiClient } from "@/lib/api/client";
+import { createHealthcareAccessRequest } from "@/lib/api/identity";
 import { setStaffSession } from "@/lib/auth/staff-session";
 
 type LoginResponse = {
@@ -44,10 +45,13 @@ function getLoginErrorMessage(error: unknown): string {
 export default function AdminLoginPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRequestingAccess, setIsRequestingAccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   async function handleLineLogin() {
     setErrorMessage(null);
+    setSuccessMessage(null);
     setIsSubmitting(true);
     try {
       const { idToken } = await getLiffLoginProof();
@@ -67,6 +71,29 @@ export default function AdminLoginPage() {
       setErrorMessage(getLoginErrorMessage(error));
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleRequestHealthcareAccess() {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIsRequestingAccess(true);
+    try {
+      const { profile } = await getLiffLoginProof();
+      const result = await createHealthcareAccessRequest({
+        line_user_id: profile.userId,
+        display_name: profile.displayName,
+        picture_url: profile.pictureUrl ?? null,
+      });
+      if (result.status === "pending") {
+        setSuccessMessage("已送出「我是醫護人員」權限申請，請等待管理員審核。");
+      } else {
+        setSuccessMessage("權限申請已送出。");
+      }
+    } catch (error) {
+      setErrorMessage(getApiErrorDetail(error) ?? "送出權限申請失敗，請稍後再試。");
+    } finally {
+      setIsRequestingAccess(false);
     }
   }
 
@@ -92,7 +119,17 @@ export default function AdminLoginPage() {
           {isSubmitting ? "登入中..." : "使用 LINE 登入"}
         </button>
 
+        <button
+          type="button"
+          onClick={handleRequestHealthcareAccess}
+          disabled={isRequestingAccess || isSubmitting}
+          className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isRequestingAccess ? "送出申請中..." : "我是醫護人員，請求權限"}
+        </button>
+
         {errorMessage ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{errorMessage}</p> : null}
+        {successMessage ? <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMessage}</p> : null}
 
         <p className="text-xs leading-5 text-zinc-400">
           僅限已由系統預先建立為 staff/admin 角色的帳號登入。

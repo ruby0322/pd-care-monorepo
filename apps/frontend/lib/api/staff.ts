@@ -14,6 +14,7 @@ export type StaffPatientSummary = {
   upload_count: number;
   suspected_count: number;
   latest_upload_at: string | null;
+  is_active: boolean;
 };
 
 export type StaffPatientListResponse = {
@@ -43,6 +44,7 @@ export type StaffPatientDetailResponse = {
   birth_date: string;
   age: number | null;
   line_user_id: string | null;
+  is_active: boolean;
   total_uploads: number;
   suspected_uploads: number;
   rejected_uploads: number;
@@ -109,6 +111,29 @@ export type StaffNotificationListResponse = {
   offset: number;
 };
 
+export type AdminIdentityItem = {
+  id: number;
+  line_user_id: string;
+  display_name: string | null;
+  role: "patient" | "staff" | "admin";
+  is_active: boolean;
+  patient_id: number | null;
+  created_at: string;
+};
+
+export type AdminAccessRequestItem = {
+  id: number;
+  requester_identity_id: number;
+  line_user_id: string;
+  display_name: string | null;
+  requester_role: "patient" | "staff" | "admin";
+  status: "pending" | "approved" | "rejected";
+  reject_reason: string | null;
+  decision_role: "patient" | "staff" | "admin" | null;
+  created_at: string;
+  decided_at: string | null;
+};
+
 export async function fetchStaffMe(): Promise<StaffMeResponse> {
   const { data } = await apiClient.get<StaffMeResponse>("/v1/staff/me");
   return data;
@@ -119,6 +144,7 @@ export async function fetchStaffPatients(params: {
   ageMin?: number;
   ageMax?: number;
   infectionStatus: "all" | "suspected" | "normal";
+  isActiveFilter?: "all" | "active" | "inactive";
   sortKey: "latest_upload" | "case_number" | "upload_count" | "suspected_count" | "age";
   sortDir: "asc" | "desc";
 }): Promise<StaffPatientListResponse> {
@@ -128,6 +154,7 @@ export async function fetchStaffPatients(params: {
       age_min: params.ageMin,
       age_max: params.ageMax,
       infection_status: params.infectionStatus,
+      is_active_filter: params.isActiveFilter ?? "all",
       sort_key: params.sortKey,
       sort_dir: params.sortDir,
     },
@@ -223,6 +250,22 @@ export async function linkPendingBinding(pendingId: number, patientId: number): 
   await apiClient.post(`/v1/staff/pending-bindings/${pendingId}/link`, { patient_id: patientId });
 }
 
+export async function createPatientAndLinkPendingBinding(pendingId: number, payload: { full_name: string }): Promise<{ status: string; patient_id: number }> {
+  const { data } = await apiClient.post<{ status: string; patient_id: number }>(
+    `/v1/staff/pending-bindings/${pendingId}/create-patient`,
+    payload
+  );
+  return data;
+}
+
+export async function updateStaffPatientStatus(
+  patientId: number,
+  payload: { is_active: boolean }
+): Promise<StaffPatientSummary> {
+  const { data } = await apiClient.post<StaffPatientSummary>(`/v1/staff/patients/${patientId}/status`, payload);
+  return data;
+}
+
 export async function fetchUploadImageAccess(uploadId: number): Promise<{ image_url: string; expires_in: number }> {
   const { data } = await apiClient.get<{ image_url: string; expires_in: number }>(
     `/v1/staff/uploads/${uploadId}/image-access`
@@ -245,5 +288,67 @@ export async function fetchStaffNotifications(params?: {
 
 export async function markStaffNotificationRead(notificationId: number): Promise<StaffNotificationItem> {
   const { data } = await apiClient.post<StaffNotificationItem>(`/v1/staff/notifications/${notificationId}/read`);
+  return data;
+}
+
+export async function fetchAdminUsers(params?: {
+  query?: string;
+  role?: "patient" | "staff" | "admin";
+  isActive?: boolean;
+}): Promise<AdminIdentityItem[]> {
+  const { data } = await apiClient.get<{ items: AdminIdentityItem[] }>("/v1/staff/admin/users", {
+    params: {
+      query: params?.query,
+      role: params?.role,
+      is_active: params?.isActive,
+    },
+  });
+  return data.items;
+}
+
+export async function updateAdminUserRole(
+  identityId: number,
+  payload: { role: "patient" | "staff" | "admin"; reason?: string }
+): Promise<AdminIdentityItem> {
+  const { data } = await apiClient.post<AdminIdentityItem>(`/v1/staff/admin/users/${identityId}/role`, payload);
+  return data;
+}
+
+export async function updateAdminUserStatus(
+  identityId: number,
+  payload: { is_active: boolean; reason?: string }
+): Promise<AdminIdentityItem> {
+  const { data } = await apiClient.post<AdminIdentityItem>(`/v1/staff/admin/users/${identityId}/status`, payload);
+  return data;
+}
+
+export async function fetchAdminAccessRequests(params?: {
+  status?: "pending" | "approved" | "rejected";
+}): Promise<AdminAccessRequestItem[]> {
+  const { data } = await apiClient.get<{ items: AdminAccessRequestItem[] }>("/v1/staff/admin/access-requests", {
+    params: { status: params?.status },
+  });
+  return data.items;
+}
+
+export async function approveAdminAccessRequest(
+  requestId: number,
+  payload: { role: "staff" | "admin"; reason?: string }
+): Promise<AdminAccessRequestItem> {
+  const { data } = await apiClient.post<AdminAccessRequestItem>(
+    `/v1/staff/admin/access-requests/${requestId}/approve`,
+    payload
+  );
+  return data;
+}
+
+export async function rejectAdminAccessRequest(
+  requestId: number,
+  payload: { reason: string }
+): Promise<AdminAccessRequestItem> {
+  const { data } = await apiClient.post<AdminAccessRequestItem>(
+    `/v1/staff/admin/access-requests/${requestId}/reject`,
+    payload
+  );
   return data;
 }
