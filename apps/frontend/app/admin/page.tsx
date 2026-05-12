@@ -598,7 +598,7 @@ export default function AdminDashboard() {
         </div>
       </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 order-1">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 order-3">
         <section className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
