@@ -1,7 +1,7 @@
 from __future__ import annotations
 # pyright: reportMissingImports=false
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -104,6 +104,73 @@ def _seed_patient_with_uploads(client: TestClient) -> int:
         )
         session.commit()
         return patient.id
+
+
+def _seed_admin_analytics_data(client: TestClient) -> None:
+    now = datetime.now(tz=timezone.utc)
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        patient_male = Patient(
+            case_number="A1001",
+            birth_date="1990-01-01",
+            full_name="Male Patient",
+            gender="male",
+            is_active=True,
+        )
+        patient_female = Patient(
+            case_number="A1002",
+            birth_date="1982-06-08",
+            full_name="Female Patient",
+            gender="female",
+            is_active=True,
+        )
+        patient_unknown = Patient(
+            case_number="A1003",
+            birth_date="2005-03-11",
+            full_name="Unknown Patient",
+            gender="unknown",
+            is_active=False,
+        )
+        session.add_all([patient_male, patient_female, patient_unknown])
+        session.flush()
+
+        uploads = [
+            Upload(
+                patient_id=patient_male.id,
+                object_key="patients/a1001/uploads/today-1.jpg",
+                content_type="image/jpeg",
+                created_at=now - timedelta(hours=1),
+            ),
+            Upload(
+                patient_id=patient_female.id,
+                object_key="patients/a1002/uploads/today-2.jpg",
+                content_type="image/jpeg",
+                created_at=now - timedelta(hours=2),
+            ),
+            Upload(
+                patient_id=patient_male.id,
+                object_key="patients/a1001/uploads/day-3.jpg",
+                content_type="image/jpeg",
+                created_at=now - timedelta(days=3),
+            ),
+            Upload(
+                patient_id=patient_unknown.id,
+                object_key="patients/a1003/uploads/day-5.jpg",
+                content_type="image/jpeg",
+                created_at=now - timedelta(days=5),
+            ),
+        ]
+        session.add_all(uploads)
+        session.flush()
+        session.add_all(
+            [
+                AIResult(upload_id=uploads[0].id, screening_result="suspected", probability=0.88, threshold=0.5),
+                AIResult(upload_id=uploads[1].id, screening_result="normal", probability=0.12, threshold=0.5),
+                AIResult(upload_id=uploads[2].id, screening_result="suspected", probability=0.84, threshold=0.5),
+                AIResult(upload_id=uploads[3].id, screening_result="normal", probability=0.25, threshold=0.5),
+            ]
+        )
+        session.commit()
 
 
 def _assign_staff_patient(client: TestClient, *, staff_identity_id: int, patient_id: int) -> None:
@@ -504,3 +571,157 @@ def test_staff_can_toggle_assigned_patient_status(tmp_path: Path) -> None:
         )
         assert restore_response.status_code == 200
         assert restore_response.json()["is_active"] is True
+
+
+def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-analytics.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ANALYTICS", role="admin")
+        _seed_admin_analytics_data(client)
+        token = _login_staff_token(client, "U_ADMIN_ANALYTICS")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        gender_response = client.get("/v1/staff/admin/analytics/gender-distribution", headers=headers)
+        assert gender_response.status_code == 200
+        gender_payload = gender_response.json()
+        assert gender_payload["total_patients"] == 3
+        assert {item["gender"] for item in gender_payload["items"]} == {"male", "female", "other", "unknown"}
+
+        today_response = client.get("/v1/staff/admin/analytics/suspected-infections/today", headers=headers)
+        assert today_response.status_code == 200
+        today_payload = today_response.json()
+        assert today_payload["total_uploads"] == 2
+        assert today_payload["suspected_uploads"] == 1
+        assert today_payload["normal_uploads"] == 1
+        assert today_payload["suspected_ratio"] == 0.5
+
+        histogram_response = client.get("/v1/staff/admin/analytics/age-histogram?bucket_size=10", headers=headers)
+        assert histogram_response.status_code == 200
+        histogram_payload = histogram_response.json()
+        assert histogram_payload["bucket_size"] == 10
+        assert histogram_payload["total_patients"] == 2
+        assert len(histogram_payload["items"]) >= 1
+
+        active_response = client.get(
+            "/v1/staff/admin/analytics/active-users?active_window_days=7&lookback_days=30&interval=day",
+            headers=headers,
+        )
+        assert active_response.status_code == 200
+        active_payload = active_response.json()
+        assert active_payload["active_window_days"] == 7
+        assert active_payload["lookback_days"] == 30
+        assert active_payload["interval"] == "day"
+        assert len(active_payload["items"]) == 30
+        assert active_payload["items"][-1]["active_users"] >= 2
+
+        daily_response = client.get("/v1/staff/admin/analytics/daily-suspected-series?lookback_days=30", headers=headers)
+        assert daily_response.status_code == 200
+        daily_payload = daily_response.json()
+        assert daily_payload["lookback_days"] == 30
+        assert len(daily_payload["items"]) == 30
+        assert any(item["total_uploads"] == 0 and item["suspected_ratio"] == 0 for item in daily_payload["items"])
+
+
+def test_staff_is_denied_for_admin_analytics_endpoints(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-analytics-rbac.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_STAFF_ANALYTICS", role="staff")
+        token = _login_staff_token(client, "U_STAFF_ANALYTICS")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/v1/staff/admin/analytics/gender-distribution", headers=headers)
+        assert response.status_code == 403
+
+
+def test_admin_can_assign_patient_to_staff_and_list_assignments(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-single.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN", role="admin")
+        staff_identity_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_1")
+        patient_id = _seed_patient_with_uploads(client)
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        assign_response = client.post(
+            "/v1/staff/admin/assignments",
+            headers=headers,
+            json={"patient_id": patient_id, "staff_identity_id": staff_identity_id},
+        )
+        assert assign_response.status_code == 200
+        assert assign_response.json()["status"] == "updated"
+
+        list_response = client.get("/v1/staff/admin/assignments", headers=headers)
+        assert list_response.status_code == 200
+        assigned_item = next((item for item in list_response.json()["items"] if item["patient_id"] == patient_id), None)
+        assert assigned_item is not None
+        assert assigned_item["staff_identity_id"] == staff_identity_id
+
+
+def test_admin_assignment_replaces_previous_owner(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-transfer.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_TRANSFER", role="admin")
+        staff_a_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_A")
+        staff_b_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_B")
+        patient_id = _seed_patient_with_uploads(client)
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN_TRANSFER")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        first_assign = client.post(
+            "/v1/staff/admin/assignments",
+            headers=headers,
+            json={"patient_id": patient_id, "staff_identity_id": staff_a_id},
+        )
+        assert first_assign.status_code == 200
+        assert first_assign.json()["status"] == "updated"
+
+        second_assign = client.post(
+            "/v1/staff/admin/assignments",
+            headers=headers,
+            json={"patient_id": patient_id, "staff_identity_id": staff_b_id},
+        )
+        assert second_assign.status_code == 200
+        assert second_assign.json()["status"] == "updated"
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            rows = (
+                session.query(StaffPatientAssignment)
+                .filter(StaffPatientAssignment.patient_id == patient_id)
+                .order_by(StaffPatientAssignment.created_at.desc())
+                .all()
+            )
+            assert len(rows) == 1
+            assert rows[0].staff_identity_id == staff_b_id
+
+
+def test_admin_bulk_assignment_returns_invalid_items(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-bulk.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_BULK", role="admin")
+        staff_identity_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_BULK")
+        patient_id = _seed_patient_with_uploads(client)
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN_BULK")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        response = client.post(
+            "/v1/staff/admin/assignments/bulk",
+            headers=headers,
+            json={
+                "assignments": [
+                    {"patient_id": patient_id, "staff_identity_id": staff_identity_id},
+                    {"patient_id": 999999, "staff_identity_id": staff_identity_id},
+                    {"patient_id": patient_id, "staff_identity_id": 999999},
+                ]
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        statuses = [item["status"] for item in payload["results"]]
+        assert statuses.count("updated") == 1
+        assert statuses.count("invalid") == 2

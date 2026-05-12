@@ -127,6 +127,61 @@ export type StaffNotificationListResponse = {
   offset: number;
 };
 
+export type AdminGenderDistributionItem = {
+  gender: "male" | "female" | "other" | "unknown";
+  count: number;
+};
+
+export type AdminGenderDistributionResponse = {
+  total_patients: number;
+  items: AdminGenderDistributionItem[];
+};
+
+export type AdminTodaySuspectedSummaryResponse = {
+  date: string;
+  total_uploads: number;
+  suspected_uploads: number;
+  normal_uploads: number;
+  suspected_ratio: number;
+};
+
+export type AdminAgeHistogramBucket = {
+  range_start: number;
+  range_end: number;
+  label: string;
+  count: number;
+};
+
+export type AdminAgeHistogramResponse = {
+  bucket_size: number;
+  total_patients: number;
+  items: AdminAgeHistogramBucket[];
+};
+
+export type AdminActiveUsersSeriesPoint = {
+  date: string;
+  active_users: number;
+};
+
+export type AdminActiveUsersSeriesResponse = {
+  active_window_days: number;
+  lookback_days: number;
+  interval: "day" | "week";
+  items: AdminActiveUsersSeriesPoint[];
+};
+
+export type AdminDailySuspectedSeriesPoint = {
+  date: string;
+  total_uploads: number;
+  suspected_uploads: number;
+  suspected_ratio: number;
+};
+
+export type AdminDailySuspectedSeriesResponse = {
+  lookback_days: number;
+  items: AdminDailySuspectedSeriesPoint[];
+};
+
 export type AdminIdentityItem = {
   id: number;
   line_user_id: string;
@@ -148,6 +203,32 @@ export type AdminAccessRequestItem = {
   decision_role: "patient" | "staff" | "admin" | null;
   created_at: string;
   decided_at: string | null;
+};
+
+export type AdminPatientAssignmentItem = {
+  patient_id: number;
+  case_number: string;
+  patient_full_name: string | null;
+  staff_identity_id: number | null;
+  staff_line_user_id: string | null;
+  staff_display_name: string | null;
+};
+
+export type AdminPatientAssignmentUpsertResponse = {
+  patient_id: number;
+  staff_identity_id: number;
+  status: "updated" | "unchanged";
+};
+
+export type AdminPatientAssignmentBulkItemResult = {
+  patient_id: number | null;
+  staff_identity_id: number | null;
+  status: "updated" | "unchanged" | "invalid";
+  detail: string | null;
+};
+
+export type AdminPatientAssignmentBulkResponse = {
+  results: AdminPatientAssignmentBulkItemResult[];
 };
 
 export async function fetchStaffMe(): Promise<StaffMeResponse> {
@@ -312,6 +393,58 @@ export async function markStaffNotificationRead(notificationId: number): Promise
   return data;
 }
 
+export async function fetchAdminGenderDistribution(): Promise<AdminGenderDistributionResponse> {
+  const { data } = await apiClient.get<AdminGenderDistributionResponse>("/v1/staff/admin/analytics/gender-distribution");
+  return data;
+}
+
+export async function fetchAdminTodaySuspectedSummary(): Promise<AdminTodaySuspectedSummaryResponse> {
+  const { data } = await apiClient.get<AdminTodaySuspectedSummaryResponse>("/v1/staff/admin/analytics/suspected-infections/today");
+  return data;
+}
+
+export async function fetchAdminAgeHistogram(params?: {
+  bucketSize?: number;
+  includeInactive?: boolean;
+}): Promise<AdminAgeHistogramResponse> {
+  const { data } = await apiClient.get<AdminAgeHistogramResponse>("/v1/staff/admin/analytics/age-histogram", {
+    params: {
+      bucket_size: params?.bucketSize ?? 10,
+      include_inactive: params?.includeInactive ?? false,
+    },
+  });
+  return data;
+}
+
+export async function fetchAdminActiveUsersSeries(params?: {
+  activeWindowDays?: number;
+  lookbackDays?: number;
+  interval?: "day" | "week";
+}): Promise<AdminActiveUsersSeriesResponse> {
+  const { data } = await apiClient.get<AdminActiveUsersSeriesResponse>("/v1/staff/admin/analytics/active-users", {
+    params: {
+      active_window_days: params?.activeWindowDays ?? 7,
+      lookback_days: params?.lookbackDays ?? 30,
+      interval: params?.interval ?? "day",
+    },
+  });
+  return data;
+}
+
+export async function fetchAdminDailySuspectedSeries(params?: {
+  lookbackDays?: number;
+}): Promise<AdminDailySuspectedSeriesResponse> {
+  const { data } = await apiClient.get<AdminDailySuspectedSeriesResponse>(
+    "/v1/staff/admin/analytics/daily-suspected-series",
+    {
+      params: {
+        lookback_days: params?.lookbackDays ?? 30,
+      },
+    }
+  );
+  return data;
+}
+
 export async function fetchAdminUsers(params?: {
   query?: string;
   role?: "patient" | "staff" | "admin";
@@ -371,5 +504,25 @@ export async function rejectAdminAccessRequest(
     `/v1/staff/admin/access-requests/${requestId}/reject`,
     payload
   );
+  return data;
+}
+
+export async function fetchAdminAssignments(): Promise<AdminPatientAssignmentItem[]> {
+  const { data } = await apiClient.get<{ items: AdminPatientAssignmentItem[] }>("/v1/staff/admin/assignments");
+  return data.items;
+}
+
+export async function upsertAdminAssignment(payload: {
+  patient_id: number;
+  staff_identity_id: number;
+}): Promise<AdminPatientAssignmentUpsertResponse> {
+  const { data } = await apiClient.post<AdminPatientAssignmentUpsertResponse>("/v1/staff/admin/assignments", payload);
+  return data;
+}
+
+export async function bulkUpsertAdminAssignments(payload: {
+  assignments: Array<{ patient_id: number; staff_identity_id: number }>;
+}): Promise<AdminPatientAssignmentBulkResponse> {
+  const { data } = await apiClient.post<AdminPatientAssignmentBulkResponse>("/v1/staff/admin/assignments/bulk", payload);
   return data;
 }

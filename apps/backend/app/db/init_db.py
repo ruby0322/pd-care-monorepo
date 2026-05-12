@@ -69,6 +69,17 @@ def _ensure_identity_is_active_column(engine: Engine) -> None:
         )
 
 
+def _ensure_patient_gender_column(engine: Engine) -> None:
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("patients")}
+    if "gender" in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(
+            text("ALTER TABLE patients ADD COLUMN gender VARCHAR(16) NOT NULL DEFAULT 'unknown'")
+        )
+
+
 def _seed_pilot_identities(session_factory: sessionmaker, settings: Settings) -> None:
     pilot_accounts = {identity_id: "staff" for identity_id in settings.pilot_staff_identity_ids}
     pilot_accounts.update({identity_id: "admin" for identity_id in settings.pilot_admin_identity_ids})
@@ -127,6 +138,7 @@ def initialize_database(database_url: str, settings: Settings | None = None) -> 
     _ensure_annotation_reviewer_column(engine)
     _ensure_annotation_staff_user_nullable(engine)
     _ensure_identity_is_active_column(engine)
+    _ensure_patient_gender_column(engine)
     session_factory = create_session_factory(engine)
     if settings is not None:
         _seed_pilot_identities(session_factory, settings)

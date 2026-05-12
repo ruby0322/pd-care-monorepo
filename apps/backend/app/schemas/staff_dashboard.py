@@ -135,6 +135,45 @@ class StaffPatientCreateResponse(BaseModel):
     is_active: bool
 
 
+class StaffAssignmentItem(BaseModel):
+    patient_id: int
+    case_number: str
+    patient_full_name: str | None
+    staff_identity_id: int | None
+    staff_line_user_id: str | None
+    staff_display_name: str | None
+
+
+class StaffAssignmentListResponse(BaseModel):
+    items: list[StaffAssignmentItem]
+
+
+class StaffAssignmentUpsertRequest(BaseModel):
+    patient_id: int = Field(ge=1)
+    staff_identity_id: int = Field(ge=1)
+
+
+class StaffAssignmentUpsertResult(BaseModel):
+    patient_id: int
+    staff_identity_id: int
+    status: Literal["updated", "unchanged"]
+
+
+class StaffAssignmentBulkRequest(BaseModel):
+    assignments: list[StaffAssignmentUpsertRequest] = Field(min_length=1)
+
+
+class StaffAssignmentBulkItemResult(BaseModel):
+    patient_id: int | None = None
+    staff_identity_id: int | None = None
+    status: Literal["updated", "unchanged", "invalid"]
+    detail: str | None = None
+
+
+class StaffAssignmentBulkResponse(BaseModel):
+    results: list[StaffAssignmentBulkItemResult]
+
+
 class StaffNotificationItem(BaseModel):
     id: int
     patient_id: int
@@ -155,3 +194,58 @@ class StaffNotificationListResponse(BaseModel):
     unread_count: int
     limit: int
     offset: int
+
+
+class StaffGenderDistributionItem(BaseModel):
+    gender: Literal["male", "female", "other", "unknown"]
+    count: int
+
+
+class StaffGenderDistributionResponse(BaseModel):
+    total_patients: int
+    items: list[StaffGenderDistributionItem]
+
+
+class StaffTodaySuspectedSummaryResponse(BaseModel):
+    date: str
+    total_uploads: int
+    suspected_uploads: int
+    normal_uploads: int
+    suspected_ratio: float
+
+
+class StaffAgeHistogramBucket(BaseModel):
+    range_start: int
+    range_end: int
+    label: str
+    count: int
+
+
+class StaffAgeHistogramResponse(BaseModel):
+    bucket_size: int
+    total_patients: int
+    items: list[StaffAgeHistogramBucket]
+
+
+class StaffActiveUsersSeriesPoint(BaseModel):
+    date: str
+    active_users: int
+
+
+class StaffActiveUsersSeriesResponse(BaseModel):
+    active_window_days: int
+    lookback_days: int
+    interval: Literal["day", "week"]
+    items: list[StaffActiveUsersSeriesPoint]
+
+
+class StaffDailySuspectedSeriesPoint(BaseModel):
+    date: str
+    total_uploads: int
+    suspected_uploads: int
+    suspected_ratio: float
+
+
+class StaffDailySuspectedSeriesResponse(BaseModel):
+    lookback_days: int
+    items: list[StaffDailySuspectedSeriesPoint]

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import Select, and_, select
+from sqlalchemy import Select, and_, case, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, PendingBinding, StaffPatientAssignment, Upload
@@ -43,6 +44,22 @@ class StaffPatientRow:
     latest_upload_at: datetime | None
 
 
+@dataclass
+class StaffAssignmentRow:
+    patient: Patient
+    staff_identity_id: int | None
+    staff_line_user_id: str | None
+    staff_display_name: str | None
+
+
+@dataclass
+class StaffBulkAssignmentResult:
+    patient_id: int | None
+    staff_identity_id: int | None
+    status: Literal["updated", "unchanged", "invalid"]
+    detail: str | None = None
+
+
 def list_assigned_patient_ids(session: Session, *, staff_identity_id: int) -> set[int]:
     rows = session.execute(
         select(StaffPatientAssignment.patient_id).where(StaffPatientAssignment.staff_identity_id == staff_identity_id)
@@ -50,15 +67,115 @@ def list_assigned_patient_ids(session: Session, *, staff_identity_id: int) -> se
     return set(rows)
 
 
-def ensure_staff_assignment(session: Session, *, staff_identity_id: int, patient_id: int) -> None:
-    existing = session.execute(
-        select(StaffPatientAssignment).where(
-            StaffPatientAssignment.staff_identity_id == staff_identity_id,
-            StaffPatientAssignment.patient_id == patient_id,
+def ensure_staff_assignment(
+    session: Session,
+    *,
+    staff_identity_id: int,
+    patient_id: int,
+) -> Literal["updated", "unchanged"]:
+    return assign_patient_to_staff(session, staff_identity_id=staff_identity_id, patient_id=patient_id)
+
+
+def list_patient_assignments(session: Session) -> list[StaffAssignmentRow]:
+    patients = session.execute(select(Patient).order_by(Patient.case_number.asc(), Patient.id.asc())).scalars().all()
+    assignment_rows = session.execute(
+        select(
+            StaffPatientAssignment.patient_id,
+            StaffPatientAssignment.staff_identity_id,
+            LiffIdentity.line_user_id,
+            LiffIdentity.display_name,
         )
-    ).scalar_one_or_none()
-    if existing is None:
-        session.add(StaffPatientAssignment(staff_identity_id=staff_identity_id, patient_id=patient_id))
+        .join(LiffIdentity, LiffIdentity.id == StaffPatientAssignment.staff_identity_id)
+        .order_by(StaffPatientAssignment.created_at.asc(), StaffPatientAssignment.id.asc())
+    ).all()
+    assignment_by_patient: dict[int, tuple[int, str | None, str | None]] = {}
+    for patient_id, staff_identity_id, line_user_id, display_name in assignment_rows:
+        assignment_by_patient[int(patient_id)] = (
+            int(staff_identity_id),
+            line_user_id,
+            display_name,
+        )
+
+    return [
+        StaffAssignmentRow(
+            patient=patient,
+            staff_identity_id=assignment_by_patient.get(patient.id, (None, None, None))[0],
+            staff_line_user_id=assignment_by_patient.get(patient.id, (None, None, None))[1],
+            staff_display_name=assignment_by_patient.get(patient.id, (None, None, None))[2],
+        )
+        for patient in patients
+    ]
+
+
+def assign_patient_to_staff(
+    session: Session,
+    *,
+    staff_identity_id: int,
+    patient_id: int,
+) -> Literal["updated", "unchanged"]:
+    staff_identity = session.get(LiffIdentity, staff_identity_id)
+    if staff_identity is None:
+        raise LookupError("Staff identity not found")
+    if staff_identity.role != "staff":
+        raise ValueError("Target identity must be staff")
+
+    patient = session.get(Patient, patient_id)
+    if patient is None:
+        raise LookupError("Patient not found")
+
+    existing_assignments = session.execute(
+        select(StaffPatientAssignment).where(StaffPatientAssignment.patient_id == patient_id)
+    ).scalars().all()
+    if len(existing_assignments) == 1 and existing_assignments[0].staff_identity_id == staff_identity_id:
+        return "unchanged"
+
+    session.execute(delete(StaffPatientAssignment).where(StaffPatientAssignment.patient_id == patient_id))
+    session.add(StaffPatientAssignment(staff_identity_id=staff_identity_id, patient_id=patient_id))
+    session.commit()
+    return "updated"
+
+
+def bulk_assign_patients(
+    session: Session,
+    *,
+    assignments: list[tuple[int | None, int | None]],
+) -> list[StaffBulkAssignmentResult]:
+    results: list[StaffBulkAssignmentResult] = []
+    for patient_id, staff_identity_id in assignments:
+        if patient_id is None or staff_identity_id is None:
+            results.append(
+                StaffBulkAssignmentResult(
+                    patient_id=patient_id,
+                    staff_identity_id=staff_identity_id,
+                    status="invalid",
+                    detail="patient_id and staff_identity_id are required",
+                )
+            )
+            continue
+        try:
+            status = assign_patient_to_staff(
+                session,
+                patient_id=patient_id,
+                staff_identity_id=staff_identity_id,
+            )
+            results.append(
+                StaffBulkAssignmentResult(
+                    patient_id=patient_id,
+                    staff_identity_id=staff_identity_id,
+                    status=status,
+                )
+            )
+        except (LookupError, ValueError) as exc:
+            session.rollback()
+            results.append(
+                StaffBulkAssignmentResult(
+                    patient_id=patient_id,
+                    staff_identity_id=staff_identity_id,
+                    status="invalid",
+                    detail=str(exc),
+                )
+            )
+    return results
 
 
 def list_staff_patients(
@@ -359,3 +476,164 @@ def create_patient_record(
         raise DuplicatePatientError("Patient with the same case number and birth date already exists") from exc
     session.refresh(patient)
     return patient
+
+
+def list_gender_distribution(
+    session: Session,
+    *,
+    accessible_patient_ids: set[int] | None = None,
+) -> list[tuple[str, int]]:
+    query: Select = select(Patient.gender, func.count(Patient.id)).group_by(Patient.gender)
+    if accessible_patient_ids is not None:
+        if not accessible_patient_ids:
+            return []
+        query = query.where(Patient.id.in_(accessible_patient_ids))
+    rows = session.execute(query).all()
+    counts = {str(gender or "unknown"): int(count) for gender, count in rows}
+    ordered_keys = ["male", "female", "other", "unknown"]
+    return [(key, counts.get(key, 0)) for key in ordered_keys]
+
+
+def get_today_suspected_summary(
+    session: Session,
+    *,
+    accessible_patient_ids: set[int] | None = None,
+) -> tuple[date, int, int]:
+    today = datetime.now(tz=timezone.utc).date()
+    today_start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    tomorrow_start = today_start + timedelta(days=1)
+    base_query: Select = (
+        select(
+            func.count(Upload.id),
+            func.sum(case((AIResult.screening_result == "suspected", 1), else_=0)),
+        )
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .join(Patient, Patient.id == Upload.patient_id)
+        .where(Upload.created_at >= today_start, Upload.created_at < tomorrow_start)
+    )
+    if accessible_patient_ids is not None:
+        if not accessible_patient_ids:
+            return today, 0, 0
+        base_query = base_query.where(Patient.id.in_(accessible_patient_ids))
+    total_uploads, suspected_uploads = session.execute(base_query).one()
+    return today, int(total_uploads or 0), int(suspected_uploads or 0)
+
+
+def get_age_histogram(
+    session: Session,
+    *,
+    bucket_size: int,
+    include_inactive: bool = False,
+    accessible_patient_ids: set[int] | None = None,
+) -> list[tuple[int, int]]:
+    query: Select = select(Patient.birth_date)
+    if not include_inactive:
+        query = query.where(Patient.is_active.is_(True))
+    if accessible_patient_ids is not None:
+        if not accessible_patient_ids:
+            return []
+        query = query.where(Patient.id.in_(accessible_patient_ids))
+    birth_dates = session.execute(query).scalars().all()
+    bucket_counts: dict[int, int] = defaultdict(int)
+    for birth_date in birth_dates:
+        age = calculate_age(birth_date)
+        if age is None:
+            continue
+        bucket_start = (age // bucket_size) * bucket_size
+        bucket_counts[bucket_start] += 1
+    return sorted((start, count) for start, count in bucket_counts.items())
+
+
+def get_active_users_series(
+    session: Session,
+    *,
+    active_window_days: int,
+    lookback_days: int,
+    interval: str,
+    accessible_patient_ids: set[int] | None = None,
+) -> list[tuple[str, int]]:
+    end_date = datetime.now(tz=timezone.utc).date()
+    start_date = end_date - timedelta(days=lookback_days - 1)
+    query_start_date = start_date - timedelta(days=active_window_days - 1)
+    query_start = datetime.combine(query_start_date, datetime.min.time(), tzinfo=timezone.utc)
+
+    query: Select = (
+        select(Upload.patient_id, func.date(Upload.created_at))
+        .join(Patient, Patient.id == Upload.patient_id)
+        .where(Upload.created_at >= query_start)
+    )
+    if accessible_patient_ids is not None:
+        if not accessible_patient_ids:
+            return []
+        query = query.where(Patient.id.in_(accessible_patient_ids))
+    rows = session.execute(query).all()
+    uploads_by_patient: dict[int, set[date]] = defaultdict(set)
+    for patient_id, upload_date in rows:
+        if isinstance(upload_date, str):
+            parsed = date.fromisoformat(upload_date)
+        else:
+            parsed = upload_date
+        uploads_by_patient[int(patient_id)].add(parsed)
+
+    points: list[tuple[str, int]] = []
+    cursor = start_date
+    while cursor <= end_date:
+        window_start = cursor - timedelta(days=active_window_days - 1)
+        active_count = 0
+        for upload_days in uploads_by_patient.values():
+            if any(window_start <= uploaded_at <= cursor for uploaded_at in upload_days):
+                active_count += 1
+        points.append((cursor.isoformat(), active_count))
+        cursor += timedelta(days=1)
+
+    if interval != "week":
+        return points
+
+    weekly: dict[date, tuple[str, int]] = {}
+    for day_str, count in points:
+        day = date.fromisoformat(day_str)
+        week_start = day - timedelta(days=day.weekday())
+        existing = weekly.get(week_start)
+        if existing is None or day_str > existing[0]:
+            weekly[week_start] = (day_str, count)
+    return [weekly[key] for key in sorted(weekly.keys())]
+
+
+def get_daily_suspected_series(
+    session: Session,
+    *,
+    lookback_days: int,
+    accessible_patient_ids: set[int] | None = None,
+) -> list[tuple[str, int, int]]:
+    end_date = datetime.now(tz=timezone.utc).date()
+    start_date = end_date - timedelta(days=lookback_days - 1)
+    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+    query: Select = (
+        select(
+            func.date(Upload.created_at).label("day"),
+            func.count(Upload.id).label("total"),
+            func.sum(case((AIResult.screening_result == "suspected", 1), else_=0)).label("suspected"),
+        )
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .join(Patient, Patient.id == Upload.patient_id)
+        .where(Upload.created_at >= start_dt)
+        .group_by("day")
+        .order_by("day")
+    )
+    if accessible_patient_ids is not None:
+        if not accessible_patient_ids:
+            return []
+        query = query.where(Patient.id.in_(accessible_patient_ids))
+    rows = session.execute(query).all()
+    by_day: dict[str, tuple[int, int]] = {
+        str(day): (int(total or 0), int(suspected or 0)) for day, total, suspected in rows
+    }
+
+    points: list[tuple[str, int, int]] = []
+    cursor = start_date
+    while cursor <= end_date:
+        day = cursor.isoformat()
+        total, suspected = by_day.get(day, (0, 0))
+        points.append((day, total, suspected))
+        cursor += timedelta(days=1)
+    return points
