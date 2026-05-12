@@ -29,9 +29,7 @@ import {
 import { getReadableApiError } from "@/lib/api/client";
 import {
   fetchAdminActiveUsersSeries,
-  fetchAdminAgeHistogram,
   fetchAdminDailySuspectedSeries,
-  fetchAdminGenderDistribution,
   fetchAdminTodaySuspectedSummary,
   approvePendingBinding,
   fetchPendingBindings,
@@ -54,20 +52,6 @@ const INFECTION_OPTIONS = [
   { value: "suspected", label: "疑似感染" },
   { value: "normal", label: "無感染" },
 ] as const;
-
-const GENDER_LABELS: Record<string, string> = {
-  male: "男性",
-  female: "女性",
-  other: "其他",
-  unknown: "未填寫",
-};
-
-const GENDER_COLORS: Record<string, string> = {
-  male: "#2563eb",
-  female: "#db2777",
-  other: "#7c3aed",
-  unknown: "#71717a",
-};
 
 const ACTIVE_WINDOW_OPTIONS = [3, 7, 14, 30] as const;
 const LOOKBACK_OPTIONS = [30, 60, 90] as const;
@@ -114,21 +98,17 @@ export default function AdminDashboard() {
   const [showAllNotifications, setShowAllNotifications] = useState(false);
   const [showAllQueue, setShowAllQueue] = useState(false);
   const [showAllPending, setShowAllPending] = useState(false);
-  const [genderChartType, setGenderChartType] = useState<ChartType>("bar");
   const [todayChartType, setTodayChartType] = useState<ChartType>("bar");
-  const [ageBucketSize, setAgeBucketSize] = useState(10);
   const [activeWindowDays, setActiveWindowDays] = useState<(typeof ACTIVE_WINDOW_OPTIONS)[number]>(7);
   const [activeLookbackDays, setActiveLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
   const [activeInterval, setActiveInterval] = useState<"day" | "week">("day");
   const [dailyLookbackDays, setDailyLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
-  const [genderDistribution, setGenderDistribution] = useState<{ gender: string; count: number }[]>([]);
   const [todaySummary, setTodaySummary] = useState<{
     total_uploads: number;
     suspected_uploads: number;
     normal_uploads: number;
     suspected_ratio: number;
   } | null>(null);
-  const [ageHistogram, setAgeHistogram] = useState<{ label: string; count: number }[]>([]);
   const [activeUsersSeries, setActiveUsersSeries] = useState<{ date: string; active_users: number }[]>([]);
   const [dailySuspectedSeries, setDailySuspectedSeries] = useState<
     { date: string; total_uploads: number; suspected_uploads: number; suspected_ratio: number }[]
@@ -182,10 +162,8 @@ export default function AdminDashboard() {
     async function loadAnalytics() {
       setAnalyticsError(null);
       try {
-        const [genderData, todayData, ageData, activeData, dailyData] = await Promise.all([
-          fetchAdminGenderDistribution(),
+        const [todayData, activeData, dailyData] = await Promise.all([
           fetchAdminTodaySuspectedSummary(),
-          fetchAdminAgeHistogram({ bucketSize: ageBucketSize }),
           fetchAdminActiveUsersSeries({
             activeWindowDays,
             lookbackDays: activeLookbackDays,
@@ -196,9 +174,7 @@ export default function AdminDashboard() {
         if (cancelled) {
           return;
         }
-        setGenderDistribution(genderData.items);
         setTodaySummary(todayData);
-        setAgeHistogram(ageData.items.map((item) => ({ label: item.label, count: item.count })));
         setActiveUsersSeries(activeData.items);
         setDailySuspectedSeries(dailyData.items);
       } catch (error) {
@@ -211,7 +187,7 @@ export default function AdminDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [activeInterval, activeLookbackDays, activeWindowDays, ageBucketSize, dailyLookbackDays]);
+  }, [activeInterval, activeLookbackDays, activeWindowDays, dailyLookbackDays]);
 
   const pendingItems = useMemo(() => pending.filter((item) => item.status === "pending"), [pending]);
   const visibleNotifications = useMemo(
@@ -222,16 +198,6 @@ export default function AdminDashboard() {
   const visiblePending = useMemo(
     () => (showAllPending ? pendingItems : pendingItems.slice(0, 3)),
     [pendingItems, showAllPending]
-  );
-  const genderChartData = useMemo(
-    () =>
-      genderDistribution.map((item) => ({
-        gender: item.gender,
-        label: GENDER_LABELS[item.gender] ?? item.gender,
-        count: item.count,
-        fill: GENDER_COLORS[item.gender] ?? "#52525b",
-      })),
-    [genderDistribution]
   );
   const todayChartData = useMemo(
     () => [
@@ -257,19 +223,6 @@ export default function AdminDashboard() {
       })),
     [dailySuspectedSeries]
   );
-  const unknownGenderRatio = useMemo(() => {
-    const total = genderDistribution.reduce((sum, item) => sum + item.count, 0);
-    const unknown = genderDistribution.find((item) => item.gender === "unknown")?.count ?? 0;
-    return total > 0 ? unknown / total : 0;
-  }, [genderDistribution]);
-
-  const genderChartConfig: ChartConfig = {
-    male: { label: "男性", color: GENDER_COLORS.male },
-    female: { label: "女性", color: GENDER_COLORS.female },
-    other: { label: "其他", color: GENDER_COLORS.other },
-    unknown: { label: "未填寫", color: GENDER_COLORS.unknown },
-    count: { label: "人數" },
-  };
   const todayChartConfig: ChartConfig = {
     suspected: { label: "疑似", color: "#dc2626" },
     normal: { label: "非疑似", color: "#16a34a" },
@@ -403,7 +356,7 @@ export default function AdminDashboard() {
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{analyticsError}</div>
       ) : null}
 
-      <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap gap-3 items-center order-2">
         <div className="flex items-center gap-1 bg-white border border-zinc-200 rounded-xl p-1 flex-wrap">
           {PERIOD_OPTIONS.map((option) => (
             <button
@@ -431,7 +384,7 @@ export default function AdminDashboard() {
       </div>
 
       {showFilters && (
-        <div className="bg-white border border-zinc-100 rounded-2xl p-5 flex flex-wrap gap-5">
+        <div className="bg-white border border-zinc-100 rounded-2xl p-5 flex flex-wrap gap-5 order-2">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-zinc-400 font-medium">年齡區間</label>
             <div className="flex items-center gap-2">
@@ -488,7 +441,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 order-2">
         {[
           { icon: Users, label: "篩選病患數", value: stats.totalPatients, color: "zinc" },
           { icon: Upload, label: `${months} 月上傳次數`, value: stats.totalUploads, color: "zinc" },
@@ -506,87 +459,14 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <section className="rounded-2xl border border-zinc-100 bg-white p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-zinc-900">分析圖表</h2>
-            <p className="text-xs text-zinc-500">支援 bar/pie 切換與活躍定義調整</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <label className="text-zinc-500">年齡桶大小</label>
-            <select
-              className="rounded-lg border border-zinc-200 px-2 py-1 text-zinc-700"
-              value={ageBucketSize}
-              onChange={(event) => setAgeBucketSize(Number(event.target.value))}
-            >
-              {[5, 10, 15, 20].map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </div>
+      <section className="order-2 flex flex-col gap-4">
+        <div className="mb-2">
+          <h2 className="text-base font-semibold text-zinc-900">分析圖表</h2>
+          <p className="text-xs text-zinc-500">活躍用戶與每日疑似感染趨勢</p>
         </div>
 
-        {unknownGenderRatio >= 0.5 ? (
-          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-            性別資料「未填寫」占比偏高，建議補齊資料再解讀趨勢。
-          </div>
-        ) : null}
-
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div className="rounded-xl border border-zinc-100 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-zinc-900">性別分布</h3>
-              <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
-                <button
-                  className={clsx(
-                    "rounded px-2 py-1",
-                    genderChartType === "bar" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
-                  )}
-                  onClick={() => setGenderChartType("bar")}
-                >
-                  長條
-                </button>
-                <button
-                  className={clsx(
-                    "rounded px-2 py-1",
-                    genderChartType === "pie" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
-                  )}
-                  onClick={() => setGenderChartType("pie")}
-                >
-                  圓餅
-                </button>
-              </div>
-            </div>
-            <ChartContainer className="h-64 w-full" config={genderChartConfig}>
-              {genderChartType === "bar" ? (
-                <BarChart data={genderChartData}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
-                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" radius={6}>
-                    {genderChartData.map((item) => (
-                      <Cell key={item.gender} fill={item.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              ) : (
-                <PieChart>
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Pie data={genderChartData} dataKey="count" nameKey="label" outerRadius={90}>
-                    {genderChartData.map((item) => (
-                      <Cell key={item.gender} fill={item.fill} />
-                    ))}
-                  </Pie>
-                  <ChartLegend content={<ChartLegendContent />} />
-                </PieChart>
-              )}
-            </ChartContainer>
-          </div>
-
-          <div className="rounded-xl border border-zinc-100 p-4">
+          <div className="space-y-3">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-medium text-zinc-900">今日疑似感染</h3>
               <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
@@ -640,20 +520,7 @@ export default function AdminDashboard() {
             </ChartContainer>
           </div>
 
-          <div className="rounded-xl border border-zinc-100 p-4">
-            <h3 className="mb-3 text-sm font-medium text-zinc-900">年齡直方圖</h3>
-            <ChartContainer className="h-64 w-full" config={{ count: { label: "人數", color: "#2563eb" } }}>
-              <BarChart data={ageHistogram}>
-                <CartesianGrid vertical={false} />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} />
-                <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="count" fill="#2563eb" radius={4} />
-              </BarChart>
-            </ChartContainer>
-          </div>
-
-          <div className="rounded-xl border border-zinc-100 p-4">
+          <div className="space-y-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-medium text-zinc-900">活躍用戶趨勢</h3>
               <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -700,7 +567,7 @@ export default function AdminDashboard() {
             </ChartContainer>
           </div>
 
-          <div className="rounded-xl border border-zinc-100 p-4 xl:col-span-2">
+          <div className="space-y-3 xl:col-span-2">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-medium text-zinc-900">每日疑似感染比例與數量</h3>
               <select
@@ -731,7 +598,7 @@ export default function AdminDashboard() {
         </div>
       </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 order-1">
         <section className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
