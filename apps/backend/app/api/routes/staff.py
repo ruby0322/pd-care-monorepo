@@ -15,11 +15,26 @@ from app.api.deps.auth import (
     require_staff_or_admin,
 )
 from app.schemas.staff_dashboard import (
+    StaffActiveUsersSeriesPoint,
+    StaffActiveUsersSeriesResponse,
+    StaffAgeHistogramBucket,
+    StaffAgeHistogramResponse,
     StaffAnnotationItem,
     StaffAnnotationListResponse,
     StaffAnnotationUpsertRequest,
+    StaffDailySuspectedSeriesPoint,
+    StaffDailySuspectedSeriesResponse,
+    StaffGenderDistributionItem,
+    StaffGenderDistributionResponse,
     StaffPatientCreateRequest,
     StaffPatientCreateResponse,
+    StaffAssignmentBulkRequest,
+    StaffAssignmentBulkResponse,
+    StaffAssignmentBulkItemResult,
+    StaffAssignmentItem,
+    StaffAssignmentListResponse,
+    StaffAssignmentUpsertRequest,
+    StaffAssignmentUpsertResult,
     StaffNotificationItem,
     StaffNotificationListResponse,
     StaffPatientDetailResponse,
@@ -34,6 +49,7 @@ from app.schemas.staff_dashboard import (
     StaffUploadQueueItem,
     StaffUploadQueueResponse,
     StaffUploadRecord,
+    StaffTodaySuspectedSummaryResponse,
 )
 from app.schemas.admin_user_management import (
     AdminApproveHealthcarePermissionRequest,
@@ -59,14 +75,21 @@ from app.services.notifications import (
     mark_staff_notification_read,
 )
 from app.services.staff_dashboard import (
+    bulk_assign_patients,
     calculate_age,
     create_patient_record,
     create_patient_and_link_pending_binding,
     DuplicatePatientError,
     ensure_staff_assignment,
+    get_active_users_series,
+    get_age_histogram,
+    get_daily_suspected_series,
+    get_today_suspected_summary,
     link_pending_binding,
     list_assigned_patient_ids,
     list_annotations_for_patient,
+    list_patient_assignments,
+    list_gender_distribution,
     list_patient_upload_records,
     list_pending_bindings,
     list_staff_patients,
@@ -329,6 +352,222 @@ async def reject_admin_access_request(
             decision_role=access_request.decision_role,  # type: ignore[arg-type]
             created_at=access_request.created_at,
             decided_at=access_request.decided_at,
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/admin/assignments", response_model=StaffAssignmentListResponse)
+async def list_admin_assignments(
+    request: Request,
+    credentials=Depends(bearer_scheme),
+) -> StaffAssignmentListResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = list_patient_assignments(session)
+        return StaffAssignmentListResponse(
+            items=[
+                StaffAssignmentItem(
+                    patient_id=row.patient.id,
+                    case_number=row.patient.case_number,
+                    patient_full_name=row.patient.full_name,
+                    staff_identity_id=row.staff_identity_id,
+                    staff_line_user_id=row.staff_line_user_id,
+                    staff_display_name=row.staff_display_name,
+                )
+                for row in rows
+            ]
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/admin/assignments", response_model=StaffAssignmentUpsertResult)
+async def upsert_admin_assignment(
+    request: Request,
+    payload: StaffAssignmentUpsertRequest,
+    credentials=Depends(bearer_scheme),
+) -> StaffAssignmentUpsertResult:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            status = ensure_staff_assignment(
+                session,
+                staff_identity_id=payload.staff_identity_id,
+                patient_id=payload.patient_id,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return StaffAssignmentUpsertResult(
+            patient_id=payload.patient_id,
+            staff_identity_id=payload.staff_identity_id,
+            status=status,
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/admin/assignments/bulk", response_model=StaffAssignmentBulkResponse)
+async def bulk_upsert_admin_assignment(
+    request: Request,
+    payload: StaffAssignmentBulkRequest,
+    credentials=Depends(bearer_scheme),
+) -> StaffAssignmentBulkResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = bulk_assign_patients(
+            session,
+            assignments=[(item.patient_id, item.staff_identity_id) for item in payload.assignments],
+        )
+        return StaffAssignmentBulkResponse(
+            results=[
+                StaffAssignmentBulkItemResult(
+                    patient_id=row.patient_id,
+                    staff_identity_id=row.staff_identity_id,
+                    status=row.status,
+                    detail=row.detail,
+                )
+                for row in rows
+            ]
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/admin/analytics/gender-distribution", response_model=StaffGenderDistributionResponse)
+async def get_admin_gender_distribution(
+    request: Request,
+    credentials=Depends(bearer_scheme),
+) -> StaffGenderDistributionResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = list_gender_distribution(session, accessible_patient_ids=None)
+        items = [StaffGenderDistributionItem(gender=gender, count=count) for gender, count in rows]
+        return StaffGenderDistributionResponse(
+            total_patients=sum(item.count for item in items),
+            items=items,
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/admin/analytics/suspected-infections/today", response_model=StaffTodaySuspectedSummaryResponse)
+async def get_admin_today_suspected_summary(
+    request: Request,
+    credentials=Depends(bearer_scheme),
+) -> StaffTodaySuspectedSummaryResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        summary_date, total_uploads, suspected_uploads = get_today_suspected_summary(
+            session, accessible_patient_ids=None
+        )
+        normal_uploads = max(total_uploads - suspected_uploads, 0)
+        ratio = (suspected_uploads / total_uploads) if total_uploads > 0 else 0.0
+        return StaffTodaySuspectedSummaryResponse(
+            date=summary_date.isoformat(),
+            total_uploads=total_uploads,
+            suspected_uploads=suspected_uploads,
+            normal_uploads=normal_uploads,
+            suspected_ratio=ratio,
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/admin/analytics/age-histogram", response_model=StaffAgeHistogramResponse)
+async def get_admin_age_histogram(
+    request: Request,
+    bucket_size: int = Query(default=10, ge=1, le=30),
+    include_inactive: bool = Query(default=False),
+    credentials=Depends(bearer_scheme),
+) -> StaffAgeHistogramResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = get_age_histogram(
+            session,
+            bucket_size=bucket_size,
+            include_inactive=include_inactive,
+            accessible_patient_ids=None,
+        )
+        items = [
+            StaffAgeHistogramBucket(
+                range_start=start,
+                range_end=start + bucket_size - 1,
+                label=f"{start}-{start + bucket_size - 1}",
+                count=count,
+            )
+            for start, count in rows
+        ]
+        return StaffAgeHistogramResponse(
+            bucket_size=bucket_size,
+            total_patients=sum(item.count for item in items),
+            items=items,
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/admin/analytics/active-users", response_model=StaffActiveUsersSeriesResponse)
+async def get_admin_active_users_series(
+    request: Request,
+    active_window_days: int = Query(default=7, ge=1, le=120),
+    lookback_days: int = Query(default=30, ge=7, le=365),
+    interval: str = Query(default="day", pattern="^(day|week)$"),
+    credentials=Depends(bearer_scheme),
+) -> StaffActiveUsersSeriesResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = get_active_users_series(
+            session,
+            active_window_days=active_window_days,
+            lookback_days=lookback_days,
+            interval=interval,
+            accessible_patient_ids=None,
+        )
+        return StaffActiveUsersSeriesResponse(
+            active_window_days=active_window_days,
+            lookback_days=lookback_days,
+            interval=interval,  # type: ignore[arg-type]
+            items=[StaffActiveUsersSeriesPoint(date=day, active_users=count) for day, count in rows],
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/admin/analytics/daily-suspected-series", response_model=StaffDailySuspectedSeriesResponse)
+async def get_admin_daily_suspected_series(
+    request: Request,
+    lookback_days: int = Query(default=30, ge=7, le=365),
+    credentials=Depends(bearer_scheme),
+) -> StaffDailySuspectedSeriesResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = get_daily_suspected_series(
+            session,
+            lookback_days=lookback_days,
+            accessible_patient_ids=None,
+        )
+        return StaffDailySuspectedSeriesResponse(
+            lookback_days=lookback_days,
+            items=[
+                StaffDailySuspectedSeriesPoint(
+                    date=day,
+                    total_uploads=total,
+                    suspected_uploads=suspected,
+                    suspected_ratio=(suspected / total) if total > 0 else 0.0,
+                )
+                for day, total, suspected in rows
+            ],
         )
     finally:
         session.close()

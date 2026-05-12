@@ -15,10 +15,24 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { toast } from "sonner";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, XAxis, YAxis } from "recharts";
 
 import { useAdminNotifications } from "@/app/admin/_components/admin-notification-context";
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { getReadableApiError } from "@/lib/api/client";
 import {
+  fetchAdminActiveUsersSeries,
+  fetchAdminAgeHistogram,
+  fetchAdminDailySuspectedSeries,
+  fetchAdminGenderDistribution,
+  fetchAdminTodaySuspectedSummary,
   approvePendingBinding,
   fetchPendingBindings,
   fetchStaffPatients,
@@ -40,6 +54,24 @@ const INFECTION_OPTIONS = [
   { value: "suspected", label: "疑似感染" },
   { value: "normal", label: "無感染" },
 ] as const;
+
+const GENDER_LABELS: Record<string, string> = {
+  male: "男性",
+  female: "女性",
+  other: "其他",
+  unknown: "未填寫",
+};
+
+const GENDER_COLORS: Record<string, string> = {
+  male: "#2563eb",
+  female: "#db2777",
+  other: "#7c3aed",
+  unknown: "#71717a",
+};
+
+const ACTIVE_WINDOW_OPTIONS = [3, 7, 14, 30] as const;
+const LOOKBACK_OPTIONS = [30, 60, 90] as const;
+type ChartType = "bar" | "pie";
 
 function exportCSV(items: StaffPatientSummary[]) {
   const headers = ["病例號", "姓名", "LINE 名稱", "年齡", "LINE 帳號", "期間上傳次數", "疑似感染次數", "最近上傳日"];
@@ -82,6 +114,26 @@ export default function AdminDashboard() {
   const [showAllNotifications, setShowAllNotifications] = useState(false);
   const [showAllQueue, setShowAllQueue] = useState(false);
   const [showAllPending, setShowAllPending] = useState(false);
+  const [genderChartType, setGenderChartType] = useState<ChartType>("bar");
+  const [todayChartType, setTodayChartType] = useState<ChartType>("bar");
+  const [ageBucketSize, setAgeBucketSize] = useState(10);
+  const [activeWindowDays, setActiveWindowDays] = useState<(typeof ACTIVE_WINDOW_OPTIONS)[number]>(7);
+  const [activeLookbackDays, setActiveLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
+  const [activeInterval, setActiveInterval] = useState<"day" | "week">("day");
+  const [dailyLookbackDays, setDailyLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
+  const [genderDistribution, setGenderDistribution] = useState<{ gender: string; count: number }[]>([]);
+  const [todaySummary, setTodaySummary] = useState<{
+    total_uploads: number;
+    suspected_uploads: number;
+    normal_uploads: number;
+    suspected_ratio: number;
+  } | null>(null);
+  const [ageHistogram, setAgeHistogram] = useState<{ label: string; count: number }[]>([]);
+  const [activeUsersSeries, setActiveUsersSeries] = useState<{ date: string; active_users: number }[]>([]);
+  const [dailySuspectedSeries, setDailySuspectedSeries] = useState<
+    { date: string; total_uploads: number; suspected_uploads: number; suspected_ratio: number }[]
+  >([]);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const { notifications, unreadCount, markNotificationRead, markingIds, error: notificationError } = useAdminNotifications();
 
   useEffect(() => {
@@ -125,6 +177,42 @@ export default function AdminDashboard() {
     };
   }, [ageMax, ageMin, infectionStatus, months]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAnalytics() {
+      setAnalyticsError(null);
+      try {
+        const [genderData, todayData, ageData, activeData, dailyData] = await Promise.all([
+          fetchAdminGenderDistribution(),
+          fetchAdminTodaySuspectedSummary(),
+          fetchAdminAgeHistogram({ bucketSize: ageBucketSize }),
+          fetchAdminActiveUsersSeries({
+            activeWindowDays,
+            lookbackDays: activeLookbackDays,
+            interval: activeInterval,
+          }),
+          fetchAdminDailySuspectedSeries({ lookbackDays: dailyLookbackDays }),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setGenderDistribution(genderData.items);
+        setTodaySummary(todayData);
+        setAgeHistogram(ageData.items.map((item) => ({ label: item.label, count: item.count })));
+        setActiveUsersSeries(activeData.items);
+        setDailySuspectedSeries(dailyData.items);
+      } catch (error) {
+        if (!cancelled) {
+          setAnalyticsError(getReadableApiError(error));
+        }
+      }
+    }
+    void loadAnalytics();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeInterval, activeLookbackDays, activeWindowDays, ageBucketSize, dailyLookbackDays]);
+
   const pendingItems = useMemo(() => pending.filter((item) => item.status === "pending"), [pending]);
   const visibleNotifications = useMemo(
     () => (showAllNotifications ? notifications : notifications.slice(0, 3)),
@@ -135,6 +223,65 @@ export default function AdminDashboard() {
     () => (showAllPending ? pendingItems : pendingItems.slice(0, 3)),
     [pendingItems, showAllPending]
   );
+  const genderChartData = useMemo(
+    () =>
+      genderDistribution.map((item) => ({
+        gender: item.gender,
+        label: GENDER_LABELS[item.gender] ?? item.gender,
+        count: item.count,
+        fill: GENDER_COLORS[item.gender] ?? "#52525b",
+      })),
+    [genderDistribution]
+  );
+  const todayChartData = useMemo(
+    () => [
+      { key: "suspected", label: "疑似", count: todaySummary?.suspected_uploads ?? 0, fill: "#dc2626" },
+      { key: "normal", label: "非疑似", count: todaySummary?.normal_uploads ?? 0, fill: "#16a34a" },
+    ],
+    [todaySummary]
+  );
+  const activeUserChartData = useMemo(
+    () =>
+      activeUsersSeries.map((point) => ({
+        ...point,
+        shortDate: new Date(point.date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }),
+      })),
+    [activeUsersSeries]
+  );
+  const dailySuspectedChartData = useMemo(
+    () =>
+      dailySuspectedSeries.map((point) => ({
+        ...point,
+        shortDate: new Date(point.date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }),
+        ratio_pct: Number((point.suspected_ratio * 100).toFixed(1)),
+      })),
+    [dailySuspectedSeries]
+  );
+  const unknownGenderRatio = useMemo(() => {
+    const total = genderDistribution.reduce((sum, item) => sum + item.count, 0);
+    const unknown = genderDistribution.find((item) => item.gender === "unknown")?.count ?? 0;
+    return total > 0 ? unknown / total : 0;
+  }, [genderDistribution]);
+
+  const genderChartConfig: ChartConfig = {
+    male: { label: "男性", color: GENDER_COLORS.male },
+    female: { label: "女性", color: GENDER_COLORS.female },
+    other: { label: "其他", color: GENDER_COLORS.other },
+    unknown: { label: "未填寫", color: GENDER_COLORS.unknown },
+    count: { label: "人數" },
+  };
+  const todayChartConfig: ChartConfig = {
+    suspected: { label: "疑似", color: "#dc2626" },
+    normal: { label: "非疑似", color: "#16a34a" },
+    count: { label: "筆數" },
+  };
+  const activeChartConfig: ChartConfig = {
+    active_users: { label: "活躍用戶", color: "#2563eb" },
+  };
+  const dailyChartConfig: ChartConfig = {
+    suspected_uploads: { label: "疑似數量", color: "#dc2626" },
+    ratio_pct: { label: "疑似比例(%)", color: "#2563eb" },
+  };
 
   async function refreshPending() {
     const items = await fetchPendingBindings();
@@ -252,6 +399,9 @@ export default function AdminDashboard() {
       {notificationError ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">{notificationError}</div>
       ) : null}
+      {analyticsError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{analyticsError}</div>
+      ) : null}
 
       <div className="flex flex-wrap gap-3 items-center">
         <div className="flex items-center gap-1 bg-white border border-zinc-200 rounded-xl p-1 flex-wrap">
@@ -355,6 +505,231 @@ export default function AdminDashboard() {
           </div>
         ))}
       </div>
+
+      <section className="rounded-2xl border border-zinc-100 bg-white p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-zinc-900">分析圖表</h2>
+            <p className="text-xs text-zinc-500">支援 bar/pie 切換與活躍定義調整</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="text-zinc-500">年齡桶大小</label>
+            <select
+              className="rounded-lg border border-zinc-200 px-2 py-1 text-zinc-700"
+              value={ageBucketSize}
+              onChange={(event) => setAgeBucketSize(Number(event.target.value))}
+            >
+              {[5, 10, 15, 20].map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {unknownGenderRatio >= 0.5 ? (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            性別資料「未填寫」占比偏高，建議補齊資料再解讀趨勢。
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="rounded-xl border border-zinc-100 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-zinc-900">性別分布</h3>
+              <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
+                <button
+                  className={clsx(
+                    "rounded px-2 py-1",
+                    genderChartType === "bar" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                  )}
+                  onClick={() => setGenderChartType("bar")}
+                >
+                  長條
+                </button>
+                <button
+                  className={clsx(
+                    "rounded px-2 py-1",
+                    genderChartType === "pie" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                  )}
+                  onClick={() => setGenderChartType("pie")}
+                >
+                  圓餅
+                </button>
+              </div>
+            </div>
+            <ChartContainer className="h-64 w-full" config={genderChartConfig}>
+              {genderChartType === "bar" ? (
+                <BarChart data={genderChartData}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" radius={6}>
+                    {genderChartData.map((item) => (
+                      <Cell key={item.gender} fill={item.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              ) : (
+                <PieChart>
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Pie data={genderChartData} dataKey="count" nameKey="label" outerRadius={90}>
+                    {genderChartData.map((item) => (
+                      <Cell key={item.gender} fill={item.fill} />
+                    ))}
+                  </Pie>
+                  <ChartLegend content={<ChartLegendContent />} />
+                </PieChart>
+              )}
+            </ChartContainer>
+          </div>
+
+          <div className="rounded-xl border border-zinc-100 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-zinc-900">今日疑似感染</h3>
+              <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
+                <button
+                  className={clsx(
+                    "rounded px-2 py-1",
+                    todayChartType === "bar" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                  )}
+                  onClick={() => setTodayChartType("bar")}
+                >
+                  長條
+                </button>
+                <button
+                  className={clsx(
+                    "rounded px-2 py-1",
+                    todayChartType === "pie" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                  )}
+                  onClick={() => setTodayChartType("pie")}
+                >
+                  圓餅
+                </button>
+              </div>
+            </div>
+            <p className="mb-2 text-xs text-zinc-500">
+              疑似比例 {((todaySummary?.suspected_ratio ?? 0) * 100).toFixed(1)}%（共 {todaySummary?.total_uploads ?? 0} 筆）
+            </p>
+            <ChartContainer className="h-64 w-full" config={todayChartConfig}>
+              {todayChartType === "bar" ? (
+                <BarChart data={todayChartData}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" radius={6}>
+                    {todayChartData.map((item) => (
+                      <Cell key={item.key} fill={item.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              ) : (
+                <PieChart>
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Pie data={todayChartData} dataKey="count" nameKey="label" outerRadius={90}>
+                    {todayChartData.map((item) => (
+                      <Cell key={item.key} fill={item.fill} />
+                    ))}
+                  </Pie>
+                  <ChartLegend content={<ChartLegendContent />} />
+                </PieChart>
+              )}
+            </ChartContainer>
+          </div>
+
+          <div className="rounded-xl border border-zinc-100 p-4">
+            <h3 className="mb-3 text-sm font-medium text-zinc-900">年齡直方圖</h3>
+            <ChartContainer className="h-64 w-full" config={{ count: { label: "人數", color: "#2563eb" } }}>
+              <BarChart data={ageHistogram}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="count" fill="#2563eb" radius={4} />
+              </BarChart>
+            </ChartContainer>
+          </div>
+
+          <div className="rounded-xl border border-zinc-100 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-medium text-zinc-900">活躍用戶趨勢</h3>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <select
+                  className="rounded-lg border border-zinc-200 px-2 py-1"
+                  value={activeWindowDays}
+                  onChange={(event) => setActiveWindowDays(Number(event.target.value) as (typeof ACTIVE_WINDOW_OPTIONS)[number])}
+                >
+                  {ACTIVE_WINDOW_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      近{value}天活躍
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="rounded-lg border border-zinc-200 px-2 py-1"
+                  value={activeLookbackDays}
+                  onChange={(event) => setActiveLookbackDays(Number(event.target.value) as (typeof LOOKBACK_OPTIONS)[number])}
+                >
+                  {LOOKBACK_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      最近{value}天
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="rounded-lg border border-zinc-200 px-2 py-1"
+                  value={activeInterval}
+                  onChange={(event) => setActiveInterval(event.target.value as "day" | "week")}
+                >
+                  <option value="day">日</option>
+                  <option value="week">週</option>
+                </select>
+              </div>
+            </div>
+            <ChartContainer className="h-64 w-full" config={activeChartConfig}>
+              <LineChart data={activeUserChartData}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Line dataKey="active_users" stroke="var(--color-active_users)" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ChartContainer>
+          </div>
+
+          <div className="rounded-xl border border-zinc-100 p-4 xl:col-span-2">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-medium text-zinc-900">每日疑似感染比例與數量</h3>
+              <select
+                className="rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+                value={dailyLookbackDays}
+                onChange={(event) => setDailyLookbackDays(Number(event.target.value) as (typeof LOOKBACK_OPTIONS)[number])}
+              >
+                {LOOKBACK_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    最近{value}天
+                  </option>
+                ))}
+              </select>
+            </div>
+            <ChartContainer className="h-72 w-full" config={dailyChartConfig}>
+              <LineChart data={dailySuspectedChartData}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
+                <YAxis yAxisId="left" tickLine={false} axisLine={false} allowDecimals={false} />
+                <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} unit="%" />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Line yAxisId="left" dataKey="suspected_uploads" stroke="var(--color-suspected_uploads)" strokeWidth={2} dot={false} />
+                <Line yAxisId="right" dataKey="ratio_pct" stroke="var(--color-ratio_pct)" strokeWidth={2} dot={false} />
+                <ChartLegend content={<ChartLegendContent />} />
+              </LineChart>
+            </ChartContainer>
+          </div>
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
         <section className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">

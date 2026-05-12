@@ -10,6 +10,7 @@ import {
   Hospital,
   LayoutDashboard,
   Menu,
+  UserCheck,
   X,
   Users,
 } from "lucide-react";
@@ -186,6 +187,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               病患管理
             </Link>
             <Link
+              href="/admin/patient-assignment"
+              onClick={closeMobileSidebar}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/patient-assignment"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <UserCheck className="w-4 h-4" strokeWidth={1.5} />
+              病患分配
+            </Link>
+            <Link
               href="/admin/users"
               onClick={closeMobileSidebar}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
@@ -306,6 +319,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               <Hospital className="w-4 h-4" strokeWidth={1.5} />
               {!isSidebarCollapsed ? "病患管理" : null}
+            </Link>
+            <Link
+              href="/admin/patient-assignment"
+              className={`flex items-center rounded-xl transition-colors text-sm ${
+                isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+              } ${
+                pathname === "/admin/patient-assignment"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+              aria-label="病患分配"
+              title={isSidebarCollapsed ? "病患分配" : undefined}
+            >
+              <UserCheck className="w-4 h-4" strokeWidth={1.5} />
+              {!isSidebarCollapsed ? "病患分配" : null}
             </Link>
             <Link
               href="/admin/users"
