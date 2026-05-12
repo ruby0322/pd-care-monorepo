@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
   Activity,
   ChartNoAxesCombined,
@@ -11,11 +10,12 @@ import {
   LayoutDashboard,
   Menu,
   UserCheck,
-  X,
   Users,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { AdminNotificationBell } from "@/app/admin/_components/admin-notification-bell";
 import { AdminNotificationProvider } from "@/app/admin/_components/admin-notification-context";
@@ -162,18 +162,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <ClipboardCheck className="w-4 h-4" strokeWidth={1.5} />
               快速審核
             </Link>
-            <Link
-              href="/admin/monitoring"
-              onClick={closeMobileSidebar}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
-                pathname === "/admin/monitoring"
-                  ? "bg-zinc-900 text-white"
-                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-              }`}
-            >
-              <ChartNoAxesCombined className="w-4 h-4" strokeWidth={1.5} />
-              監控中心
-            </Link>
+           
             <Link
               href="/admin/patients"
               onClick={closeMobileSidebar}
@@ -209,6 +198,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               <Users className="w-4 h-4" strokeWidth={1.5} />
               用戶管理
+            </Link>
+            <Link
+              href="/admin/monitoring"
+              onClick={closeMobileSidebar}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/monitoring"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <ChartNoAxesCombined className="w-4 h-4" strokeWidth={1.5} />
+              監控中心
             </Link>
           </nav>
 
@@ -290,21 +291,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <ClipboardCheck className="w-4 h-4" strokeWidth={1.5} />
               {!isSidebarCollapsed ? "快速審核" : null}
             </Link>
-            <Link
-              href="/admin/monitoring"
-              className={`flex items-center rounded-xl transition-colors text-sm ${
-                isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
-              } ${
-                pathname === "/admin/monitoring"
-                  ? "bg-zinc-900 text-white"
-                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-              }`}
-              aria-label="監控中心"
-              title={isSidebarCollapsed ? "監控中心" : undefined}
-            >
-              <ChartNoAxesCombined className="w-4 h-4" strokeWidth={1.5} />
-              {!isSidebarCollapsed ? "監控中心" : null}
-            </Link>
+
             <Link
               href="/admin/patients"
               className={`flex items-center rounded-xl transition-colors text-sm ${
@@ -349,6 +336,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               <Users className="w-4 h-4" strokeWidth={1.5} />
               {!isSidebarCollapsed ? "用戶管理" : null}
+            </Link>
+            <Link
+              href="/admin/monitoring"
+              className={`flex items-center rounded-xl transition-colors text-sm ${
+                isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+              } ${
+                pathname === "/admin/monitoring"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+              aria-label="監控中心"
+              title={isSidebarCollapsed ? "監控中心" : undefined}
+            >
+              <ChartNoAxesCombined className="w-4 h-4" strokeWidth={1.5} />
+              {!isSidebarCollapsed ? "監控中心" : null}
             </Link>
           </nav>
 
