@@ -13,6 +13,7 @@ import {
   Download,
   Filter,
   Link2,
+  Hospital,
   Upload,
   Users,
 } from "lucide-react";
@@ -25,6 +26,7 @@ import {
   fetchPendingBindings,
   fetchStaffPatients,
   fetchUploadQueue,
+  createPatientAndLinkPendingBinding,
   linkPendingBinding,
   rejectPendingBinding,
   StaffPatientSummary,
@@ -88,6 +90,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState({ totalPatients: 0, totalUploads: 0, suspectedPatients: 0 });
   const [selectedCandidate, setSelectedCandidate] = useState<Record<number, string>>({});
   const [workingPendingId, setWorkingPendingId] = useState<number | null>(null);
+  const [newPatientNameByPendingId, setNewPatientNameByPendingId] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { notifications, unreadCount, markNotificationRead, markingIds, error: notificationError } = useAdminNotifications();
@@ -104,6 +107,7 @@ export default function AdminDashboard() {
             ageMin: ageMin ? Number(ageMin) : undefined,
             ageMax: ageMax ? Number(ageMax) : undefined,
             infectionStatus,
+            isActiveFilter: "active",
             sortKey,
             sortDir,
           }),
@@ -194,6 +198,23 @@ export default function AdminDashboard() {
     }
   }
 
+  async function handleCreateAndLink(item: StaffPendingBindingItem) {
+    const fullName = (newPatientNameByPendingId[item.id] ?? "").trim();
+    if (!fullName) {
+      setErrorMessage("請先輸入病患姓名再建檔。");
+      return;
+    }
+    setWorkingPendingId(item.id);
+    try {
+      await createPatientAndLinkPendingBinding(item.id, { full_name: fullName });
+      await refreshPending();
+    } catch (error) {
+      setErrorMessage(getReadableApiError(error));
+    } finally {
+      setWorkingPendingId(null);
+    }
+  }
+
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -201,13 +222,22 @@ export default function AdminDashboard() {
           <h1 className="text-lg font-semibold text-zinc-900">儀表板</h1>
           <p className="text-xs text-zinc-400 mt-0.5">腹膜透析出口感染監測</p>
         </div>
-        <button
-          onClick={() => exportCSV(patients)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-sm hover:bg-zinc-50 transition-colors"
-        >
-          <Download className="w-4 h-4" strokeWidth={1.5} />
-          匯出報表
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/admin/patients"
+            className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+          >
+            <Hospital className="h-4 w-4" />
+            病患管理
+          </Link>
+          <button
+            onClick={() => exportCSV(patients)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-sm hover:bg-zinc-50 transition-colors"
+          >
+            <Download className="w-4 h-4" strokeWidth={1.5} />
+            匯出報表
+          </button>
+        </div>
       </div>
 
       {errorMessage ? (
@@ -534,7 +564,23 @@ export default function AdminDashboard() {
                         </button>
                       </>
                     ) : (
-                      <span className="text-xs text-amber-600">尚未找到候選病患</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          value={newPatientNameByPendingId[item.id] ?? ""}
+                          onChange={(event) =>
+                            setNewPatientNameByPendingId((current) => ({ ...current, [item.id]: event.target.value }))
+                          }
+                          className="rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+                          placeholder="新病患姓名"
+                        />
+                        <button
+                          onClick={() => void handleCreateAndLink(item)}
+                          disabled={workingPendingId === item.id}
+                          className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                        >
+                          建檔並綁定
+                        </button>
+                      </div>
                     )}
                     <button
                       onClick={() => void handleReject(item)}

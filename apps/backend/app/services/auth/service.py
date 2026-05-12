@@ -43,6 +43,9 @@ class AuthService:
         if role not in {"patient", "staff", "admin"}:
             session.rollback()
             raise PermissionError("此帳號角色無法登入系統")
+        if not identity.is_active:
+            session.rollback()
+            raise PermissionError("此帳號已停用，請聯絡管理員")
 
         token = self._token_service.issue_token(
             identity_id=identity.id,

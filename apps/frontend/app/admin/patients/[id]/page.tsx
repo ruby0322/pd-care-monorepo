@@ -175,7 +175,7 @@ export default function PatientDetailPage() {
     <div className="max-w-3xl mx-auto flex flex-col gap-6">
       <div className="flex items-center gap-3">
         <Link
-          href="/admin"
+          href="/admin/patients"
           className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-zinc-100 transition-colors"
         >
           <ChevronLeft className="w-5 h-5 text-zinc-500" strokeWidth={1.5} />

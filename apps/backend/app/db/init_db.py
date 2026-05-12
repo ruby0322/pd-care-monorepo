@@ -6,7 +6,18 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
 from app.db.base import Base
-from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, Upload
+from app.db.models import (
+    AIResult,
+    Annotation,
+    AuthorizationAuditEvent,
+    HealthcareAccessRequest,
+    LiffIdentity,
+    Notification,
+    Patient,
+    PendingBinding,
+    StaffPatientAssignment,
+    Upload,
+)
 from app.db.session import create_engine_from_url, create_session_factory, ensure_postgres_database_exists, ping_database
 
 
@@ -47,6 +58,17 @@ def _ensure_annotation_staff_user_nullable(engine: Engine) -> None:
         connection.execute(text("ALTER TABLE annotations ALTER COLUMN staff_user_id DROP NOT NULL"))
 
 
+def _ensure_identity_is_active_column(engine: Engine) -> None:
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("liff_identities")}
+    if "is_active" in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(
+            text("ALTER TABLE liff_identities ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
+        )
+
+
 def _seed_pilot_identities(session_factory: sessionmaker, settings: Settings) -> None:
     pilot_accounts = {identity_id: "staff" for identity_id in settings.pilot_staff_identity_ids}
     pilot_accounts.update({identity_id: "admin" for identity_id in settings.pilot_admin_identity_ids})
@@ -68,6 +90,7 @@ def _seed_pilot_identities(session_factory: sessionmaker, settings: Settings) ->
                     .one()
                 )
                 identity.role = role
+                identity.is_active = True
                 continue
             session.add(
                 LiffIdentity(
@@ -76,6 +99,7 @@ def _seed_pilot_identities(session_factory: sessionmaker, settings: Settings) ->
                     picture_url=None,
                     patient_id=None,
                     role=role,
+                    is_active=True,
                 )
             )
         session.commit()
@@ -83,7 +107,18 @@ def _seed_pilot_identities(session_factory: sessionmaker, settings: Settings) ->
 
 def initialize_database(database_url: str, settings: Settings | None = None) -> tuple[Engine, sessionmaker]:
     # Importing models above ensures metadata includes all week-1 tables.
-    _ = (Patient, LiffIdentity, PendingBinding, Upload, AIResult, Notification, Annotation)
+    _ = (
+        Patient,
+        LiffIdentity,
+        PendingBinding,
+        StaffPatientAssignment,
+        Upload,
+        AIResult,
+        Notification,
+        Annotation,
+        HealthcareAccessRequest,
+        AuthorizationAuditEvent,
+    )
     ensure_postgres_database_exists(database_url)
     engine = create_engine_from_url(database_url)
     ping_database(engine)
@@ -91,6 +126,7 @@ def initialize_database(database_url: str, settings: Settings | None = None) -> 
     _ensure_role_column(engine)
     _ensure_annotation_reviewer_column(engine)
     _ensure_annotation_staff_user_nullable(engine)
+    _ensure_identity_is_active_column(engine)
     session_factory = create_session_factory(engine)
     if settings is not None:
         _seed_pilot_identities(session_factory, settings)

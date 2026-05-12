@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import AIResult, Annotation, LiffIdentity, Patient, PendingBinding, Upload
+from app.db.models import AIResult, Annotation, LiffIdentity, Patient, PendingBinding, StaffPatientAssignment, Upload
 
 
 def _parse_birth_date(raw: str) -> datetime | None:
@@ -37,6 +37,24 @@ class StaffPatientRow:
     latest_upload_at: datetime | None
 
 
+def list_assigned_patient_ids(session: Session, *, staff_identity_id: int) -> set[int]:
+    rows = session.execute(
+        select(StaffPatientAssignment.patient_id).where(StaffPatientAssignment.staff_identity_id == staff_identity_id)
+    ).scalars().all()
+    return set(rows)
+
+
+def ensure_staff_assignment(session: Session, *, staff_identity_id: int, patient_id: int) -> None:
+    existing = session.execute(
+        select(StaffPatientAssignment).where(
+            StaffPatientAssignment.staff_identity_id == staff_identity_id,
+            StaffPatientAssignment.patient_id == patient_id,
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        session.add(StaffPatientAssignment(staff_identity_id=staff_identity_id, patient_id=patient_id))
+
+
 def list_staff_patients(
     session: Session,
     *,
@@ -44,6 +62,8 @@ def list_staff_patients(
     age_min: int | None,
     age_max: int | None,
     infection_status: str,
+    is_active_filter: str,
+    accessible_patient_ids: set[int] | None = None,
 ) -> list[StaffPatientRow]:
     cutoff = datetime.now(tz=timezone.utc).replace(day=1)
     month = cutoff.month - months
@@ -53,7 +73,16 @@ def list_staff_patients(
         year -= 1
     cutoff = cutoff.replace(year=year, month=month)
 
-    patients = session.execute(select(Patient).where(Patient.is_active.is_(True))).scalars().all()
+    patient_query: Select = select(Patient)
+    if is_active_filter == "active":
+        patient_query = patient_query.where(Patient.is_active.is_(True))
+    elif is_active_filter == "inactive":
+        patient_query = patient_query.where(Patient.is_active.is_(False))
+    if accessible_patient_ids is not None:
+        if not accessible_patient_ids:
+            return []
+        patient_query = patient_query.where(Patient.id.in_(accessible_patient_ids))
+    patients = session.execute(patient_query).scalars().all()
     identities = session.execute(select(LiffIdentity).where(LiffIdentity.patient_id.is_not(None))).scalars().all()
     line_by_patient: dict[int, str] = {}
     for identity in identities:
@@ -123,6 +152,7 @@ def list_upload_queue(
     *,
     limit: int,
     suspected_only: bool,
+    accessible_patient_ids: set[int] | None = None,
 ) -> list[tuple[Upload, AIResult, Patient, str | None, bool]]:
     base_query: Select = (
         select(Upload, AIResult, Patient)
@@ -132,6 +162,10 @@ def list_upload_queue(
     )
     if suspected_only:
         base_query = base_query.where(AIResult.screening_result == "suspected")
+    if accessible_patient_ids is not None:
+        if not accessible_patient_ids:
+            return []
+        base_query = base_query.where(Patient.id.in_(accessible_patient_ids))
     base_query = base_query.order_by(Upload.created_at.desc()).limit(limit)
     rows = session.execute(base_query).all()
 
@@ -249,6 +283,31 @@ def link_pending_binding(session: Session, *, pending_id: int, patient_id: int) 
     return pending
 
 
+def create_patient_and_link_pending_binding(
+    session: Session,
+    *,
+    pending_id: int,
+    full_name: str,
+) -> tuple[PendingBinding, Patient]:
+    pending = session.get(PendingBinding, pending_id)
+    if pending is None:
+        raise LookupError("Pending binding not found")
+    if pending.status != "pending":
+        raise ValueError("Pending binding is already resolved")
+
+    patient = Patient(
+        case_number=pending.case_number,
+        birth_date=pending.birth_date,
+        full_name=full_name.strip(),
+        is_active=True,
+    )
+    session.add(patient)
+    session.flush()
+    pending = link_pending_binding(session, pending_id=pending_id, patient_id=patient.id)
+    session.refresh(patient)
+    return pending, patient
+
+
 def update_pending_binding_status(session: Session, *, pending_id: int, status: str) -> PendingBinding:
     pending = session.get(PendingBinding, pending_id)
     if pending is None:
@@ -259,3 +318,13 @@ def update_pending_binding_status(session: Session, *, pending_id: int, status: 
     session.commit()
     session.refresh(pending)
     return pending
+
+
+def update_patient_active_status(session: Session, *, patient_id: int, is_active: bool) -> Patient:
+    patient = session.get(Patient, patient_id)
+    if patient is None:
+        raise LookupError("Patient not found")
+    patient.is_active = is_active
+    session.commit()
+    session.refresh(patient)
+    return patient

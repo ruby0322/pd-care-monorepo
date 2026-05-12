@@ -58,23 +58,15 @@ def bind_identity(
         return ("matched", patient.id, True)
 
     identity.patient_id = None
-    existing_pending = session.execute(
-        select(PendingBinding).where(
-            PendingBinding.line_user_id == line_user_id,
-            PendingBinding.case_number == case_number,
-            PendingBinding.birth_date == birth_date,
-            PendingBinding.status == "pending",
+    _replace_existing_pending_bindings(session, line_user_id=line_user_id)
+    session.add(
+        PendingBinding(
+            line_user_id=line_user_id,
+            case_number=case_number,
+            birth_date=birth_date,
+            status="pending",
         )
-    ).scalar_one_or_none()
-    if existing_pending is None:
-        session.add(
-            PendingBinding(
-                line_user_id=line_user_id,
-                case_number=case_number,
-                birth_date=birth_date,
-                status="pending",
-            )
-        )
+    )
     session.commit()
     return ("pending", None, False)
 
@@ -88,6 +80,17 @@ def _resolve_pending_bindings(session: Session, *, line_user_id: str) -> None:
     ).scalars().all()
     for pending in pending_rows:
         pending.status = "approved"
+
+
+def _replace_existing_pending_bindings(session: Session, *, line_user_id: str) -> None:
+    pending_rows = session.execute(
+        select(PendingBinding).where(
+            PendingBinding.line_user_id == line_user_id,
+            PendingBinding.status == "pending",
+        )
+    ).scalars().all()
+    for pending in pending_rows:
+        pending.status = "replaced"
 
 
 def get_identity_status(session: Session, *, line_user_id: str) -> tuple[str, int | None, bool]:
