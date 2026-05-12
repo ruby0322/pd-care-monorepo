@@ -5,10 +5,6 @@ import Link from "next/link";
 import {
   AlertTriangle,
   Bell,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  ChevronsUpDown,
   Clock3,
   Download,
   Filter,
@@ -18,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import clsx from "clsx";
+import { toast } from "sonner";
 
 import { useAdminNotifications } from "@/app/admin/_components/admin-notification-context";
 import { getReadableApiError } from "@/lib/api/client";
@@ -37,8 +34,6 @@ import {
 const PERIOD_OPTIONS = [1, 2, 3, 6, 12, 24, 36, 60] as const;
 type Period = (typeof PERIOD_OPTIONS)[number];
 type InfectionStatus = "all" | "suspected" | "normal";
-type SortKey = "case_number" | "age" | "upload_count" | "suspected_count" | "latest_upload";
-type SortDir = "asc" | "desc";
 
 const INFECTION_OPTIONS = [
   { value: "all", label: "全部" },
@@ -46,19 +41,13 @@ const INFECTION_OPTIONS = [
   { value: "normal", label: "無感染" },
 ] as const;
 
-function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
-  if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 text-zinc-300 ml-1 inline" strokeWidth={2} />;
-  return sortDir === "asc"
-    ? <ChevronUp className="w-3 h-3 text-zinc-600 ml-1 inline" strokeWidth={2} />
-    : <ChevronDown className="w-3 h-3 text-zinc-600 ml-1 inline" strokeWidth={2} />;
-}
-
 function exportCSV(items: StaffPatientSummary[]) {
-  const headers = ["病例號", "姓名", "年齡", "LINE帳號", "期間上傳次數", "疑似感染次數", "最近上傳日"];
+  const headers = ["病例號", "姓名", "LINE 名稱", "年齡", "LINE 帳號", "期間上傳次數", "疑似感染次數", "最近上傳日"];
   const rows = items.map((item) =>
     [
       item.case_number,
       item.full_name ?? "未命名",
+      item.line_display_name ?? "-",
       item.age ?? "-",
       item.line_user_id ?? "-",
       item.upload_count,
@@ -82,8 +71,6 @@ export default function AdminDashboard() {
   const [ageMax, setAgeMax] = useState("");
   const [infectionStatus, setInfectionStatus] = useState<InfectionStatus>("all");
   const [showFilters, setShowFilters] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("latest_upload");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [patients, setPatients] = useState<StaffPatientSummary[]>([]);
   const [queue, setQueue] = useState<StaffUploadQueueItem[]>([]);
   const [pending, setPending] = useState<StaffPendingBindingItem[]>([]);
@@ -91,14 +78,15 @@ export default function AdminDashboard() {
   const [selectedCandidate, setSelectedCandidate] = useState<Record<number, string>>({});
   const [workingPendingId, setWorkingPendingId] = useState<number | null>(null);
   const [newPatientNameByPendingId, setNewPatientNameByPendingId] = useState<Record<number, string>>({});
-  const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showAllNotifications, setShowAllNotifications] = useState(false);
+  const [showAllQueue, setShowAllQueue] = useState(false);
+  const [showAllPending, setShowAllPending] = useState(false);
   const { notifications, unreadCount, markNotificationRead, markingIds, error: notificationError } = useAdminNotifications();
 
   useEffect(() => {
     let cancelled = false;
     async function loadDashboard() {
-      setLoading(true);
       setErrorMessage(null);
       try {
         const [patientsData, queueData, pendingData] = await Promise.all([
@@ -108,8 +96,8 @@ export default function AdminDashboard() {
             ageMax: ageMax ? Number(ageMax) : undefined,
             infectionStatus,
             isActiveFilter: "active",
-            sortKey,
-            sortDir,
+            sortKey: "latest_upload",
+            sortDir: "desc",
           }),
           fetchUploadQueue({ limit: 12 }),
           fetchPendingBindings(),
@@ -129,28 +117,24 @@ export default function AdminDashboard() {
         if (!cancelled) {
           setErrorMessage(getReadableApiError(error));
         }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
       }
     }
     void loadDashboard();
     return () => {
       cancelled = true;
     };
-  }, [ageMax, ageMin, infectionStatus, months, sortDir, sortKey]);
+  }, [ageMax, ageMin, infectionStatus, months]);
 
   const pendingItems = useMemo(() => pending.filter((item) => item.status === "pending"), [pending]);
-
-  const handleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((current) => (current === "asc" ? "desc" : "asc"));
-      return;
-    }
-    setSortKey(key);
-    setSortDir(key === "latest_upload" ? "desc" : "asc");
-  };
+  const visibleNotifications = useMemo(
+    () => (showAllNotifications ? notifications : notifications.slice(0, 3)),
+    [notifications, showAllNotifications]
+  );
+  const visibleQueue = useMemo(() => (showAllQueue ? queue : queue.slice(0, 3)), [queue, showAllQueue]);
+  const visiblePending = useMemo(
+    () => (showAllPending ? pendingItems : pendingItems.slice(0, 3)),
+    [pendingItems, showAllPending]
+  );
 
   async function refreshPending() {
     const items = await fetchPendingBindings();
@@ -162,8 +146,9 @@ export default function AdminDashboard() {
     try {
       await approvePendingBinding(item.id);
       await refreshPending();
+      toast.success("已核准綁定申請");
     } catch (error) {
-      setErrorMessage(getReadableApiError(error));
+      toast.error(getReadableApiError(error));
     } finally {
       setWorkingPendingId(null);
     }
@@ -174,8 +159,9 @@ export default function AdminDashboard() {
     try {
       await rejectPendingBinding(item.id);
       await refreshPending();
+      toast.success("已駁回綁定申請");
     } catch (error) {
-      setErrorMessage(getReadableApiError(error));
+      toast.error(getReadableApiError(error));
     } finally {
       setWorkingPendingId(null);
     }
@@ -184,15 +170,16 @@ export default function AdminDashboard() {
   async function handleLink(item: StaffPendingBindingItem) {
     const patientId = Number(selectedCandidate[item.id]);
     if (!patientId) {
-      setErrorMessage("請先選擇要綁定的病患。");
+      toast.error("請先選擇要綁定的病患。");
       return;
     }
     setWorkingPendingId(item.id);
     try {
       await linkPendingBinding(item.id, patientId);
       await refreshPending();
+      toast.success("已完成指定綁定");
     } catch (error) {
-      setErrorMessage(getReadableApiError(error));
+      toast.error(getReadableApiError(error));
     } finally {
       setWorkingPendingId(null);
     }
@@ -201,17 +188,36 @@ export default function AdminDashboard() {
   async function handleCreateAndLink(item: StaffPendingBindingItem) {
     const fullName = (newPatientNameByPendingId[item.id] ?? "").trim();
     if (!fullName) {
-      setErrorMessage("請先輸入病患姓名再建檔。");
+      toast.error("請先輸入病患姓名再建檔。");
       return;
     }
     setWorkingPendingId(item.id);
     try {
       await createPatientAndLinkPendingBinding(item.id, { full_name: fullName });
       await refreshPending();
+      toast.success("建檔並綁定完成");
     } catch (error) {
-      setErrorMessage(getReadableApiError(error));
+      toast.error(getReadableApiError(error));
     } finally {
       setWorkingPendingId(null);
+    }
+  }
+
+  async function handleMarkNotificationRead(notificationId: number) {
+    try {
+      await markNotificationRead(notificationId);
+      toast.success("已標記為已讀");
+    } catch (error) {
+      toast.error(getReadableApiError(error));
+    }
+  }
+
+  function handleExportReport() {
+    try {
+      exportCSV(patients);
+      toast.success("報表已匯出");
+    } catch {
+      toast.error("匯出失敗，請稍後再試");
     }
   }
 
@@ -231,7 +237,7 @@ export default function AdminDashboard() {
             病患管理
           </Link>
           <button
-            onClick={() => exportCSV(patients)}
+            onClick={handleExportReport}
             className="flex items-center gap-2 px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-sm hover:bg-zinc-50 transition-colors"
           >
             <Download className="w-4 h-4" strokeWidth={1.5} />
@@ -350,89 +356,6 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-50 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-zinc-900">病患列表</h2>
-          <span className="text-xs text-zinc-400">{patients.length} 筆</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-zinc-50">
-                <th className="px-5 py-3 text-left whitespace-nowrap">
-                  <button onClick={() => handleSort("case_number")} className="flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-700">
-                    病例號
-                    <SortIcon col="case_number" sortKey={sortKey} sortDir={sortDir} />
-                  </button>
-                </th>
-                <th className="px-5 py-3 text-left whitespace-nowrap">姓名</th>
-                <th className="px-5 py-3 text-left whitespace-nowrap">
-                  <button onClick={() => handleSort("age")} className="flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-700">
-                    年齡
-                    <SortIcon col="age" sortKey={sortKey} sortDir={sortDir} />
-                  </button>
-                </th>
-                <th className="px-5 py-3 text-left whitespace-nowrap">
-                  <button onClick={() => handleSort("upload_count")} className="flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-700">
-                    期間上傳
-                    <SortIcon col="upload_count" sortKey={sortKey} sortDir={sortDir} />
-                  </button>
-                </th>
-                <th className="px-5 py-3 text-left whitespace-nowrap">
-                  <button onClick={() => handleSort("suspected_count")} className="flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-700">
-                    疑似感染
-                    <SortIcon col="suspected_count" sortKey={sortKey} sortDir={sortDir} />
-                  </button>
-                </th>
-                <th className="px-5 py-3 text-left whitespace-nowrap">
-                  <button onClick={() => handleSort("latest_upload")} className="flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-700">
-                    最近上傳
-                    <SortIcon col="latest_upload" sortKey={sortKey} sortDir={sortDir} />
-                  </button>
-                </th>
-                <th className="px-5 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-50">
-              {loading && patients.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-sm text-zinc-400">
-                    載入中...
-                  </td>
-                </tr>
-              ) : patients.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-sm text-zinc-400">
-                    無符合條件的病患資料
-                  </td>
-                </tr>
-              ) : (
-                patients.map((item) => (
-                  <tr key={item.patient_id} className="hover:bg-zinc-50/50 transition-colors group">
-                    <td className="px-5 py-3.5 text-xs font-mono text-zinc-500">{item.case_number}</td>
-                    <td className="px-5 py-3.5 text-sm text-zinc-900">{item.full_name ?? "未命名"}</td>
-                    <td className="px-5 py-3.5 text-sm text-zinc-600">{item.age ?? "-"}</td>
-                    <td className="px-5 py-3.5 text-sm text-zinc-600">{item.upload_count}</td>
-                    <td className="px-5 py-3.5 text-sm text-zinc-600">{item.suspected_count}</td>
-                    <td className="px-5 py-3.5 text-xs text-zinc-400">
-                      {item.latest_upload_at ? new Date(item.latest_upload_at).toLocaleDateString("zh-TW") : "—"}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <Link
-                        href={`/admin/patients/${item.patient_id}`}
-                        className="flex items-center gap-1 text-xs text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity hover:text-zinc-700"
-                      >
-                        詳細 <ChevronRight className="w-3 h-3" strokeWidth={2} />
-                      </Link>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
         <section className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between gap-2">
@@ -453,7 +376,7 @@ export default function AdminDashboard() {
             {notifications.length === 0 ? (
               <p className="px-4 py-6 text-sm text-zinc-400">目前沒有疑似感染通知。</p>
             ) : (
-              notifications.map((item) => (
+              visibleNotifications.map((item) => (
                 <div key={item.id} className="px-4 py-3 flex flex-col gap-2">
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -476,7 +399,7 @@ export default function AdminDashboard() {
                     </Link>
                     {item.status === "new" ? (
                       <button
-                        onClick={() => void markNotificationRead(item.id)}
+                        onClick={() => void handleMarkNotificationRead(item.id)}
                         disabled={Boolean(markingIds[item.id])}
                         className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 disabled:text-zinc-300"
                       >
@@ -488,18 +411,32 @@ export default function AdminDashboard() {
               ))
             )}
           </div>
+          {notifications.length > 3 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllNotifications((current) => !current)}
+              className="w-full border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500 hover:bg-zinc-50"
+            >
+              {showAllNotifications ? "收合" : "查看全部"}
+            </button>
+          ) : null}
         </section>
 
         <section className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">
-            <Clock3 className="w-4 h-4 text-zinc-500" />
-            <h3 className="text-sm font-medium text-zinc-900">最新上傳佇列</h3>
+          <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Clock3 className="w-4 h-4 text-zinc-500" />
+              <h3 className="text-sm font-medium text-zinc-900">最新上傳佇列</h3>
+            </div>
+            <Link href="/admin/review" className="text-xs text-zinc-500 hover:text-zinc-800">
+              進入快速審核
+            </Link>
           </div>
           <div className="divide-y divide-zinc-50">
             {queue.length === 0 ? (
               <p className="px-4 py-6 text-sm text-zinc-400">目前沒有上傳資料。</p>
             ) : (
-              queue.map((item) => (
+              visibleQueue.map((item) => (
                 <div key={item.upload_id} className="px-4 py-3 flex items-center justify-between gap-2">
                   <div>
                     <p className="text-sm text-zinc-900">{item.full_name ?? "未命名"}</p>
@@ -514,18 +451,32 @@ export default function AdminDashboard() {
               ))
             )}
           </div>
+          {queue.length > 3 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllQueue((current) => !current)}
+              className="w-full border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500 hover:bg-zinc-50"
+            >
+              {showAllQueue ? "收合" : "查看全部"}
+            </button>
+          ) : null}
         </section>
 
         <section className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">
-            <Link2 className="w-4 h-4 text-zinc-500" />
-            <h3 className="text-sm font-medium text-zinc-900">待審核綁定</h3>
+          <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Link2 className="w-4 h-4 text-zinc-500" />
+              <h3 className="text-sm font-medium text-zinc-900">待審核綁定</h3>
+            </div>
+            <Link href="/admin/review" className="text-xs text-zinc-500 hover:text-zinc-800">
+              進入快速審核
+            </Link>
           </div>
           <div className="divide-y divide-zinc-50">
             {pendingItems.length === 0 ? (
               <p className="px-4 py-6 text-sm text-zinc-400">目前沒有待審核綁定。</p>
             ) : (
-              pendingItems.map((item) => (
+              visiblePending.map((item) => (
                 <div key={item.id} className="px-4 py-3 flex flex-col gap-2">
                   <p className="text-sm text-zinc-900">
                     {item.case_number} / {item.birth_date}
@@ -594,6 +545,15 @@ export default function AdminDashboard() {
               ))
             )}
           </div>
+          {pendingItems.length > 3 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllPending((current) => !current)}
+              className="w-full border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500 hover:bg-zinc-50"
+            >
+              {showAllPending ? "收合" : "查看全部"}
+            </button>
+          ) : null}
         </section>
       </div>
     </div>

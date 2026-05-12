@@ -10,6 +10,7 @@ class StaffPatientSummary(BaseModel):
     patient_id: int
     case_number: str
     full_name: str | None
+    line_display_name: str | None
     line_user_id: str | None
     age: int | None
     upload_count: int
@@ -44,6 +45,7 @@ class StaffPatientDetailResponse(BaseModel):
     full_name: str | None
     birth_date: str
     age: int | None
+    line_display_name: str | None
     line_user_id: str | None
     is_active: bool
     total_uploads: int
@@ -116,6 +118,20 @@ class StaffPendingBindingCreatePatientRequest(BaseModel):
 
 
 class StaffPatientStatusUpdateRequest(BaseModel):
+    is_active: bool
+
+
+class StaffPatientCreateRequest(BaseModel):
+    case_number: str = Field(min_length=1, max_length=64)
+    birth_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    full_name: str = Field(min_length=1, max_length=255)
+
+
+class StaffPatientCreateResponse(BaseModel):
+    patient_id: int
+    case_number: str
+    birth_date: str
+    full_name: str | None
     is_active: bool
 
 

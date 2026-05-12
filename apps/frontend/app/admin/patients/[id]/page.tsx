@@ -195,6 +195,7 @@ export default function PatientDetailPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4">
           {[
             { label: "姓名", value: detail.full_name ?? "未命名" },
+            { label: "LINE 名稱", value: detail.line_display_name ?? "尚未綁定" },
             { label: "病例號", value: detail.case_number, mono: true },
             { label: "年齡", value: detail.age ? `${detail.age} 歲` : "未知" },
             { label: "出生日期", value: detail.birth_date },

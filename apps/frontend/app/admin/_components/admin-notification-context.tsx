@@ -56,6 +56,7 @@ export function AdminNotificationProvider({ children }: { children: React.ReactN
       setError(null);
     } catch (markError) {
       setError(getReadableApiError(markError));
+      throw markError;
     } finally {
       setMarkingIds((current) => {
         const next = { ...current };

@@ -9,6 +9,7 @@ export type StaffPatientSummary = {
   patient_id: number;
   case_number: string;
   full_name: string | null;
+  line_display_name: string | null;
   line_user_id: string | null;
   age: number | null;
   upload_count: number;
@@ -43,12 +44,27 @@ export type StaffPatientDetailResponse = {
   full_name: string | null;
   birth_date: string;
   age: number | null;
+  line_display_name: string | null;
   line_user_id: string | null;
   is_active: boolean;
   total_uploads: number;
   suspected_uploads: number;
   rejected_uploads: number;
   uploads: StaffPatientDetailUpload[];
+};
+
+export type StaffPatientCreatePayload = {
+  case_number: string;
+  birth_date: string;
+  full_name: string;
+};
+
+export type StaffPatientCreateResponse = {
+  patient_id: number;
+  case_number: string;
+  birth_date: string;
+  full_name: string | null;
+  is_active: boolean;
 };
 
 export type StaffUploadQueueItem = {
@@ -164,6 +180,11 @@ export async function fetchStaffPatients(params: {
 
 export async function fetchStaffPatientDetail(patientId: number): Promise<StaffPatientDetailResponse> {
   const { data } = await apiClient.get<StaffPatientDetailResponse>(`/v1/staff/patients/${patientId}`);
+  return data;
+}
+
+export async function createStaffPatient(payload: StaffPatientCreatePayload): Promise<StaffPatientCreateResponse> {
+  const { data } = await apiClient.post<StaffPatientCreateResponse>("/v1/staff/patients", payload);
   return data;
 }
 
