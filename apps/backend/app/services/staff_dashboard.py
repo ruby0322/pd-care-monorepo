@@ -337,11 +337,13 @@ def upsert_annotation_for_upload(
             reviewer_identity_id=reviewer_identity_id,
             label=label,
             comment=comment,
+            patient_read_at=None,
         )
         session.add(annotation)
     else:
         annotation.label = label
         annotation.comment = comment
+        annotation.patient_read_at = None
     session.commit()
     session.refresh(annotation)
     return annotation

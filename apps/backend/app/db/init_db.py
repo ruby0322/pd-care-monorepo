@@ -58,6 +58,15 @@ def _ensure_annotation_staff_user_nullable(engine: Engine) -> None:
         connection.execute(text("ALTER TABLE annotations ALTER COLUMN staff_user_id DROP NOT NULL"))
 
 
+def _ensure_annotation_patient_read_at_column(engine: Engine) -> None:
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("annotations")}
+    if "patient_read_at" in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE annotations ADD COLUMN patient_read_at TIMESTAMP"))
+
+
 def _ensure_identity_is_active_column(engine: Engine) -> None:
     inspector = inspect(engine)
     columns = {column["name"] for column in inspector.get_columns("liff_identities")}
@@ -137,6 +146,7 @@ def initialize_database(database_url: str, settings: Settings | None = None) -> 
     _ensure_role_column(engine)
     _ensure_annotation_reviewer_column(engine)
     _ensure_annotation_staff_user_nullable(engine)
+    _ensure_annotation_patient_read_at_column(engine)
     _ensure_identity_is_active_column(engine)
     _ensure_patient_gender_column(engine)
     session_factory = create_session_factory(engine)

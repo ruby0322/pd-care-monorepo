@@ -3,10 +3,17 @@
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
 import { apiClient, getApiErrorDetail } from "@/lib/api/client";
 import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
-import { fetchUploadHistory, UploadHistoryDay, UploadHistorySummary28d } from "@/lib/api/upload-history";
+import {
+  fetchPatientMessages,
+  fetchUploadHistory,
+  PatientMessageItem,
+  UploadHistoryDay,
+  UploadHistorySummary28d,
+} from "@/lib/api/upload-history";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { clearPatientSession, setPatientSession } from "@/lib/auth/patient-session";
-import { Camera, Home, UserRound } from "lucide-react";
+import { Camera, Home, MessageSquare, UserRound } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -39,8 +46,10 @@ export default function PatientPage() {
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [latestUnreadMessage, setLatestUnreadMessage] = useState<PatientMessageItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [messagePreviewError, setMessagePreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +107,7 @@ export default function PatientPage() {
           if (!cancelled) {
             setHistoryLoading(true);
             setHistoryError(null);
+            setMessagePreviewError(null);
           }
           try {
             const history = await fetchUploadHistory();
@@ -108,6 +118,16 @@ export default function PatientPage() {
           } catch (historyRequestError) {
             if (!cancelled) {
               setHistoryError(getApiErrorDetail(historyRequestError) ?? "無法載入上傳日曆，仍可繼續拍攝。");
+            }
+          }
+          try {
+            const latestUnread = await fetchPatientMessages({ limit: 1, unreadOnly: true });
+            if (!cancelled) {
+              setLatestUnreadMessage(latestUnread.items[0] ?? null);
+            }
+          } catch (messageError) {
+            if (!cancelled) {
+              setMessagePreviewError(getApiErrorDetail(messageError) ?? "訊息預覽載入失敗，可前往訊息盒查看。");
             }
           } finally {
             if (!cancelled) {
@@ -122,8 +142,10 @@ export default function PatientPage() {
             suspected_upload_count_28d: 0,
             continuous_upload_streak_days: 0,
           });
+          setLatestUnreadMessage(null);
           setHistoryLoading(false);
           setHistoryError(null);
+          setMessagePreviewError(null);
         }
       } catch (err) {
         if (!cancelled) {
@@ -219,27 +241,66 @@ export default function PatientPage() {
         </div>
 
         {historyError && <p className="mt-3 text-sm text-amber-700">{historyError}</p>}
+        {messagePreviewError && <p className="mt-3 text-sm text-amber-700">{messagePreviewError}</p>}
 
-        <div className="mt-auto pt-10 grid grid-cols-3 items-end">
+        {latestUnreadMessage ? (
+          <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 px-4 py-4">
+            <p className="text-xs font-medium text-blue-600">最新未讀護理註解</p>
+            <div className="mt-2 flex items-center gap-3">
+              <div className="h-14 w-14 overflow-hidden rounded-xl bg-blue-100">
+                <Image
+                  src={latestUnreadMessage.image_url}
+                  alt={`message-preview-${latestUnreadMessage.upload_id}`}
+                  width={56}
+                  height={56}
+                  unoptimized
+                  className="h-full w-full object-cover"
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-zinc-800">標註：{latestUnreadMessage.label}</p>
+                <p className="truncate text-xs text-zinc-600">{latestUnreadMessage.comment || "（無補充說明）"}</p>
+              </div>
+            </div>
+            <Link
+              href="/patient/messages"
+              className="mt-3 inline-flex items-center text-xs font-medium text-blue-700 underline underline-offset-4"
+            >
+              顯示更多
+            </Link>
+          </div>
+        ) : null}
+
+        <div className="mt-auto pt-10 grid grid-cols-5 items-end">
           <Link
             href="/"
-            className="justify-self-start flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
+            className="justify-self-start col-start-1 flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
           >
             <Home className="h-4 w-4" strokeWidth={1.8} />
             <span className="mt-0.5 text-[10px] font-medium">首頁</span>
           </Link>
 
+          <div className="col-start-2 h-14 w-14 opacity-0 pointer-events-none" aria-hidden />
+
           <Link
             href="/patient/capture?pain=false&discharge=false&cloudyDialysate=false"
-            className="justify-self-center flex h-20 w-20 flex-col items-center justify-center rounded-full bg-zinc-900 text-white hover:bg-zinc-800 transition-colors"
+            className="justify-self-center col-start-3 flex h-20 w-20 flex-col items-center justify-center rounded-full bg-zinc-900 text-white hover:bg-zinc-800 transition-colors"
           >
             <Camera className="h-6 w-6" strokeWidth={1.8} />
             <span className="mt-0.5 text-[11px] font-medium">拍攝</span>
           </Link>
 
           <Link
+            href="/patient/messages"
+            className="justify-self-center col-start-4 flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
+          >
+            <MessageSquare className="h-4 w-4" strokeWidth={1.8} />
+            <span className="mt-0.5 text-[10px] font-medium">訊息</span>
+          </Link>
+
+          <Link
             href="/patient/profile"
-            className="justify-self-end flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
+            className="justify-self-end col-start-5 flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
           >
             <UserRound className="h-4 w-4" strokeWidth={1.8} />
             <span className="mt-0.5 text-[10px] font-medium">個人</span>

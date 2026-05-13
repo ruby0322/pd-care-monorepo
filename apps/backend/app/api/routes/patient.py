@@ -13,6 +13,8 @@ from app.api.deps.auth import bearer_scheme, get_current_principal
 from app.db.models import Upload
 from app.schemas.identity import PatientProfileResponse
 from app.schemas.upload_history import (
+    PatientMessageItemResponse,
+    PatientMessageListResponse,
     PatientDayUploadItemResponse,
     PatientDayUploadListResponse,
     PatientUploadDetailResponse,
@@ -29,6 +31,8 @@ from app.services.upload import get_patient_result_for_line_user, persist_patien
 from app.services.upload_history import (
     get_patient_upload_detail,
     list_patient_uploads_by_local_day,
+    list_patient_annotation_messages,
+    mark_patient_annotation_message_read,
     summarize_patient_upload_history,
     summarize_patient_upload_metrics_28d,
 )
@@ -84,6 +88,24 @@ def _resolve_matched_patient_id(session: Session, *, line_user_id: str) -> int:
             detail="Patient identity is not bound or pending approval; clinical uploads are not allowed",
         )
     return patient_id
+
+
+def _resolve_message_patient_id(
+    session: Session,
+    *,
+    principal: AuthPrincipal,
+    provided_line_user_id: str | None,
+) -> int:
+    if principal.role == "staff":
+        if principal.patient_id is None:
+            raise HTTPException(status_code=403, detail="Staff identity is not bound to a patient profile")
+        return principal.patient_id
+
+    resolved_line_user_id = _resolve_patient_line_user_id(
+        principal=principal,
+        provided_line_user_id=provided_line_user_id,
+    )
+    return _resolve_matched_patient_id(session, line_user_id=resolved_line_user_id)
 
 
 def _normalize_screening_result(
@@ -305,6 +327,104 @@ async def patient_upload_image_public(
 
             iterator = _single_chunk()
         return StreamingResponse(iterator, media_type=upload.content_type)
+    finally:
+        session.close()
+
+
+@router.get("/v1/patient/messages", response_model=PatientMessageListResponse)
+async def patient_messages(
+    request: Request,
+    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    unread_only: bool = Query(default=False),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> PatientMessageListResponse:
+    principal = get_current_principal(request, credentials)
+    session = _get_session(request)
+    try:
+        patient_id = _resolve_message_patient_id(
+            session,
+            principal=principal,
+            provided_line_user_id=line_user_id,
+        )
+        rows, total, unread_count = list_patient_annotation_messages(
+            session,
+            patient_id=patient_id,
+            limit=limit,
+            offset=offset,
+            unread_only=unread_only,
+        )
+        storage_service = _get_storage_service(request)
+        ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
+        items = []
+        for row in rows:
+            token = storage_service.generate_access_token(row.object_key, subject="patient", ttl_seconds=ttl_seconds)
+            image_url = f"/api/v1/patient/uploads/{row.upload_id}/image-public?token={token}"
+            items.append(
+                PatientMessageItemResponse(
+                    annotation_id=row.annotation_id,
+                    upload_id=row.upload_id,
+                    created_at=row.created_at,
+                    label=row.label,
+                    comment=row.comment,
+                    is_read=row.is_read,
+                    image_url=image_url,
+                    image_expires_in=ttl_seconds,
+                )
+            )
+        return PatientMessageListResponse(
+            items=items,
+            total=total,
+            unread_count=unread_count,
+            limit=limit,
+            offset=offset,
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/patient/messages/{annotation_id}/read", response_model=PatientMessageItemResponse)
+async def mark_patient_message_read(
+    request: Request,
+    annotation_id: int,
+    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> PatientMessageItemResponse:
+    principal = get_current_principal(request, credentials)
+    session = _get_session(request)
+    try:
+        patient_id = _resolve_message_patient_id(
+            session,
+            principal=principal,
+            provided_line_user_id=line_user_id,
+        )
+        try:
+            annotation = mark_patient_annotation_message_read(
+                session,
+                patient_id=patient_id,
+                annotation_id=annotation_id,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        upload = session.get(Upload, annotation.upload_id)
+        if upload is None:
+            raise HTTPException(status_code=404, detail="Upload not found")
+        storage_service = _get_storage_service(request)
+        ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
+        token = storage_service.generate_access_token(upload.object_key, subject="patient", ttl_seconds=ttl_seconds)
+        image_url = f"/api/v1/patient/uploads/{upload.id}/image-public?token={token}"
+        return PatientMessageItemResponse(
+            annotation_id=annotation.id,
+            upload_id=upload.id,
+            created_at=annotation.created_at,
+            label=annotation.label,
+            comment=annotation.comment,
+            is_read=True,
+            image_url=image_url,
+            image_expires_in=ttl_seconds,
+        )
     finally:
         session.close()
 
