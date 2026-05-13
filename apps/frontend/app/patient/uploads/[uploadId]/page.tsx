@@ -88,12 +88,12 @@ export default function PatientUploadDetailPage() {
   }, [detail]);
 
   if (loading && !detail) {
-    return <div className="min-h-screen bg-white px-6 py-10 text-sm text-zinc-500">載入中...</div>;
+    return <div className="min-h-[100dvh] bg-white px-6 py-10 text-sm text-zinc-500">載入中...</div>;
   }
 
   if (!detail) {
     return (
-      <div className="min-h-screen bg-white px-6 py-10">
+      <div className="min-h-[100dvh] bg-white px-6 py-10">
         <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error ?? "讀取上傳明細失敗"}</div>
         <Link href="/patient" className="mt-6 inline-flex text-sm text-zinc-600 underline underline-offset-4">
           回到追蹤首頁
@@ -103,7 +103,7 @@ export default function PatientUploadDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white px-6 py-10">
+    <div className="min-h-[100dvh] bg-white px-6 py-10">
       <div className="flex items-center gap-3">
         <Link
           href={`/patient/day/${detail.date}`}
