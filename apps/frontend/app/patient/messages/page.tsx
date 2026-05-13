@@ -98,7 +98,7 @@ export default function PatientMessagesPage() {
   };
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-white px-6 pt-10 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+    <div className="min-h-[100dvh] bg-white px-6 py-10">
       <div className="flex items-center gap-3">
         <Link
           href="/patient"
