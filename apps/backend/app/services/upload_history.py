@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, Upload
@@ -55,6 +55,17 @@ class PatientUploadDetail:
     next_upload_id: int | None
 
 
+@dataclass(frozen=True)
+class PatientAnnotationMessage:
+    annotation_id: int
+    upload_id: int
+    created_at: datetime
+    label: str
+    comment: str | None
+    is_read: bool
+    object_key: str
+
+
 RISKY_ANNOTATION_LABELS = {"suspected", "confirmed_infection"}
 
 
@@ -93,19 +104,23 @@ def summarize_patient_upload_history(
     timezone_name: str = "Asia/Taipei",
 ) -> list[UploadHistoryDay]:
     rows: Sequence[tuple] = session.execute(
-        select(Upload.created_at, AIResult.screening_result)
+        select(Upload.id, Upload.created_at, AIResult.screening_result)
         .outerjoin(AIResult, AIResult.upload_id == Upload.id)
         .where(Upload.patient_id == patient_id)
         .order_by(Upload.created_at.asc())
     ).all()
 
     local_timezone = _resolve_local_timezone(timezone_name)
+    latest_annotation_by_upload = _load_latest_annotation_by_upload(session, patient_id=patient_id)
     by_day: dict[date, UploadHistoryDay] = {}
-    for created_at, screening_result in rows:
+    for upload_id, created_at, screening_result in rows:
         normalized = _normalize_datetime(created_at)
         day_key = normalized.astimezone(local_timezone).date()
         existing = by_day.get(day_key)
-        has_suspected = screening_result == "suspected"
+        latest_annotation = latest_annotation_by_upload.get(upload_id)
+        has_suspected = screening_result == "suspected" or (
+            latest_annotation is not None and latest_annotation.label in RISKY_ANNOTATION_LABELS
+        )
         if existing is None:
             by_day[day_key] = UploadHistoryDay(
                 date=day_key,
@@ -276,3 +291,57 @@ def get_patient_upload_detail(
         prev_upload_id=prev_upload_id,
         next_upload_id=next_upload_id,
     )
+
+
+def list_patient_annotation_messages(
+    session: Session,
+    *,
+    patient_id: int,
+    limit: int,
+    offset: int = 0,
+    unread_only: bool = False,
+) -> tuple[list[PatientAnnotationMessage], int, int]:
+    unread_filter = Annotation.patient_read_at.is_(None)
+    base_query = select(Annotation, Upload).join(Upload, Upload.id == Annotation.upload_id).where(Annotation.patient_id == patient_id)
+    if unread_only:
+        base_query = base_query.where(unread_filter)
+
+    rows = session.execute(
+        base_query.order_by(Annotation.created_at.desc(), Annotation.id.desc()).offset(offset).limit(limit)
+    ).all()
+    items = [
+        PatientAnnotationMessage(
+            annotation_id=annotation.id,
+            upload_id=annotation.upload_id,
+            created_at=annotation.created_at,
+            label=annotation.label,
+            comment=annotation.comment,
+            is_read=annotation.patient_read_at is not None,
+            object_key=upload.object_key,
+        )
+        for annotation, upload in rows
+    ]
+
+    total = session.execute(select(func.count(Annotation.id)).where(Annotation.patient_id == patient_id)).scalar_one()
+    unread_count = session.execute(
+        select(func.count(Annotation.id)).where(and_(Annotation.patient_id == patient_id, unread_filter))
+    ).scalar_one()
+    return items, int(total), int(unread_count)
+
+
+def mark_patient_annotation_message_read(
+    session: Session,
+    *,
+    patient_id: int,
+    annotation_id: int,
+) -> Annotation:
+    annotation = session.execute(
+        select(Annotation).where(and_(Annotation.id == annotation_id, Annotation.patient_id == patient_id))
+    ).scalar_one_or_none()
+    if annotation is None:
+        raise LookupError("Annotation message was not found")
+    if annotation.patient_read_at is None:
+        annotation.patient_read_at = datetime.now(tz=timezone.utc)
+        session.commit()
+        session.refresh(annotation)
+    return annotation

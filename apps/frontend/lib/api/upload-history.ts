@@ -54,6 +54,25 @@ export type PatientUploadDetailResponse = {
   next_upload_id: number | null;
 };
 
+export type PatientMessageItem = {
+  annotation_id: number;
+  upload_id: number;
+  created_at: string;
+  label: string;
+  comment: string | null;
+  is_read: boolean;
+  image_url: string;
+  image_expires_in: number;
+};
+
+export type PatientMessageListResponse = {
+  items: PatientMessageItem[];
+  total: number;
+  unread_count: number;
+  limit: number;
+  offset: number;
+};
+
 export async function fetchUploadHistory(): Promise<UploadHistoryResponse> {
   const { data } = await apiClient.get<UploadHistoryResponse>("/v1/patient/upload-history");
   return data;
@@ -68,5 +87,25 @@ export async function fetchUploadsByDay(date: string): Promise<PatientDayUploadL
 
 export async function fetchPatientUploadDetail(uploadId: number): Promise<PatientUploadDetailResponse> {
   const { data } = await apiClient.get<PatientUploadDetailResponse>(`/v1/patient/uploads/${uploadId}/detail`);
+  return data;
+}
+
+export async function fetchPatientMessages(params?: {
+  limit?: number;
+  offset?: number;
+  unreadOnly?: boolean;
+}): Promise<PatientMessageListResponse> {
+  const { data } = await apiClient.get<PatientMessageListResponse>("/v1/patient/messages", {
+    params: {
+      limit: params?.limit ?? 20,
+      offset: params?.offset ?? 0,
+      unread_only: params?.unreadOnly ?? false,
+    },
+  });
+  return data;
+}
+
+export async function markPatientMessageRead(annotationId: number): Promise<PatientMessageItem> {
+  const { data } = await apiClient.post<PatientMessageItem>(`/v1/patient/messages/${annotationId}/read`);
   return data;
 }

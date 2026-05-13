@@ -325,6 +325,13 @@ def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: P
         )
         assert response.status_code == 200
         payload = response.json()
+        assert payload["days"] == [
+            {
+                "date": datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
+                "upload_count": 1,
+                "has_suspected_risk": True,
+            }
+        ]
         assert payload["summary_28d"]["all_upload_count_28d"] == 1
         assert payload["summary_28d"]["suspected_upload_count_28d"] == 1
         assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
@@ -435,3 +442,153 @@ def test_patient_upload_detail_rejects_other_patient_access(tmp_path: Path) -> N
             headers={"Authorization": f"Bearer {other_token}"},
         )
         assert forbidden_response.status_code == 404
+
+
+def test_patient_messages_returns_latest_annotations_with_unread_filter(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "patient-messages.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_MESSAGES")
+        _seed_upload_history(client, patient_id=patient_id)
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_MESSAGES")
+        client.app.state.storage_service = _FakeStorageService()
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            uploads = session.query(Upload).filter(Upload.patient_id == patient_id).order_by(Upload.created_at.desc()).all()
+            reviewer = LiffIdentity(
+                line_user_id="U_LINE_MESSAGES_REVIEWER",
+                display_name="Reviewer",
+                picture_url=None,
+                patient_id=None,
+                role="staff",
+            )
+            session.add(reviewer)
+            session.flush()
+            session.add(
+                Annotation(
+                    patient_id=patient_id,
+                    upload_id=uploads[0].id,
+                    reviewer_identity_id=reviewer.id,
+                    label="suspected",
+                    comment="new unread annotation",
+                )
+            )
+            session.add(
+                Annotation(
+                    patient_id=patient_id,
+                    upload_id=uploads[1].id,
+                    reviewer_identity_id=reviewer.id,
+                    label="normal",
+                    comment="already read annotation",
+                    patient_read_at=datetime.now(tz=timezone.utc),
+                )
+            )
+            session.commit()
+
+        unread_only_response = client.get(
+            "/v1/patient/messages",
+            params={"line_user_id": "U_LINE_MESSAGES", "limit": 10, "offset": 0, "unread_only": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert unread_only_response.status_code == 200
+        unread_payload = unread_only_response.json()
+        assert unread_payload["unread_count"] == 1
+        assert unread_payload["total"] == 2
+        assert len(unread_payload["items"]) == 1
+        assert unread_payload["items"][0]["is_read"] is False
+        assert unread_payload["items"][0]["image_url"].startswith("/api/v1/patient/uploads/")
+
+
+def test_patient_message_mark_read_updates_read_state(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "patient-messages-read.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_MESSAGES_READ")
+        _seed_upload_history(client, patient_id=patient_id)
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_MESSAGES_READ")
+        client.app.state.storage_service = _FakeStorageService()
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            upload = session.query(Upload).filter(Upload.patient_id == patient_id).order_by(Upload.created_at.desc()).first()
+            assert upload is not None
+            reviewer = LiffIdentity(
+                line_user_id="U_LINE_MESSAGES_READ_REVIEWER",
+                display_name="Reviewer",
+                picture_url=None,
+                patient_id=None,
+                role="staff",
+            )
+            session.add(reviewer)
+            session.flush()
+            annotation = Annotation(
+                patient_id=patient_id,
+                upload_id=upload.id,
+                reviewer_identity_id=reviewer.id,
+                label="suspected",
+                comment="mark as read target",
+            )
+            session.add(annotation)
+            session.commit()
+            session.refresh(annotation)
+            annotation_id = annotation.id
+
+        response = client.post(
+            f"/v1/patient/messages/{annotation_id}/read",
+            params={"line_user_id": "U_LINE_MESSAGES_READ"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["annotation_id"] == annotation_id
+        assert payload["is_read"] is True
+
+        unread_after = client.get(
+            "/v1/patient/messages",
+            params={"line_user_id": "U_LINE_MESSAGES_READ", "unread_only": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert unread_after.status_code == 200
+        unread_payload = unread_after.json()
+        assert unread_payload["unread_count"] == 0
+
+
+def test_staff_with_bound_patient_can_access_patient_messages(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "patient-messages-staff-role.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_MESSAGES_STAFF")
+        _seed_upload_history(client, patient_id=patient_id)
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_MESSAGES_STAFF", role="staff")
+        client.app.state.storage_service = _FakeStorageService()
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            upload = session.query(Upload).filter(Upload.patient_id == patient_id).order_by(Upload.created_at.desc()).first()
+            assert upload is not None
+            reviewer = LiffIdentity(
+                line_user_id="U_LINE_MESSAGES_STAFF_REVIEWER",
+                display_name="Reviewer",
+                picture_url=None,
+                patient_id=None,
+                role="staff",
+            )
+            session.add(reviewer)
+            session.flush()
+            session.add(
+                Annotation(
+                    patient_id=patient_id,
+                    upload_id=upload.id,
+                    reviewer_identity_id=reviewer.id,
+                    label="suspected",
+                    comment="visible for staff role with patient binding",
+                )
+            )
+            session.commit()
+
+        response = client.get(
+            "/v1/patient/messages",
+            params={"line_user_id": "U_LINE_MESSAGES_STAFF"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total"] == 1

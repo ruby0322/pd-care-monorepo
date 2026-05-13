@@ -58,3 +58,22 @@ class PatientUploadDetailResponse(BaseModel):
     image_expires_in: int = Field(ge=1)
     prev_upload_id: int | None
     next_upload_id: int | None
+
+
+class PatientMessageItemResponse(BaseModel):
+    annotation_id: int
+    upload_id: int
+    created_at: datetime
+    label: str
+    comment: str | None
+    is_read: bool
+    image_url: str
+    image_expires_in: int = Field(ge=1)
+
+
+class PatientMessageListResponse(BaseModel):
+    items: list[PatientMessageItemResponse]
+    total: int = Field(ge=0)
+    unread_count: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)

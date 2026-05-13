@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import AIResult, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
+from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
 
@@ -329,6 +329,22 @@ def test_staff_can_upsert_annotation(tmp_path: Path) -> None:
         list_response = client.get(f"/v1/staff/patients/{patient_id}/annotations", headers=headers)
         assert list_response.status_code == 200
         assert list_response.json()["items"][0]["upload_id"] == upload_id
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            annotation = session.query(Annotation).filter(Annotation.upload_id == upload_id).one()
+            annotation.patient_read_at = datetime.now(tz=timezone.utc)
+            session.commit()
+
+        update_response = client.post(
+            f"/v1/staff/uploads/{upload_id}/annotation",
+            headers=headers,
+            json={"label": "confirmed_infection", "comment": "Escalate follow-up"},
+        )
+        assert update_response.status_code == 200
+
+        with session_factory() as session:
+            updated = session.query(Annotation).filter(Annotation.upload_id == upload_id).one()
+            assert updated.patient_read_at is None
 
 
 def test_staff_can_link_and_reject_pending_bindings(tmp_path: Path) -> None:
