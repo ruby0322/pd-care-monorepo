@@ -55,6 +55,7 @@ export default function AdminPatientsPage() {
   const [newCaseNumber, setNewCaseNumber] = useState("");
   const [newBirthDate, setNewBirthDate] = useState("");
   const [newFullName, setNewFullName] = useState("");
+  const [newGender, setNewGender] = useState<"male" | "female" | "other" | "unknown">("unknown");
 
   const loadPatients = useCallback(async () => {
     setLoading(true);
@@ -139,10 +140,12 @@ export default function AdminPatientsPage() {
         case_number: caseNumber,
         birth_date: birthDate,
         full_name: fullName,
+        gender: newGender,
       });
       setNewCaseNumber("");
       setNewBirthDate("");
       setNewFullName("");
+      setNewGender("unknown");
       setIsCreateOpen(false);
       await loadPatients();
       toast.success("已建立病患資料");
@@ -233,6 +236,20 @@ export default function AdminPatientsPage() {
           </button>
         ),
         cell: ({ row }) => row.original.line_display_name ?? "-",
+      },
+      {
+        accessorKey: "gender",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            性別
+            <ArrowUpDown className="h-3.5 w-3.5" />
+          </button>
+        ),
+        cell: ({ row }) => GENDER_LABELS[row.original.gender] ?? row.original.gender,
       },
       {
         accessorKey: "age",
@@ -383,10 +400,20 @@ export default function AdminPatientsPage() {
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
           <h2 className="text-sm font-medium text-zinc-900">預先建立病患資料</h2>
           <p className="mt-1 text-xs text-zinc-500">建立後，尚未綁定的用戶輸入相同病例號與生日即可直接使用。</p>
-          <div className="mt-3 grid gap-2 md:grid-cols-3">
+          <div className="mt-3 grid gap-2 md:grid-cols-4">
             <Input value={newCaseNumber} onChange={(event) => setNewCaseNumber(event.target.value)} placeholder="病例號" />
             <Input type="date" value={newBirthDate} onChange={(event) => setNewBirthDate(event.target.value)} />
             <Input value={newFullName} onChange={(event) => setNewFullName(event.target.value)} placeholder="姓名" />
+            <select
+              value={newGender}
+              onChange={(event) => setNewGender(event.target.value as "male" | "female" | "other" | "unknown")}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <option value="unknown">未填寫</option>
+              <option value="male">男性</option>
+              <option value="female">女性</option>
+              <option value="other">其他</option>
+            </select>
           </div>
           <div className="mt-3 flex justify-end">
             <Button type="button" onClick={() => void handleCreatePatient()} disabled={creating}>
@@ -430,13 +457,13 @@ export default function AdminPatientsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-sm text-zinc-500">
+                <TableCell colSpan={8} className="py-8 text-center text-sm text-zinc-500">
                   載入中...
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-sm text-zinc-500">
+                <TableCell colSpan={8} className="py-8 text-center text-sm text-zinc-500">
                   找不到符合條件的病患
                 </TableCell>
               </TableRow>
