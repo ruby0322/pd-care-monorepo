@@ -181,7 +181,7 @@ function ResultPageInner() {
   ].filter(Boolean);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-[100dvh] bg-white flex flex-col">
       <header className="px-5 pt-12 pb-6">
         <h1 className="text-base font-semibold text-zinc-900">分析結果</h1>
         <p className="text-xs text-zinc-400 mt-0.5">{now}</p>

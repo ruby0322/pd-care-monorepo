@@ -105,7 +105,7 @@ export default function PatientDayTimelinePage() {
   }, [dateKey]);
 
   return (
-    <div className="min-h-screen bg-white px-6 py-10">
+    <div className="min-h-[100dvh] bg-white px-6 py-10">
       <div className="flex items-center gap-3">
         <Link
           href="/patient"

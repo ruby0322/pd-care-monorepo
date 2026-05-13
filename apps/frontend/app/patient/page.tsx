@@ -12,7 +12,7 @@ import {
 } from "@/lib/api/upload-history";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { clearPatientSession, setPatientSession } from "@/lib/auth/patient-session";
-import { Camera, Home, MessageSquare, UserRound } from "lucide-react";
+import { Camera, MessageSquare, UserRound } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -31,6 +31,19 @@ type LoginResponse = {
   line_user_id: string;
 };
 
+function getMessageLabelDotClass(label: string): string {
+  if (label === "confirmed_infection") {
+    return "bg-red-500";
+  }
+  if (label === "suspected") {
+    return "bg-amber-500";
+  }
+  if (label === "rejected") {
+    return "bg-zinc-500";
+  }
+  return "bg-emerald-500";
+}
+
 export default function PatientPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<LiffProfileState | null>(null);
@@ -46,7 +59,8 @@ export default function PatientPage() {
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [latestUnreadMessage, setLatestUnreadMessage] = useState<PatientMessageItem | null>(null);
+  const [latestMessage, setLatestMessage] = useState<PatientMessageItem | null>(null);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [messagePreviewError, setMessagePreviewError] = useState<string | null>(null);
@@ -121,9 +135,10 @@ export default function PatientPage() {
             }
           }
           try {
-            const latestUnread = await fetchPatientMessages({ limit: 1, unreadOnly: true });
+            const latest = await fetchPatientMessages({ limit: 1 });
             if (!cancelled) {
-              setLatestUnreadMessage(latestUnread.items[0] ?? null);
+              setLatestMessage(latest.items[0] ?? null);
+              setUnreadMessageCount(latest.unread_count);
             }
           } catch (messageError) {
             if (!cancelled) {
@@ -142,7 +157,8 @@ export default function PatientPage() {
             suspected_upload_count_28d: 0,
             continuous_upload_streak_days: 0,
           });
-          setLatestUnreadMessage(null);
+          setLatestMessage(null);
+          setUnreadMessageCount(0);
           setHistoryLoading(false);
           setHistoryError(null);
           setMessagePreviewError(null);
@@ -193,7 +209,7 @@ export default function PatientPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center px-6">
+      <div className="min-h-[100dvh] bg-white flex items-center justify-center px-6">
         <p className="text-sm text-zinc-500">LINE 身分驗證初始化中...</p>
       </div>
     );
@@ -206,105 +222,118 @@ export default function PatientPage() {
         : 0;
 
     return (
-      <div className="min-h-screen bg-white flex flex-col px-6 py-10">
+      <div className="h-[100dvh] overflow-hidden bg-white px-6 pt-8 pb-[calc(env(safe-area-inset-bottom)+1rem)] flex flex-col">
         <h1 className="text-xl font-semibold text-zinc-900">{profile?.displayName ?? "使用者"}，歡迎回來！</h1>
         <p className="mt-2 text-sm text-zinc-600 leading-relaxed">最近 28 天上傳狀態摘要與每日追蹤紀錄。</p>
 
-        <div className="mt-5 grid grid-cols-3 gap-3">
-          <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
-            <p className="text-[11px] text-zinc-500">疑似感染率</p>
-            <p className="mt-1 text-base font-semibold text-zinc-900">{suspectedRate}%</p>
+        <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
+              <p className="text-[11px] text-zinc-500">疑似感染率</p>
+              <p className="mt-1 text-base font-semibold text-zinc-900">{suspectedRate}%</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
+              <p className="text-[11px] text-zinc-500">連續上傳</p>
+              <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.continuous_upload_streak_days} 天</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
+              <p className="text-[11px] text-zinc-500">上傳次數</p>
+              <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.all_upload_count_28d}</p>
+            </div>
           </div>
-          <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
-            <p className="text-[11px] text-zinc-500">連續上傳</p>
-            <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.continuous_upload_streak_days} 天</p>
+
+          <div className="mt-6">
+            {historyLoading ? (
+              <div className="rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-6 text-sm text-zinc-500">
+                正在載入上傳日曆...
+              </div>
+            ) : (
+              <PatientDailyCalendar
+                days={historyDays}
+                onDayClick={(dayKey) => {
+                  router.push(`/patient/day/${dayKey}`);
+                }}
+              />
+            )}
           </div>
-          <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
-            <p className="text-[11px] text-zinc-500">上傳次數</p>
-            <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.all_upload_count_28d}</p>
-          </div>
+
+          {historyError && <p className="mt-3 text-sm text-amber-700">{historyError}</p>}
+          {messagePreviewError && <p className="mt-3 text-sm text-amber-700">{messagePreviewError}</p>}
+
+          {latestMessage ? (
+            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white px-4 py-4 shadow-sm shadow-zinc-100/50">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-zinc-600">最新護理註解</p>
+                {!latestMessage.is_read ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600">
+                    <span className={`h-1.5 w-1.5 rounded-full ${getMessageLabelDotClass(latestMessage.label)}`} />
+                    未讀
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">已讀</span>
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-3">
+                <div className="h-14 w-14 overflow-hidden rounded-xl bg-zinc-100">
+                  <Image
+                    src={latestMessage.image_url}
+                    alt={`message-preview-${latestMessage.upload_id}`}
+                    width={56}
+                    height={56}
+                    unoptimized
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-zinc-800">標註：{latestMessage.label}</p>
+                  <p className="truncate text-xs text-zinc-600">{latestMessage.comment || "（無補充說明）"}</p>
+                </div>
+              </div>
+              <Link
+                href="/patient/messages"
+                className="mt-3 inline-flex items-center text-xs font-medium text-zinc-700 underline underline-offset-4"
+              >
+                顯示更多
+              </Link>
+            </div>
+          ) : null}
         </div>
 
-        <div className="mt-6">
-          {historyLoading ? (
-            <div className="rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-6 text-sm text-zinc-500">
-              正在載入上傳日曆...
-            </div>
-          ) : (
-            <PatientDailyCalendar
-              days={historyDays}
-              onDayClick={(dayKey) => {
-                router.push(`/patient/day/${dayKey}`);
-              }}
-            />
-          )}
-        </div>
+        <div className="pt-4">
+          <div className="relative">
+            <div className="grid grid-cols-5 items-end gap-3">
+              <Link
+                href="/patient/messages"
+                className="relative col-start-1 justify-self-start flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-50"
+              >
+                <MessageSquare className="h-4 w-4" strokeWidth={1.8} />
+                <span className="mt-0.5 text-[10px] font-medium">訊息</span>
+                {unreadMessageCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white">
+                    {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+                  </span>
+                ) : null}
+              </Link>
 
-        {historyError && <p className="mt-3 text-sm text-amber-700">{historyError}</p>}
-        {messagePreviewError && <p className="mt-3 text-sm text-amber-700">{messagePreviewError}</p>}
-
-        {latestUnreadMessage ? (
-          <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 px-4 py-4">
-            <p className="text-xs font-medium text-blue-600">最新未讀護理註解</p>
-            <div className="mt-2 flex items-center gap-3">
-              <div className="h-14 w-14 overflow-hidden rounded-xl bg-blue-100">
-                <Image
-                  src={latestUnreadMessage.image_url}
-                  alt={`message-preview-${latestUnreadMessage.upload_id}`}
-                  width={56}
-                  height={56}
-                  unoptimized
-                  className="h-full w-full object-cover"
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-zinc-800">標註：{latestUnreadMessage.label}</p>
-                <p className="truncate text-xs text-zinc-600">{latestUnreadMessage.comment || "（無補充說明）"}</p>
-              </div>
+              <Link
+                href="/patient/profile"
+                className="col-start-5 justify-self-end flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-50"
+              >
+                <UserRound className="h-4 w-4" strokeWidth={1.8} />
+                <span className="mt-0.5 text-[10px] font-medium">個人</span>
+              </Link>
             </div>
-            <Link
-              href="/patient/messages"
-              className="mt-3 inline-flex items-center text-xs font-medium text-blue-700 underline underline-offset-4"
-            >
-              顯示更多
-            </Link>
+
+            <div className="pointer-events-none absolute inset-0 flex items-end justify-center">
+              <Link
+                href="/patient/capture?pain=false&discharge=false&cloudyDialysate=false"
+                className="pointer-events-auto flex h-20 w-20 flex-col items-center justify-center rounded-full bg-zinc-900 text-white transition-colors hover:bg-zinc-800"
+              >
+                <Camera className="h-6 w-6" strokeWidth={1.8} />
+                <span className="mt-0.5 text-[11px] font-medium">拍攝</span>
+              </Link>
+            </div>
           </div>
-        ) : null}
-
-        <div className="mt-auto pt-10 grid grid-cols-5 items-end">
-          <Link
-            href="/"
-            className="justify-self-start col-start-1 flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
-          >
-            <Home className="h-4 w-4" strokeWidth={1.8} />
-            <span className="mt-0.5 text-[10px] font-medium">首頁</span>
-          </Link>
-
-          <div className="col-start-2 h-14 w-14 opacity-0 pointer-events-none" aria-hidden />
-
-          <Link
-            href="/patient/capture?pain=false&discharge=false&cloudyDialysate=false"
-            className="justify-self-center col-start-3 flex h-20 w-20 flex-col items-center justify-center rounded-full bg-zinc-900 text-white hover:bg-zinc-800 transition-colors"
-          >
-            <Camera className="h-6 w-6" strokeWidth={1.8} />
-            <span className="mt-0.5 text-[11px] font-medium">拍攝</span>
-          </Link>
-
-          <Link
-            href="/patient/messages"
-            className="justify-self-center col-start-4 flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
-          >
-            <MessageSquare className="h-4 w-4" strokeWidth={1.8} />
-            <span className="mt-0.5 text-[10px] font-medium">訊息</span>
-          </Link>
-
-          <Link
-            href="/patient/profile"
-            className="justify-self-end col-start-5 flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors"
-          >
-            <UserRound className="h-4 w-4" strokeWidth={1.8} />
-            <span className="mt-0.5 text-[10px] font-medium">個人</span>
-          </Link>
         </div>
       </div>
     );

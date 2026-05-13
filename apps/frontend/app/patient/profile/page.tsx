@@ -68,7 +68,7 @@ export default function PatientProfilePage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white px-6 py-10">
+    <div className="h-[100dvh] overflow-hidden bg-white px-6 pt-10 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
       <div className="flex items-center gap-3">
         <button
           type="button"
