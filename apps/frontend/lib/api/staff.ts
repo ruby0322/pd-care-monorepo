@@ -9,6 +9,7 @@ export type StaffPatientSummary = {
   patient_id: number;
   case_number: string;
   full_name: string | null;
+  gender: "male" | "female" | "other" | "unknown";
   line_display_name: string | null;
   line_user_id: string | null;
   age: number | null;
@@ -42,6 +43,7 @@ export type StaffPatientDetailResponse = {
   patient_id: number;
   case_number: string;
   full_name: string | null;
+  gender: "male" | "female" | "other" | "unknown";
   birth_date: string;
   age: number | null;
   line_display_name: string | null;
@@ -57,6 +59,7 @@ export type StaffPatientCreatePayload = {
   case_number: string;
   birth_date: string;
   full_name: string;
+  gender: "male" | "female" | "other" | "unknown";
 };
 
 export type StaffPatientCreateResponse = {
@@ -64,6 +67,7 @@ export type StaffPatientCreateResponse = {
   case_number: string;
   birth_date: string;
   full_name: string | null;
+  gender: "male" | "female" | "other" | "unknown";
   is_active: boolean;
 };
 

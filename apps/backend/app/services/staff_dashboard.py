@@ -463,11 +463,13 @@ def create_patient_record(
     case_number: str,
     birth_date: str,
     full_name: str,
+    gender: str = "unknown",
 ) -> Patient:
     patient = Patient(
         case_number=case_number.strip(),
         birth_date=birth_date.strip(),
         full_name=full_name.strip(),
+        gender=gender.strip(),
         is_active=True,
     )
     session.add(patient)

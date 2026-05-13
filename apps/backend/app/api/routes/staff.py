@@ -659,6 +659,7 @@ async def create_staff_patient(
                 case_number=payload.case_number,
                 birth_date=payload.birth_date,
                 full_name=payload.full_name,
+                gender=payload.gender,
             )
             if principal.role == "staff":
                 ensure_staff_assignment(
@@ -674,6 +675,7 @@ async def create_staff_patient(
             case_number=patient.case_number,
             birth_date=patient.birth_date,
             full_name=patient.full_name,
+            gender=patient.gender,  # type: ignore[arg-type]
             is_active=patient.is_active,
         )
     finally:
@@ -726,6 +728,7 @@ async def get_staff_patients(
                 patient_id=row.patient.id,
                 case_number=row.patient.case_number,
                 full_name=row.patient.full_name,
+                gender=row.patient.gender,  # type: ignore[arg-type]
                 line_display_name=row.line_display_name,
                 line_user_id=row.line_user_id,
                 age=calculate_age(row.patient.birth_date),
@@ -774,6 +777,7 @@ async def get_staff_patient_detail(
             patient_id=patient.id,
             case_number=patient.case_number,
             full_name=patient.full_name,
+            gender=patient.gender,  # type: ignore[arg-type]
             birth_date=patient.birth_date,
             age=calculate_age(patient.birth_date),
             line_display_name=line_identity[0] if line_identity else None,
@@ -1193,6 +1197,7 @@ async def update_staff_patient_status(
             patient_id=picked.patient.id,
             case_number=picked.patient.case_number,
             full_name=picked.patient.full_name,
+            gender=picked.patient.gender,  # type: ignore[arg-type]
             line_display_name=picked.line_display_name,
             line_user_id=picked.line_user_id,
             age=calculate_age(picked.patient.birth_date),

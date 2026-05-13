@@ -10,6 +10,7 @@ class StaffPatientSummary(BaseModel):
     patient_id: int
     case_number: str
     full_name: str | None
+    gender: Literal["male", "female", "other", "unknown"]
     line_display_name: str | None
     line_user_id: str | None
     age: int | None
@@ -43,6 +44,7 @@ class StaffPatientDetailResponse(BaseModel):
     patient_id: int
     case_number: str
     full_name: str | None
+    gender: Literal["male", "female", "other", "unknown"]
     birth_date: str
     age: int | None
     line_display_name: str | None
@@ -125,6 +127,7 @@ class StaffPatientCreateRequest(BaseModel):
     case_number: str = Field(min_length=1, max_length=64)
     birth_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     full_name: str = Field(min_length=1, max_length=255)
+    gender: Literal["male", "female", "other", "unknown"] = "unknown"
 
 
 class StaffPatientCreateResponse(BaseModel):
@@ -132,6 +135,7 @@ class StaffPatientCreateResponse(BaseModel):
     case_number: str
     birth_date: str
     full_name: str | None
+    gender: Literal["male", "female", "other", "unknown"]
     is_active: bool
 
 
