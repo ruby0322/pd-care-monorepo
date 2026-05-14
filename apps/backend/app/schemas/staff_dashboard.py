@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class StaffPatientSummary(BaseModel):
     patient_id: int
     case_number: str
+    birth_date: str
     full_name: str | None
     gender: Literal["male", "female", "other", "unknown"]
     line_display_name: str | None
@@ -121,6 +122,13 @@ class StaffPendingBindingCreatePatientRequest(BaseModel):
 
 class StaffPatientStatusUpdateRequest(BaseModel):
     is_active: bool
+
+
+class StaffPatientMetadataUpdateRequest(BaseModel):
+    case_number: str = Field(min_length=1, max_length=64)
+    full_name: str = Field(min_length=1, max_length=255)
+    gender: Literal["male", "female", "other", "unknown"] = "unknown"
+    birth_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 class StaffPatientCreateRequest(BaseModel):

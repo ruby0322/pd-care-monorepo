@@ -589,6 +589,94 @@ def test_staff_can_toggle_assigned_patient_status(tmp_path: Path) -> None:
         assert restore_response.json()["is_active"] is True
 
 
+def test_staff_can_update_assigned_patient_metadata(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-update-metadata.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.post(
+            f"/v1/staff/patients/{patient_id}/metadata",
+            headers=headers,
+            json={
+                "case_number": "P654321",
+                "full_name": "Updated Name",
+                "gender": "female",
+                "birth_date": "1996-01-02",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["case_number"] == "P654321"
+        assert payload["full_name"] == "Updated Name"
+        assert payload["gender"] == "female"
+        assert payload["birth_date"] == "1996-01-02"
+        assert payload["age"] is not None
+
+
+def test_staff_cannot_update_unassigned_patient_metadata(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-update-metadata-forbidden.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client)
+        patient_id = _seed_patient_with_uploads(client)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.post(
+            f"/v1/staff/patients/{patient_id}/metadata",
+            headers=headers,
+            json={
+                "case_number": "P654321",
+                "full_name": "Updated Name",
+                "gender": "female",
+                "birth_date": "1996-01-02",
+            },
+        )
+        assert response.status_code == 403
+
+
+def test_staff_update_patient_metadata_conflict_returns_409(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-update-metadata-conflict.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        first_patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=first_patient_id)
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            second_patient = Patient(
+                case_number="P888888",
+                birth_date="1996-01-02",
+                full_name="Patient B",
+                gender="male",
+                is_active=True,
+            )
+            session.add(second_patient)
+            session.flush()
+            session.add(StaffPatientAssignment(staff_identity_id=staff_identity_id, patient_id=second_patient.id))
+            session.commit()
+
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.post(
+            f"/v1/staff/patients/{first_patient_id}/metadata",
+            headers=headers,
+            json={
+                "case_number": "P888888",
+                "full_name": "Will Conflict",
+                "gender": "male",
+                "birth_date": "1996-01-02",
+            },
+        )
+        assert response.status_code == 409
+
+
 def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-admin-analytics.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

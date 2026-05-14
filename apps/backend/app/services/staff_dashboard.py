@@ -16,6 +16,10 @@ class DuplicatePatientError(ValueError):
     pass
 
 
+class DuplicatePatientMetadataError(ValueError):
+    pass
+
+
 def _parse_birth_date(raw: str) -> datetime | None:
     try:
         return datetime.strptime(raw, "%Y-%m-%d")
@@ -453,6 +457,31 @@ def update_patient_active_status(session: Session, *, patient_id: int, is_active
         raise LookupError("Patient not found")
     patient.is_active = is_active
     session.commit()
+    session.refresh(patient)
+    return patient
+
+
+def update_patient_metadata(
+    session: Session,
+    *,
+    patient_id: int,
+    case_number: str,
+    full_name: str,
+    gender: str,
+    birth_date: str,
+) -> Patient:
+    patient = session.get(Patient, patient_id)
+    if patient is None:
+        raise LookupError("Patient not found")
+    patient.case_number = case_number.strip()
+    patient.full_name = full_name.strip()
+    patient.gender = gender.strip()
+    patient.birth_date = birth_date.strip()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise DuplicatePatientMetadataError("Patient with the same case number and birth date already exists") from exc
     session.refresh(patient)
     return patient
 

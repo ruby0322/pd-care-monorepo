@@ -43,6 +43,7 @@ from app.schemas.staff_dashboard import (
     StaffPendingBindingLinkRequest,
     StaffPendingBindingCreatePatientRequest,
     StaffPendingBindingListResponse,
+    StaffPatientMetadataUpdateRequest,
     StaffPatientStatusUpdateRequest,
     StaffPendingCandidatePatient,
     StaffPatientSummary,
@@ -80,6 +81,7 @@ from app.services.staff_dashboard import (
     create_patient_record,
     create_patient_and_link_pending_binding,
     DuplicatePatientError,
+    DuplicatePatientMetadataError,
     ensure_staff_assignment,
     get_active_users_series,
     get_age_histogram,
@@ -95,6 +97,7 @@ from app.services.staff_dashboard import (
     list_staff_patients,
     list_upload_queue,
     update_pending_binding_status,
+    update_patient_metadata,
     update_patient_active_status,
     upsert_annotation_for_upload,
 )
@@ -727,6 +730,7 @@ async def get_staff_patients(
             StaffPatientSummary(
                 patient_id=row.patient.id,
                 case_number=row.patient.case_number,
+                birth_date=row.patient.birth_date,
                 full_name=row.patient.full_name,
                 gender=row.patient.gender,  # type: ignore[arg-type]
                 line_display_name=row.line_display_name,
@@ -1196,6 +1200,71 @@ async def update_staff_patient_status(
         return StaffPatientSummary(
             patient_id=picked.patient.id,
             case_number=picked.patient.case_number,
+            birth_date=picked.patient.birth_date,
+            full_name=picked.patient.full_name,
+            gender=picked.patient.gender,  # type: ignore[arg-type]
+            line_display_name=picked.line_display_name,
+            line_user_id=picked.line_user_id,
+            age=calculate_age(picked.patient.birth_date),
+            upload_count=picked.upload_count,
+            suspected_count=picked.suspected_count,
+            latest_upload_at=picked.latest_upload_at,
+            is_active=picked.patient.is_active,
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/patients/{patient_id}/metadata", response_model=StaffPatientSummary)
+async def update_staff_patient_metadata(
+    request: Request,
+    patient_id: int,
+    payload: StaffPatientMetadataUpdateRequest,
+    credentials=Depends(bearer_scheme),
+) -> StaffPatientSummary:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        _assert_patient_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            patient_id=patient_id,
+        )
+        patient = session.get(Patient, patient_id)
+        if patient is None:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        try:
+            updated = update_patient_metadata(
+                session,
+                patient_id=patient_id,
+                case_number=payload.case_number,
+                full_name=payload.full_name,
+                gender=payload.gender,
+                birth_date=payload.birth_date,
+            )
+        except DuplicatePatientMetadataError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        row = list_staff_patients(
+            session,
+            months=12,
+            age_min=None,
+            age_max=None,
+            infection_status="all",
+            is_active_filter="all",
+            accessible_patient_ids=_get_accessible_patient_ids(
+                session,
+                role=principal.role,
+                identity_id=principal.identity_id,
+            ),
+        )
+        picked = next((item for item in row if item.patient.id == updated.id), None)
+        if picked is None:
+            raise HTTPException(status_code=403, detail="Forbidden: patient is not assigned to this staff")
+        return StaffPatientSummary(
+            patient_id=picked.patient.id,
+            case_number=picked.patient.case_number,
+            birth_date=picked.patient.birth_date,
             full_name=picked.patient.full_name,
             gender=picked.patient.gender,  # type: ignore[arg-type]
             line_display_name=picked.line_display_name,

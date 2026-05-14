@@ -19,6 +19,7 @@ import {
   fetchStaffMe,
   fetchStaffPatients,
   StaffPatientSummary,
+  updateStaffPatientMetadata,
   updateStaffPatientStatus,
 } from "@/lib/api/staff";
 
@@ -51,11 +52,18 @@ export default function AdminPatientsPage() {
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("all");
   const [workingPatientId, setWorkingPatientId] = useState<number | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editingPatientId, setEditingPatientId] = useState<number | null>(null);
   const [newCaseNumber, setNewCaseNumber] = useState("");
   const [newBirthDate, setNewBirthDate] = useState("");
   const [newFullName, setNewFullName] = useState("");
   const [newGender, setNewGender] = useState<"male" | "female" | "other" | "unknown">("unknown");
+  const [editCaseNumber, setEditCaseNumber] = useState("");
+  const [editFullName, setEditFullName] = useState("");
+  const [editGender, setEditGender] = useState<"male" | "female" | "other" | "unknown">("unknown");
+  const [editBirthDate, setEditBirthDate] = useState("");
 
   const loadPatients = useCallback(async () => {
     setLoading(true);
@@ -158,6 +166,51 @@ export default function AdminPatientsPage() {
       }
     } finally {
       setCreating(false);
+    }
+  }
+
+  function startEditPatient(patient: StaffPatientSummary) {
+    setEditingPatientId(patient.patient_id);
+    setEditCaseNumber(patient.case_number);
+    setEditFullName(patient.full_name ?? "");
+    setEditGender(patient.gender);
+    setEditBirthDate(patient.birth_date);
+    setIsEditOpen(true);
+  }
+
+  async function handleUpdatePatientMetadata() {
+    if (editingPatientId == null) {
+      toast.error("請先選擇要編輯的病患。");
+      return;
+    }
+    const caseNumber = editCaseNumber.trim();
+    const fullName = editFullName.trim();
+    const birthDate = editBirthDate.trim();
+    if (!caseNumber || !fullName || !birthDate) {
+      toast.error("請完整填寫病例號、姓名與生日。");
+      return;
+    }
+    setEditing(true);
+    try {
+      await updateStaffPatientMetadata(editingPatientId, {
+        case_number: caseNumber,
+        full_name: fullName,
+        gender: editGender,
+        birth_date: birthDate,
+      });
+      await loadPatients();
+      setIsEditOpen(false);
+      setEditingPatientId(null);
+      toast.success("已更新病患資料");
+    } catch (requestError) {
+      const message = getReadableApiError(requestError);
+      if (message.includes("same case number and birth date already exists")) {
+        toast.error("病例號與生日已存在，請確認後再試。");
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setEditing(false);
     }
   }
 
@@ -310,6 +363,14 @@ export default function AdminPatientsPage() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => startEditPatient(patient)}
+                disabled={editing && editingPatientId === patient.patient_id}
+              >
+                編輯
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => void togglePatientStatus(patient)}
                 disabled={workingPatientId === patient.patient_id}
               >
@@ -418,6 +479,44 @@ export default function AdminPatientsPage() {
           <div className="mt-3 flex justify-end">
             <Button type="button" onClick={() => void handleCreatePatient()} disabled={creating}>
               {creating ? "建立中..." : "建立病患"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {isEditOpen ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+          <h2 className="text-sm font-medium text-zinc-900">編輯病患資料</h2>
+          <p className="mt-1 text-xs text-zinc-500">可更新病例號、姓名、性別與生日（年齡將自動換算）。</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-4">
+            <Input value={editCaseNumber} onChange={(event) => setEditCaseNumber(event.target.value)} placeholder="病例號" />
+            <Input value={editFullName} onChange={(event) => setEditFullName(event.target.value)} placeholder="姓名" />
+            <select
+              value={editGender}
+              onChange={(event) => setEditGender(event.target.value as "male" | "female" | "other" | "unknown")}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <option value="unknown">未填寫</option>
+              <option value="male">男性</option>
+              <option value="female">女性</option>
+              <option value="other">其他</option>
+            </select>
+            <Input type="date" value={editBirthDate} onChange={(event) => setEditBirthDate(event.target.value)} />
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setIsEditOpen(false);
+                setEditingPatientId(null);
+              }}
+              disabled={editing}
+            >
+              取消
+            </Button>
+            <Button type="button" onClick={() => void handleUpdatePatientMetadata()} disabled={editing}>
+              {editing ? "更新中..." : "更新病患"}
             </Button>
           </div>
         </div>

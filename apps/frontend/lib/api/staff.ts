@@ -8,6 +8,7 @@ export type StaffMeResponse = {
 export type StaffPatientSummary = {
   patient_id: number;
   case_number: string;
+  birth_date: string;
   full_name: string | null;
   gender: "male" | "female" | "other" | "unknown";
   line_display_name: string | null;
@@ -69,6 +70,13 @@ export type StaffPatientCreateResponse = {
   full_name: string | null;
   gender: "male" | "female" | "other" | "unknown";
   is_active: boolean;
+};
+
+export type StaffPatientMetadataUpdatePayload = {
+  case_number: string;
+  full_name: string;
+  gender: "male" | "female" | "other" | "unknown";
+  birth_date: string;
 };
 
 export type StaffUploadQueueItem = {
@@ -369,6 +377,14 @@ export async function updateStaffPatientStatus(
   payload: { is_active: boolean }
 ): Promise<StaffPatientSummary> {
   const { data } = await apiClient.post<StaffPatientSummary>(`/v1/staff/patients/${patientId}/status`, payload);
+  return data;
+}
+
+export async function updateStaffPatientMetadata(
+  patientId: number,
+  payload: StaffPatientMetadataUpdatePayload
+): Promise<StaffPatientSummary> {
+  const { data } = await apiClient.post<StaffPatientSummary>(`/v1/staff/patients/${patientId}/metadata`, payload);
   return data;
 }
 
