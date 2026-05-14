@@ -1,0 +1,83 @@
+2026-05-14 00:00:08.737 UTC [38779] FATAL:  database "pd_care" does not exist
+2026-05-14 01:00:04.241 UTC [41536] FATAL:  database "pd_care" does not exist
+2026-05-14 02:00:09.701 UTC [44314] FATAL:  database "pd_care" does not exist
+2026-05-14 03:00:05.136 UTC [47093] FATAL:  database "pd_care" does not exist
+2026-05-14 04:00:00.647 UTC [49850] FATAL:  database "pd_care" does not exist
+2026-05-14 05:54:08.511 UTC [5210] FATAL:  password authentication failed for user "postgres"
+2026-05-14 06:19:07.079 UTC [6466] FATAL:  database "pd_care" does not exist
+	Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 06:29:59.752 UTC [6969] FATAL:  database "pd_care" does not exist
+2026-05-14 06:31:40.168 UTC [7048] FATAL:  database "pd_care" does not exist
+2026-05-14 07:16:46.909 UTC [667] FATAL:  unsupported frontend protocol 0.0: server supports 3.0 to 3.0
+2026-05-14 08:26:41.402 UTC [3974] FATAL:  database "pd_care" does not exist
+2026-05-14 09:00:09.840 UTC [5543] FATAL:  database "pd_care" does not exist
+2026-05-14 10:00:04.710 UTC [8303] FATAL:  database "pd_care" does not exist
+2026-05-14 11:00:00.136 UTC [11069] FATAL:  database "pd_care" does not exist
+2026-05-14 12:00:05.233 UTC [13821] FATAL:  database "pd_care" does not exist
+2026-05-14 12:01:15.507 UTC [13876] FATAL:  database "pd_care" does not exist
+2026-05-14 12:36:44.308 UTC [15521] FATAL:  database "pd_care" does not exist
+2026-05-14 12:37:00.024 UTC [15530] FATAL:  password authentication failed for user "postgres"
+2026-05-14 13:00:02.188 UTC [16758] FATAL:  database "pd_care" does not exist
+2026-05-14 14:00:04.250 UTC [19518] FATAL:  database "pd_care" does not exist
+2026-05-14 15:00:06.766 UTC [22266] FATAL:  database "pd_care" does not exist
+2026-05-14 16:00:01.118 UTC [25008] FATAL:  database "pd_care" does not exist
+2026-05-14 16:13:05.653 UTC [25626] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:13:05.894 UTC [25633] FATAL:  database "pd_care" does not exist
+2026-05-14 16:13:15.957 UTC [25640] FATAL:  database "pd_care" does not exist
+2026-05-14 16:13:17.975 UTC [25642] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:13:17.975 UTC [25642] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:13:26.016 UTC [25649] FATAL:  database "pd_care" does not exist
+2026-05-14 16:13:29.938 UTC [25650] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:13:29.938 UTC [25650] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:13:36.075 UTC [25658] FATAL:  database "pd_care" does not exist
+2026-05-14 16:13:42.010 UTC [25659] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:13:42.010 UTC [25659] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:13:46.130 UTC [25667] FATAL:  database "pd_care" does not exist
+2026-05-14 16:13:54.744 UTC [25669] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:13:54.744 UTC [25669] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:13:56.191 UTC [25676] FATAL:  database "pd_care" does not exist
+2026-05-14 16:14:06.257 UTC [25684] FATAL:  database "pd_care" does not exist
+2026-05-14 16:14:06.916 UTC [25685] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:14:06.916 UTC [25685] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:14:16.319 UTC [25692] FATAL:  database "pd_care" does not exist
+2026-05-14 16:14:18.859 UTC [25694] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:14:18.859 UTC [25694] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:14:26.380 UTC [25701] FATAL:  database "pd_care" does not exist
+2026-05-14 16:14:30.990 UTC [25702] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:14:30.990 UTC [25702] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:14:36.439 UTC [25710] FATAL:  database "pd_care" does not exist
+2026-05-14 16:14:43.260 UTC [25711] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:14:43.260 UTC [25711] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:14:46.498 UTC [25718] FATAL:  database "pd_care" does not exist
+2026-05-14 16:14:55.471 UTC [25720] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:14:55.471 UTC [25720] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:14:56.563 UTC [25727] FATAL:  database "pd_care" does not exist
+2026-05-14 16:15:06.625 UTC [25735] FATAL:  database "pd_care" does not exist
+2026-05-14 16:15:07.636 UTC [25736] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:15:07.636 UTC [25736] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:15:16.683 UTC [25743] FATAL:  database "pd_care" does not exist
+2026-05-14 16:15:19.649 UTC [25745] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:15:19.649 UTC [25745] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:15:26.740 UTC [25752] FATAL:  database "pd_care" does not exist
+2026-05-14 16:15:31.907 UTC [25753] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:15:31.907 UTC [25753] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:15:36.805 UTC [25761] FATAL:  database "pd_care" does not exist
+2026-05-14 16:15:44.026 UTC [25762] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:15:44.026 UTC [25762] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:15:46.862 UTC [25769] FATAL:  database "pd_care" does not exist
+2026-05-14 16:15:56.171 UTC [25771] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:15:56.171 UTC [25771] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:15:56.927 UTC [25778] FATAL:  database "pd_care" does not exist
+2026-05-14 16:16:06.987 UTC [25786] FATAL:  database "pd_care" does not exist
+2026-05-14 16:16:08.466 UTC [25787] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:16:08.466 UTC [25787] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:16:17.042 UTC [25794] FATAL:  database "pd_care" does not exist
+2026-05-14 16:16:20.379 UTC [25796] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:16:20.379 UTC [25796] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:16:27.103 UTC [25803] FATAL:  database "pd_care" does not exist
+2026-05-14 16:16:32.422 UTC [25805] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:16:32.422 UTC [25805] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:16:37.162 UTC [25819] FATAL:  database "pd_care" does not exist
+2026-05-14 16:16:44.990 UTC [25820] FATAL:  password authentication failed for user "postgres"
+2026-05-14 16:16:44.990 UTC [25820] DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"
+2026-05-14 16:16:47.220 UTC [25827] FATAL:  database "pd_care" does not exist

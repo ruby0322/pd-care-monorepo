@@ -1,0 +1,11 @@
+
+PostgreSQL Database directory appears to contain a database; Skipping initialization
+
+2026-05-14 16:25:15.075 UTC [1] LOG:  starting PostgreSQL 16.13 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2026-05-14 16:25:15.075 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-05-14 16:25:15.075 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-05-14 16:25:15.114 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-05-14 16:25:15.156 UTC [29] LOG:  database system was shut down at 2026-05-14 16:25:13 UTC
+2026-05-14 16:25:15.175 UTC [1] LOG:  database system is ready to accept connections
+2026-05-14 16:30:15.251 UTC [27] LOG:  checkpoint starting: time
+2026-05-14 16:30:16.231 UTC [27] LOG:  checkpoint complete: wrote 9 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.679 s, sync=0.192 s, total=0.981 s; sync files=6, longest=0.164 s, average=0.032 s; distance=10 kB, estimate=10 kB; lsn=0/86A58C0, redo lsn=0/86A5888

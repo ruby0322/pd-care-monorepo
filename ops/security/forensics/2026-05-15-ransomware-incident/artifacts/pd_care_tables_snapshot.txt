@@ -1,0 +1,15 @@
+                                                List of relations
+ Schema |            Name            | Type  |  Owner   | Persistence | Access method |    Size    | Description 
+--------+----------------------------+-------+----------+-------------+---------------+------------+-------------
+ public | ai_results                 | table | postgres | permanent   | heap          | 0 bytes    | 
+ public | annotations                | table | postgres | permanent   | heap          | 8192 bytes | 
+ public | authorization_audit_events | table | postgres | permanent   | heap          | 8192 bytes | 
+ public | healthcare_access_requests | table | postgres | permanent   | heap          | 8192 bytes | 
+ public | liff_identities            | table | postgres | permanent   | heap          | 8192 bytes | 
+ public | notifications              | table | postgres | permanent   | heap          | 0 bytes    | 
+ public | patients                   | table | postgres | permanent   | heap          | 0 bytes    | 
+ public | pending_bindings           | table | postgres | permanent   | heap          | 0 bytes    | 
+ public | staff_patient_assignments  | table | postgres | permanent   | heap          | 0 bytes    | 
+ public | uploads                    | table | postgres | permanent   | heap          | 8192 bytes | 
+(10 rows)
+

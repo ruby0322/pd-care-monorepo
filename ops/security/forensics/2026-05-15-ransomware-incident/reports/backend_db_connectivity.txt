@@ -1,0 +1,5 @@
+ current_database | current_user 
+------------------+--------------
+ pd_care          | postgres
+(1 row)
+

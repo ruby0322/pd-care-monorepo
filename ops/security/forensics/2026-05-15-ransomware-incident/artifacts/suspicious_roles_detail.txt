@@ -1,0 +1,7 @@
+     rolname     | rolsuper | rolcanlogin | rolvaliduntil 
+-----------------+----------+-------------+---------------
+ pgg_superadmins | t        | t           | 
+ priv_esc        | t        | t           | 
+ postgres        | t        | t           | 
+(3 rows)
+

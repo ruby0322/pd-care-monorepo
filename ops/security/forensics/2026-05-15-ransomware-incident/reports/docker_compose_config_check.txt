@@ -1,0 +1,243 @@
+name: pd-care
+services:
+  backend:
+    build:
+      context: /home/ruby0322/pd-care/apps/backend
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: true
+      seaweedfs-s3:
+        condition: service_healthy
+        required: true
+    environment:
+      AUTH_TOKEN_SECRET: change-me-auth
+      AUTH_TOKEN_TTL_SECONDS: "28800"
+      DATABASE_URL: postgresql+psycopg://postgres:pdcare_PhQilhm6UOfFveax5LVkYmyUzMoA@postgres:5432/pd_care
+      IMAGE_ACCESS_TOKEN_SECRET: change-me
+      IMAGE_ACCESS_TOKEN_TTL_SECONDS: "300"
+      LINE_CHANNEL_ID: "1657724367"
+      LINE_VERIFY_ENDPOINT: https://api.line.me/oauth2/v2.1/verify
+      LINE_VERIFY_MODE: line
+      LINE_VERIFY_TIMEOUT_SECONDS: "5"
+      PILOT_ADMIN_IDENTITY_IDS: ""
+      PILOT_STAFF_IDENTITY_IDS: ""
+      S3_ACCESS_KEY: seaweed-access
+      S3_BUCKET_NAME: pd-care-private
+      S3_ENDPOINT_URL: http://seaweedfs-s3:8333
+      S3_REGION: us-east-1
+      S3_SECRET_KEY: seaweed-secret
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 8000
+        published: "8000"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: model-cache
+        target: /models
+        volume: {}
+  frontend:
+    build:
+      context: /home/ruby0322/pd-care/apps/frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: /api
+        NEXT_PUBLIC_LIFF_ID: 1657724367-uzPg8SgK
+    depends_on:
+      backend:
+        condition: service_healthy
+        required: true
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: /api
+      NEXT_PUBLIC_LIFF_ID: 1657724367-uzPg8SgK
+      PORT: "3000"
+      TLS_CERT_PATH: /etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/fullchain.pem
+      TLS_KEY_PATH: /etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/privkey.pem
+      TLS_UPSTREAM: http://127.0.0.1:3000
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 443
+        published: "443"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /etc/letsencrypt
+        target: /etc/letsencrypt
+        read_only: true
+        bind:
+          create_host_path: true
+  postgres:
+    environment:
+      POSTGRES_DB: pd_care
+      POSTGRES_PASSWORD: pdcare_PhQilhm6UOfFveax5LVkYmyUzMoA
+      POSTGRES_USER: postgres
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U postgres -d pd_care
+      timeout: 5s
+      interval: 10s
+      retries: 5
+    image: postgres:16-alpine
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 5432
+        published: "5432"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: postgres-data
+        target: /var/lib/postgresql/data
+        volume: {}
+  seaweedfs-filer:
+    command:
+      - filer
+      - -master=seaweedfs-master:9333
+      - -ip=seaweedfs-filer
+      - -ip.bind=0.0.0.0
+      - -defaultStoreDir=/data
+    depends_on:
+      seaweedfs-master:
+        condition: service_healthy
+        required: true
+      seaweedfs-volume:
+        condition: service_healthy
+        required: true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O - http://127.0.0.1:8888/ >/dev/null
+      timeout: 5s
+      interval: 10s
+      retries: 10
+      start_period: 10s
+    image: chrislusf/seaweedfs:3.76
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 8888
+        published: "8888"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: seaweed-filer-data
+        target: /data
+        volume: {}
+  seaweedfs-master:
+    command:
+      - master
+      - -ip=seaweedfs-master
+      - -ip.bind=0.0.0.0
+      - -mdir=/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O - http://127.0.0.1:9333/cluster/status >/dev/null
+      timeout: 5s
+      interval: 10s
+      retries: 10
+      start_period: 10s
+    image: chrislusf/seaweedfs:3.76
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 9333
+        published: "9333"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: seaweed-master-data
+        target: /data
+        volume: {}
+  seaweedfs-s3:
+    command:
+      - s3
+      - -filer=seaweedfs-filer:8888
+      - -ip.bind=0.0.0.0
+      - -port=8333
+      - -domainName=seaweedfs-s3
+    depends_on:
+      seaweedfs-filer:
+        condition: service_healthy
+        required: true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O - http://127.0.0.1:8333/ >/dev/null
+      timeout: 5s
+      interval: 10s
+      retries: 10
+      start_period: 10s
+    image: chrislusf/seaweedfs:3.76
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 8333
+        published: "8333"
+        protocol: tcp
+    restart: unless-stopped
+  seaweedfs-volume:
+    command:
+      - volume
+      - -mserver=seaweedfs-master:9333
+      - -ip=seaweedfs-volume
+      - -ip.bind=0.0.0.0
+      - -dir=/data
+      - -max=0
+    depends_on:
+      seaweedfs-master:
+        condition: service_started
+        required: true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O - http://127.0.0.1:8080/status >/dev/null
+      timeout: 5s
+      interval: 10s
+      retries: 10
+      start_period: 10s
+    image: chrislusf/seaweedfs:3.76
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 8080
+        published: "8080"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: seaweed-volume-data
+        target: /data
+        volume: {}
+networks:
+  default:
+    name: pd-care_default
+volumes:
+  model-cache:
+    name: pd-care_model-cache
+  postgres-data:
+    name: pd-care_postgres-data
+  seaweed-filer-data:
+    name: pd-care_seaweed-filer-data
+  seaweed-master-data:
+    name: pd-care_seaweed-master-data
+  seaweed-volume-data:
+    name: pd-care_seaweed-volume-data

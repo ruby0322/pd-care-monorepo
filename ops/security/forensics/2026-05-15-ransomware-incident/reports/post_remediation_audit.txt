@@ -1,0 +1,16 @@
+[audit] container=pd-care-postgres-1
+[audit] started_at=2026-05-14T16:52:37Z
+
+== Container port exposure ==
+pd-care-postgres-1 127.0.0.1:5432->5432/tcp
+
+== Suspicious databases ==
+
+== Suspicious roles ==
+
+== Recent auth/probe signals (last 24h) ==
+auth_failed=0
+proto_probe=0
+startup_packet_no_user=0
+
+[audit] completed

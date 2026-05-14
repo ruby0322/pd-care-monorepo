@@ -192,7 +192,7 @@ The root `docker-compose.yml` starts:
 
 - `frontend` on `https://localhost` (host port `443`)
 - `backend` on `http://localhost:8000`
-- `postgres` on `localhost:5432`
+- `postgres` on `127.0.0.1:5432` by default (override bind/port with `PDCARE_POSTGRES_PORT_BIND`)
 - SeaweedFS S3 on `http://localhost:8333`
 
 Bring the full stack up with:
@@ -228,7 +228,9 @@ npm run docker:up
 
 Common overrides:
 
+- `PDCARE_POSTGRES_PASSWORD` (set in project root `.env`; keep this synchronized with `PDCARE_DATABASE_URL`)
 - `PDCARE_DATABASE_URL`
+- `PDCARE_POSTGRES_PORT_BIND` (defaults to `127.0.0.1:5432`; set `0.0.0.0:5432` only if you explicitly need remote DB access)
 - `PDCARE_S3_ENDPOINT_URL`
 - `PDCARE_S3_REGION`
 - `PDCARE_S3_ACCESS_KEY`
@@ -236,6 +238,26 @@ Common overrides:
 - `PDCARE_S3_BUCKET_NAME`
 - `PDCARE_IMAGE_ACCESS_TOKEN_SECRET`
 - `PDCARE_IMAGE_ACCESS_TOKEN_TTL_SECONDS`
+
+PostgreSQL persistence/auth note:
+
+- PostgreSQL named volume data survives `npm run docker:down`, so changing `PDCARE_POSTGRES_PASSWORD` in compose does not rotate credentials for an already-initialized data directory.
+- Recommended: keep a root `.env` file (ignored by git) with both `PDCARE_POSTGRES_PASSWORD` and `PDCARE_DATABASE_URL` so application and DB credentials are managed in one place.
+- If backend startup fails with `password authentication failed for user "postgres"` while using persistent volumes, align credentials and DB state manually:
+
+```bash
+docker exec pd-care-postgres-1 sh -lc \
+  "psql -U postgres -d postgres -c \"ALTER USER postgres WITH PASSWORD '<new-password>';\""
+docker exec pd-care-postgres-1 sh -lc \
+  "db_exists=\$(psql -U postgres -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='pd_care'\"); \
+  [ \"\$db_exists\" = \"1\" ] || psql -U postgres -d postgres -c \"CREATE DATABASE pd_care\""
+```
+
+- Adjust the password/database names in those commands to match your `PDCARE_DATABASE_URL`.
+- Security operations helpers:
+  - `./ops/security/collect_forensics.sh <case-id>` to capture DB/container evidence with hash manifest.
+  - `./ops/security/postgres_audit.sh` for periodic IOC + exposure checks.
+  - `./ops/security/postgres-incident-runbook.md` for the standardized incident workflow.
 
 Frontend runtime/build overrides:
 

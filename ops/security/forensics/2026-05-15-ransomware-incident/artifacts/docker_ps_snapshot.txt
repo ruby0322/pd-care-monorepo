@@ -1,0 +1,12 @@
+NAMES                        IMAGE                        STATUS                    PORTS
+pd-care-postgres-1           postgres:16-alpine           Up 10 minutes (healthy)   127.0.0.1:5432->5432/tcp
+pd-care-frontend-1           pd-care-frontend             Up 9 minutes              0.0.0.0:443->443/tcp, [::]:443->443/tcp, 3000/tcp
+pd-care-backend-1            pd-care-backend              Up 12 minutes (healthy)   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+pd-care-grafana-1            grafana/grafana-oss:11.1.4   Up 34 hours               0.0.0.0:3001->3000/tcp, [::]:3001->3000/tcp
+pd-care-promtail-1           grafana/promtail:3.1.1       Up 34 hours               
+pd-care-prometheus-1         prom/prometheus:v2.53.0      Up 34 hours               0.0.0.0:9090->9090/tcp, [::]:9090->9090/tcp
+pd-care-loki-1               grafana/loki:3.1.1           Up 34 hours               0.0.0.0:3100->3100/tcp, [::]:3100->3100/tcp
+pd-care-seaweedfs-s3-1       chrislusf/seaweedfs:3.76     Up 10 hours (healthy)     7333/tcp, 8080/tcp, 8888/tcp, 9333/tcp, 18080/tcp, 18888/tcp, 19333/tcp, 0.0.0.0:8333->8333/tcp, [::]:8333->8333/tcp
+pd-care-seaweedfs-filer-1    chrislusf/seaweedfs:3.76     Up 10 hours (healthy)     7333/tcp, 8080/tcp, 8333/tcp, 9333/tcp, 18080/tcp, 18888/tcp, 19333/tcp, 0.0.0.0:8888->8888/tcp, [::]:8888->8888/tcp
+pd-care-seaweedfs-volume-1   chrislusf/seaweedfs:3.76     Up 10 hours (healthy)     7333/tcp, 8333/tcp, 8888/tcp, 9333/tcp, 18080/tcp, 18888/tcp, 19333/tcp, 0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+pd-care-seaweedfs-master-1   chrislusf/seaweedfs:3.76     Up 10 hours (healthy)     7333/tcp, 8080/tcp, 8333/tcp, 8888/tcp, 18080/tcp, 18888/tcp, 19333/tcp, 0.0.0.0:9333->9333/tcp, [::]:9333->9333/tcp
