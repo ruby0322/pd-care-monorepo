@@ -111,6 +111,10 @@ class StaffPendingBindingListResponse(BaseModel):
     items: list[StaffPendingBindingItem]
 
 
+class StaffPendingBindingBulkRejectResponse(BaseModel):
+    rejected_count: int
+
+
 class StaffPendingBindingLinkRequest(BaseModel):
     patient_id: int = Field(ge=1)
 

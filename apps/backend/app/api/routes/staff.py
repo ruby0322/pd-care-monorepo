@@ -42,6 +42,7 @@ from app.schemas.staff_dashboard import (
     StaffPendingBindingItem,
     StaffPendingBindingLinkRequest,
     StaffPendingBindingCreatePatientRequest,
+    StaffPendingBindingBulkRejectResponse,
     StaffPendingBindingListResponse,
     StaffPatientStatusUpdateRequest,
     StaffPendingCandidatePatient,
@@ -76,6 +77,7 @@ from app.services.notifications import (
 )
 from app.services.staff_dashboard import (
     bulk_assign_patients,
+    bulk_reject_pending_bindings,
     calculate_age,
     create_patient_record,
     create_patient_and_link_pending_binding,
@@ -1054,6 +1056,20 @@ async def reject_pending_binding_route(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": pending.status}
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/pending-bindings/reject-all", response_model=StaffPendingBindingBulkRejectResponse)
+async def reject_all_pending_bindings_route(
+    request: Request,
+    credentials=Depends(bearer_scheme),
+) -> StaffPendingBindingBulkRejectResponse:
+    require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rejected_count = bulk_reject_pending_bindings(session)
+        return StaffPendingBindingBulkRejectResponse(rejected_count=rejected_count)
     finally:
         session.close()
 

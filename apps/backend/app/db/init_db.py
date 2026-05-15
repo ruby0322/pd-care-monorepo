@@ -125,6 +125,32 @@ def _seed_pilot_identities(session_factory: sessionmaker, settings: Settings) ->
         session.commit()
 
 
+def _promote_single_ruby_admin(session_factory: sessionmaker) -> None:
+    with session_factory() as session:
+        identity_count = session.execute(text("SELECT COUNT(*) FROM liff_identities")).scalar_one()
+        if int(identity_count) != 1:
+            return
+
+        ruby_line_user_id = session.execute(
+            text("SELECT line_user_id FROM liff_identities WHERE display_name = :display_name LIMIT 1"),
+            {"display_name": "Ruby"},
+        ).scalar_one_or_none()
+        if not ruby_line_user_id:
+            return
+
+        identity = (
+            session.query(LiffIdentity).filter(LiffIdentity.line_user_id == str(ruby_line_user_id)).one_or_none()
+        )
+        if identity is None:
+            return
+        if identity.role == "admin" and identity.is_active:
+            return
+
+        identity.role = "admin"
+        identity.is_active = True
+        session.commit()
+
+
 def initialize_database(database_url: str, settings: Settings | None = None) -> tuple[Engine, sessionmaker]:
     # Importing models above ensures metadata includes all week-1 tables.
     _ = (
@@ -152,4 +178,6 @@ def initialize_database(database_url: str, settings: Settings | None = None) -> 
     session_factory = create_session_factory(engine)
     if settings is not None:
         _seed_pilot_identities(session_factory, settings)
+        if not settings.pilot_admin_identity_ids and not settings.pilot_staff_identity_ids:
+            _promote_single_ruby_admin(session_factory)
     return engine, session_factory

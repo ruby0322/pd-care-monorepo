@@ -716,8 +716,8 @@ export default function AdminDashboard() {
               <Link2 className="w-4 h-4 text-zinc-500" />
               <h3 className="text-sm font-medium text-zinc-900">待審核綁定</h3>
             </div>
-            <Link href="/admin/review" className="text-xs text-zinc-500 hover:text-zinc-800">
-              進入快速審核
+            <Link href="/admin/registration-review" className="text-xs text-zinc-500 hover:text-zinc-800">
+              進入註冊審核
             </Link>
           </div>
           <div className="divide-y divide-zinc-50">

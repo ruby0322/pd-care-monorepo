@@ -447,6 +447,16 @@ def update_pending_binding_status(session: Session, *, pending_id: int, status: 
     return pending
 
 
+def bulk_reject_pending_bindings(session: Session) -> int:
+    pending_rows = session.execute(
+        select(PendingBinding).where(PendingBinding.status == "pending")
+    ).scalars().all()
+    for pending in pending_rows:
+        pending.status = "rejected"
+    session.commit()
+    return len(pending_rows)
+
+
 def update_patient_active_status(session: Session, *, patient_id: int, is_active: bool) -> Patient:
     patient = session.get(Patient, patient_id)
     if patient is None:
