@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   Hospital,
   LayoutDashboard,
+  Link2,
   Menu,
   UserCheck,
   Users,
@@ -162,7 +163,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <ClipboardCheck className="w-4 h-4" strokeWidth={1.5} />
               快速審核
             </Link>
-           
+            <Link
+              href="/admin/registration-review"
+              onClick={closeMobileSidebar}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/registration-review"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <Link2 className="w-4 h-4" strokeWidth={1.5} />
+              註冊審核
+            </Link>
+
             <Link
               href="/admin/patients"
               onClick={closeMobileSidebar}
@@ -290,6 +303,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               <ClipboardCheck className="w-4 h-4" strokeWidth={1.5} />
               {!isSidebarCollapsed ? "快速審核" : null}
+            </Link>
+            <Link
+              href="/admin/registration-review"
+              className={`flex items-center rounded-xl transition-colors text-sm ${
+                isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+              } ${
+                pathname === "/admin/registration-review"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+              aria-label="註冊審核"
+              title={isSidebarCollapsed ? "註冊審核" : undefined}
+            >
+              <Link2 className="w-4 h-4" strokeWidth={1.5} />
+              {!isSidebarCollapsed ? "註冊審核" : null}
             </Link>
 
             <Link

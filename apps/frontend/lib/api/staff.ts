@@ -352,6 +352,11 @@ export async function rejectPendingBinding(pendingId: number): Promise<void> {
   await apiClient.post(`/v1/staff/pending-bindings/${pendingId}/reject`);
 }
 
+export async function rejectAllPendingBindings(): Promise<{ rejected_count: number }> {
+  const { data } = await apiClient.post<{ rejected_count: number }>("/v1/staff/pending-bindings/reject-all");
+  return data;
+}
+
 export async function linkPendingBinding(pendingId: number, patientId: number): Promise<void> {
   await apiClient.post(`/v1/staff/pending-bindings/${pendingId}/link`, { patient_id: patientId });
 }

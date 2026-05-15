@@ -5,7 +5,9 @@ from pathlib import Path
 
 from sqlalchemy import inspect, text
 
+from app.config import Settings
 from app.db.base import Base
+from app.db.init_db import initialize_database
 from app.db.models import (
     AIResult,
     Annotation,
@@ -16,6 +18,45 @@ from app.db.models import (
     Upload,
 )
 from app.db.session import create_engine_from_url, create_session_factory, ensure_postgres_database_exists, ping_database
+
+
+def _make_settings(db_path: Path, *, pilot_admin_ids: tuple[str, ...] = (), pilot_staff_ids: tuple[str, ...] = ()) -> Settings:
+    return Settings(
+        app_name="test-db",
+        app_env="test",
+        model_url="https://example.com/model.pt",
+        model_path=Path("/tmp/model.pt"),
+        model_cache_dir=Path("/tmp"),
+        model_timeout_seconds=5.0,
+        device="cpu",
+        model_backbone="mobilenet_v3_large",
+        model_arch="baseline",
+        transfer_dropout=0.4,
+        threshold=0.5,
+        image_size=384,
+        infection_class_index=4,
+        class_names=("class_0", "class_1", "class_2", "class_3", "class_4"),
+        max_upload_mb=10,
+        log_level="INFO",
+        accepted_content_types=("image/jpeg", "image/png"),
+        cors_allowed_origins=("http://localhost:3000",),
+        cors_allowed_origin_regex=r"^https?://(?:\d{1,3}\.){3}\d{1,3}:3000$",
+        workers=1,
+        eval_hflip_tta=False,
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        s3_endpoint_url="http://localhost:8333",
+        s3_region="us-east-1",
+        s3_access_key="seaweed-access",
+        s3_secret_key="seaweed-secret",
+        s3_bucket_name="pd-care-private",
+        image_access_token_secret="test-secret",
+        image_access_token_ttl_seconds=300,
+        auth_token_secret="test-auth-secret",
+        auth_token_ttl_seconds=3600,
+        pilot_admin_identity_ids=pilot_admin_ids,
+        pilot_staff_identity_ids=pilot_staff_ids,
+        line_verify_mode="stub",
+    )
 
 
 def test_week1_schema_tables_can_be_created() -> None:
@@ -99,3 +140,67 @@ def test_ensure_postgres_database_exists_creates_missing_database(monkeypatch) -
 
     assert any("SELECT 1 FROM pg_database" in str(query) for query, _ in executed_queries)
     assert any("CREATE DATABASE" in str(query) for query, _ in executed_queries)
+
+
+def test_initialize_database_promotes_single_ruby_identity_to_admin(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path / "single-ruby.db")
+    engine, session_factory = initialize_database(settings.database_url, settings=settings)
+
+    with session_factory() as session:
+        session.add(
+            LiffIdentity(
+                line_user_id="U_RUBY",
+                display_name="Ruby",
+                picture_url=None,
+                patient_id=None,
+                role="patient",
+                is_active=True,
+            )
+        )
+        session.commit()
+
+    # Re-run initialization to simulate startup pass after identity exists.
+    initialize_database(settings.database_url, settings=settings)
+
+    with session_factory() as session:
+        identity = session.query(LiffIdentity).filter(LiffIdentity.line_user_id == "U_RUBY").one()
+        assert identity.role == "admin"
+        assert identity.is_active is True
+
+    engine.dispose()
+
+
+def test_initialize_database_does_not_promote_when_more_than_one_identity(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path / "multiple-identities.db")
+    engine, session_factory = initialize_database(settings.database_url, settings=settings)
+
+    with session_factory() as session:
+        session.add(
+            LiffIdentity(
+                line_user_id="U_RUBY",
+                display_name="Ruby",
+                picture_url=None,
+                patient_id=None,
+                role="patient",
+                is_active=True,
+            )
+        )
+        session.add(
+            LiffIdentity(
+                line_user_id="U_OTHER",
+                display_name="Other",
+                picture_url=None,
+                patient_id=None,
+                role="patient",
+                is_active=True,
+            )
+        )
+        session.commit()
+
+    initialize_database(settings.database_url, settings=settings)
+
+    with session_factory() as session:
+        ruby = session.query(LiffIdentity).filter(LiffIdentity.line_user_id == "U_RUBY").one()
+        assert ruby.role == "patient"
+
+    engine.dispose()

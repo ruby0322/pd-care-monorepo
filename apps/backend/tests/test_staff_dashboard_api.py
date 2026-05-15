@@ -180,11 +180,11 @@ def _assign_staff_patient(client: TestClient, *, staff_identity_id: int, patient
         session.commit()
 
 
-def _seed_pending_binding(client: TestClient) -> int:
+def _seed_pending_binding(client: TestClient, *, line_user_id: str = "U_PENDING_1") -> int:
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
         pending = PendingBinding(
-            line_user_id="U_PENDING_1",
+            line_user_id=line_user_id,
             case_number="P123456",
             birth_date="1980-01-02",
             status="pending",
@@ -374,6 +374,25 @@ def test_staff_can_link_and_reject_pending_bindings(tmp_path: Path) -> None:
         reject_response = client.post(f"/v1/staff/pending-bindings/{pending_id_2}/reject", headers=headers)
         assert reject_response.status_code == 200
         assert reject_response.json()["status"] == "rejected"
+
+
+def test_staff_can_reject_all_pending_bindings(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-pending-reject-all.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client)
+        _seed_pending_binding(client, line_user_id="U_PENDING_BATCH_1")
+        _seed_pending_binding(client, line_user_id="U_PENDING_BATCH_2")
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        reject_all_response = client.post("/v1/staff/pending-bindings/reject-all", headers=headers)
+        assert reject_all_response.status_code == 200
+        assert reject_all_response.json()["rejected_count"] == 2
+
+        pending_list = client.get("/v1/staff/pending-bindings", headers=headers)
+        assert pending_list.status_code == 200
+        assert pending_list.json()["items"] == []
 
 
 def test_staff_can_create_patient_and_link_pending_binding(tmp_path: Path) -> None:
