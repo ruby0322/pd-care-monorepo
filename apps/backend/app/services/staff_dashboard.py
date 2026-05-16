@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import Select, and_, case, delete, func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import AIResult, Annotation, LiffIdentity, Patient, PendingBinding, StaffPatientAssignment, Upload
+from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
 
 
 class DuplicatePatientError(ValueError):
@@ -42,6 +42,7 @@ class StaffPatientRow:
     upload_count: int
     suspected_count: int
     latest_upload_at: datetime | None
+    latest_upload_status: str | None
 
 
 @dataclass
@@ -181,11 +182,14 @@ def bulk_assign_patients(
 def list_staff_patients(
     session: Session,
     *,
+    query: str | None,
     months: int,
     age_min: int | None,
     age_max: int | None,
     infection_status: str,
     is_active_filter: str,
+    created_from: date | None,
+    created_to: date | None,
     accessible_patient_ids: set[int] | None = None,
 ) -> list[StaffPatientRow]:
     cutoff = datetime.now(tz=timezone.utc).replace(day=1)
@@ -218,7 +222,7 @@ def list_staff_patients(
         .where(Upload.created_at >= cutoff)
     ).all()
     metrics: dict[int, dict[str, object]] = defaultdict(
-        lambda: {"upload_count": 0, "suspected_count": 0, "latest_upload_at": None}
+        lambda: {"upload_count": 0, "suspected_count": 0, "latest_upload_at": None, "latest_upload_status": None}
     )
     for upload, ai_result in uploads:
         metric = metrics[upload.patient_id]
@@ -228,8 +232,15 @@ def list_staff_patients(
         latest = metric["latest_upload_at"]
         if latest is None or upload.created_at > latest:
             metric["latest_upload_at"] = upload.created_at
+            metric["latest_upload_status"] = ai_result.screening_result
+
+    created_from_dt = datetime.combine(created_from, time.min, tzinfo=timezone.utc) if created_from is not None else None
+    created_to_dt = (
+        datetime.combine(created_to, time.min, tzinfo=timezone.utc) + timedelta(days=1) if created_to is not None else None
+    )
 
     rows: list[StaffPatientRow] = []
+    normalized_query = query.strip().lower() if query else None
     for patient in patients:
         age = calculate_age(patient.birth_date)
         if age_min is not None and (age is None or age < age_min):
@@ -240,12 +251,32 @@ def list_staff_patients(
         patient_metric = metrics.get(patient.id, {"upload_count": 0, "suspected_count": 0, "latest_upload_at": None})
         upload_count = int(patient_metric["upload_count"])
         suspected_count = int(patient_metric["suspected_count"])
-        if infection_status == "suspected" and suspected_count == 0:
+        latest_upload_at = patient_metric["latest_upload_at"]
+        if isinstance(latest_upload_at, datetime) and latest_upload_at.tzinfo is None:
+            latest_upload_at = latest_upload_at.replace(tzinfo=timezone.utc)
+        latest_upload_status = patient_metric.get("latest_upload_status")
+        if infection_status == "suspected" and latest_upload_status != "suspected":
             continue
-        if infection_status == "normal" and suspected_count > 0:
+        if infection_status == "normal" and latest_upload_status != "normal":
+            continue
+        if created_from_dt is not None and (latest_upload_at is None or latest_upload_at < created_from_dt):
+            continue
+        if created_to_dt is not None and (latest_upload_at is None or latest_upload_at >= created_to_dt):
             continue
 
         identity_info = line_identity_by_patient.get(patient.id)
+        if normalized_query is not None:
+            full_name = (patient.full_name or "").lower()
+            line_display_name = (identity_info[0] or "").lower() if identity_info else ""
+            line_user_id = (identity_info[1] or "").lower() if identity_info else ""
+            case_number = patient.case_number.lower()
+            if (
+                normalized_query not in full_name
+                and normalized_query not in line_display_name
+                and normalized_query not in line_user_id
+                and normalized_query not in case_number
+            ):
+                continue
         rows.append(
             StaffPatientRow(
                 patient=patient,
@@ -253,7 +284,8 @@ def list_staff_patients(
                 line_user_id=identity_info[1] if identity_info else None,
                 upload_count=upload_count,
                 suspected_count=suspected_count,
-                latest_upload_at=patient_metric["latest_upload_at"],
+                latest_upload_at=latest_upload_at,
+                latest_upload_status=latest_upload_status if isinstance(latest_upload_status, str) else None,
             )
         )
     return rows
@@ -465,6 +497,125 @@ def update_patient_active_status(session: Session, *, patient_id: int, is_active
     session.commit()
     session.refresh(patient)
     return patient
+
+
+def _resolve_deletable_inactive_patient_ids(
+    session: Session,
+    *,
+    patient_ids: list[int],
+    accessible_patient_ids: set[int] | None,
+) -> tuple[set[int], dict[str, int]]:
+    requested_ids = {patient_id for patient_id in patient_ids if patient_id > 0}
+    if not requested_ids:
+        return set(), {
+            "requested_count": 0,
+            "deletable_count": 0,
+            "skipped_active_count": 0,
+            "skipped_forbidden_count": 0,
+            "skipped_missing_count": 0,
+        }
+    rows = session.execute(
+        select(Patient.id, Patient.is_active).where(Patient.id.in_(requested_ids))
+    ).all()
+    status_by_id = {int(patient_id): bool(is_active) for patient_id, is_active in rows}
+    found_ids = set(status_by_id.keys())
+    scoped_ids = found_ids if accessible_patient_ids is None else found_ids & accessible_patient_ids
+    deletable_ids = {patient_id for patient_id in scoped_ids if not status_by_id[patient_id]}
+    skipped_active_count = sum(1 for patient_id in scoped_ids if status_by_id[patient_id])
+    skipped_forbidden_count = 0 if accessible_patient_ids is None else len(found_ids - scoped_ids)
+    skipped_missing_count = len(requested_ids - found_ids)
+    return deletable_ids, {
+        "requested_count": len(requested_ids),
+        "deletable_count": len(deletable_ids),
+        "skipped_active_count": skipped_active_count,
+        "skipped_forbidden_count": skipped_forbidden_count,
+        "skipped_missing_count": skipped_missing_count,
+    }
+
+
+def _count_patient_delete_impact(session: Session, *, patient_ids: set[int]) -> dict[str, int]:
+    if not patient_ids:
+        return {
+            "patients": 0,
+            "uploads": 0,
+            "ai_results": 0,
+            "annotations": 0,
+            "notifications": 0,
+            "assignments": 0,
+        }
+    upload_count = int(
+        session.execute(select(func.count(Upload.id)).where(Upload.patient_id.in_(patient_ids))).scalar_one() or 0
+    )
+    ai_result_count = int(
+        session.execute(
+            select(func.count(AIResult.id))
+            .join(Upload, Upload.id == AIResult.upload_id)
+            .where(Upload.patient_id.in_(patient_ids))
+        ).scalar_one()
+        or 0
+    )
+    annotation_count = int(
+        session.execute(select(func.count(Annotation.id)).where(Annotation.patient_id.in_(patient_ids))).scalar_one() or 0
+    )
+    notification_count = int(
+        session.execute(select(func.count(Notification.id)).where(Notification.patient_id.in_(patient_ids))).scalar_one() or 0
+    )
+    assignment_count = int(
+        session.execute(
+            select(func.count(StaffPatientAssignment.id)).where(StaffPatientAssignment.patient_id.in_(patient_ids))
+        ).scalar_one()
+        or 0
+    )
+    return {
+        "patients": len(patient_ids),
+        "uploads": upload_count,
+        "ai_results": ai_result_count,
+        "annotations": annotation_count,
+        "notifications": notification_count,
+        "assignments": assignment_count,
+    }
+
+
+def preview_delete_inactive_patients(
+    session: Session,
+    *,
+    patient_ids: list[int],
+    accessible_patient_ids: set[int] | None,
+) -> dict[str, object]:
+    deletable_ids, summary = _resolve_deletable_inactive_patient_ids(
+        session,
+        patient_ids=patient_ids,
+        accessible_patient_ids=accessible_patient_ids,
+    )
+    return {
+        **summary,
+        "impact": _count_patient_delete_impact(session, patient_ids=deletable_ids),
+    }
+
+
+def delete_inactive_patients(
+    session: Session,
+    *,
+    patient_ids: list[int],
+    accessible_patient_ids: set[int] | None,
+) -> dict[str, object]:
+    deletable_ids, summary = _resolve_deletable_inactive_patient_ids(
+        session,
+        patient_ids=patient_ids,
+        accessible_patient_ids=accessible_patient_ids,
+    )
+    impact = _count_patient_delete_impact(session, patient_ids=deletable_ids)
+    if deletable_ids:
+        session.execute(delete(Patient).where(Patient.id.in_(deletable_ids)))
+        session.commit()
+    return {
+        "requested_count": summary["requested_count"],
+        "deleted_count": len(deletable_ids),
+        "skipped_active_count": summary["skipped_active_count"],
+        "skipped_forbidden_count": summary["skipped_forbidden_count"],
+        "skipped_missing_count": summary["skipped_missing_count"],
+        "impact": impact,
+    }
 
 
 def create_patient_record(

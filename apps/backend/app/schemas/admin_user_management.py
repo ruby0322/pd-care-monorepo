@@ -77,3 +77,21 @@ class AdminUpdateIdentityRoleRequest(BaseModel):
 class AdminUpdateIdentityStatusRequest(BaseModel):
     is_active: bool
     reason: str | None = Field(default=None, max_length=500)
+
+
+class AdminIdentityBulkDeleteRequest(BaseModel):
+    identity_ids: list[int] = Field(min_length=1)
+
+
+class AdminIdentityBulkDeletePreviewResponse(BaseModel):
+    requested_count: int
+    deletable_count: int
+    skipped_active_count: int
+    skipped_missing_count: int
+
+
+class AdminIdentityBulkDeleteResultResponse(BaseModel):
+    requested_count: int
+    deleted_count: int
+    skipped_active_count: int
+    skipped_missing_count: int

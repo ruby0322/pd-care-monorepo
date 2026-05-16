@@ -1,6 +1,7 @@
 from __future__ import annotations
 # pyright: reportMissingImports=false
 
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -65,6 +66,15 @@ def _seed_identity(client: TestClient, *, line_user_id: str, role: str, is_activ
         return identity.id
 
 
+def _set_identity_created_at(client: TestClient, *, identity_id: int, created_at: datetime) -> None:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        identity = session.get(LiffIdentity, identity_id)
+        assert identity is not None
+        identity.created_at = created_at
+        session.commit()
+
+
 def _login_token(client: TestClient, line_user_id: str) -> str:
     response = client.post("/v1/auth/login", json={"line_id_token": f"stub:{line_user_id}"})
     assert response.status_code == 200
@@ -83,6 +93,12 @@ def test_staff_cannot_access_admin_user_management_endpoints(tmp_path: Path) -> 
         assert response.status_code == 403
 
         response = client.get("/v1/staff/admin/access-requests", headers=headers)
+        assert response.status_code == 403
+
+        response = client.post("/v1/staff/admin/users/delete/preview", headers=headers, json={"identity_ids": [1]})
+        assert response.status_code == 403
+
+        response = client.post("/v1/staff/admin/users/delete", headers=headers, json={"identity_ids": [1]})
         assert response.status_code == 403
 
 
@@ -177,3 +193,115 @@ def test_healthcare_request_status_uses_token_subject(tmp_path: Path) -> None:
         )
         assert other_status.status_code == 200
         assert other_status.json()["status"] == "none"
+
+
+def test_admin_user_list_supports_created_date_range_filters(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-created-at-filter.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_FILTER", role="admin")
+        old_id = _seed_identity(client, line_user_id="U_OLD_USER", role="patient")
+        mid_id = _seed_identity(client, line_user_id="U_MID_USER", role="staff")
+        new_id = _seed_identity(client, line_user_id="U_NEW_USER", role="patient")
+
+        _set_identity_created_at(client, identity_id=old_id, created_at=datetime(2026, 1, 2, 8, 0, tzinfo=timezone.utc))
+        _set_identity_created_at(client, identity_id=mid_id, created_at=datetime(2026, 1, 15, 10, 0, tzinfo=timezone.utc))
+        _set_identity_created_at(client, identity_id=new_id, created_at=datetime(2026, 2, 10, 12, 0, tzinfo=timezone.utc))
+
+        token = _login_token(client, "U_ADMIN_FILTER")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        jan_only = client.get(
+            "/v1/staff/admin/users?created_from=2026-01-01&created_to=2026-01-31",
+            headers=headers,
+        )
+        assert jan_only.status_code == 200
+        jan_ids = {item["line_user_id"] for item in jan_only.json()["items"]}
+        assert "U_OLD_USER" in jan_ids
+        assert "U_MID_USER" in jan_ids
+        assert "U_NEW_USER" not in jan_ids
+
+        from_feb = client.get(
+            "/v1/staff/admin/users?created_from=2026-02-01",
+            headers=headers,
+        )
+        assert from_feb.status_code == 200
+        feb_ids = {item["line_user_id"] for item in from_feb.json()["items"]}
+        assert "U_NEW_USER" in feb_ids
+        assert "U_MID_USER" not in feb_ids
+
+
+def test_admin_can_preview_and_delete_inactive_users_in_scope(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-bulk-delete.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_DELETE", role="admin")
+        inactive_id = _seed_identity(client, line_user_id="U_INACTIVE_DELETE", role="patient", is_active=False)
+        active_id = _seed_identity(client, line_user_id="U_ACTIVE_KEEP", role="patient", is_active=True)
+        token = _login_token(client, "U_ADMIN_DELETE")
+        headers = {"Authorization": f"Bearer {token}"}
+        missing_id = 999999
+
+        preview_response = client.post(
+            "/v1/staff/admin/users/delete/preview",
+            headers=headers,
+            json={"identity_ids": [inactive_id, active_id, missing_id]},
+        )
+        assert preview_response.status_code == 200
+        assert preview_response.json() == {
+            "requested_count": 3,
+            "deletable_count": 1,
+            "skipped_active_count": 1,
+            "skipped_missing_count": 1,
+        }
+
+        delete_response = client.post(
+            "/v1/staff/admin/users/delete",
+            headers=headers,
+            json={"identity_ids": [inactive_id, active_id, missing_id]},
+        )
+        assert delete_response.status_code == 200
+        assert delete_response.json() == {
+            "requested_count": 3,
+            "deleted_count": 1,
+            "skipped_active_count": 1,
+            "skipped_missing_count": 1,
+        }
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            assert session.get(LiffIdentity, inactive_id) is None
+            assert session.get(LiffIdentity, active_id) is not None
+
+
+def test_admin_single_delete_path_blocks_active_identity(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-single-delete.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_SINGLE_DELETE", role="admin")
+        active_id = _seed_identity(client, line_user_id="U_ACTIVE_SINGLE_KEEP", role="patient", is_active=True)
+        inactive_id = _seed_identity(client, line_user_id="U_INACTIVE_SINGLE_DELETE", role="patient", is_active=False)
+        token = _login_token(client, "U_ADMIN_SINGLE_DELETE")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        active_delete = client.post(
+            "/v1/staff/admin/users/delete",
+            headers=headers,
+            json={"identity_ids": [active_id]},
+        )
+        assert active_delete.status_code == 200
+        assert active_delete.json()["deleted_count"] == 0
+        assert active_delete.json()["skipped_active_count"] == 1
+
+        inactive_delete = client.post(
+            "/v1/staff/admin/users/delete",
+            headers=headers,
+            json={"identity_ids": [inactive_id]},
+        )
+        assert inactive_delete.status_code == 200
+        assert inactive_delete.json()["deleted_count"] == 1
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            assert session.get(LiffIdentity, active_id) is not None
+            assert session.get(LiffIdentity, inactive_id) is None

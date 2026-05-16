@@ -68,13 +68,20 @@ export default function AdminRegistrationReviewPage() {
   }
 
   useEffect(() => {
-    void loadPending();
+    const timer = window.setTimeout(() => {
+      void loadPending();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
+    if (currentPage <= totalPages) {
+      return;
     }
+    const timer = window.setTimeout(() => {
+      setCurrentPage(totalPages);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [currentPage, totalPages]);
 
   async function handleReject(item: StaffPendingBindingItem) {

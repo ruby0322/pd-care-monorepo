@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AuthorizationAuditEvent, HealthcareAccessRequest, LiffIdentity
@@ -180,6 +180,8 @@ def list_identities(
     query: str | None,
     role: str | None,
     is_active: bool | None,
+    created_from: date | None,
+    created_to: date | None,
 ) -> list[LiffIdentity]:
     stmt: Select = select(LiffIdentity).order_by(LiffIdentity.created_at.desc())
     if query:
@@ -194,7 +196,77 @@ def list_identities(
         stmt = stmt.where(LiffIdentity.role == role)
     if is_active is not None:
         stmt = stmt.where(LiffIdentity.is_active.is_(is_active))
+    if created_from is not None:
+        from_dt = datetime.combine(created_from, time.min, tzinfo=timezone.utc)
+        stmt = stmt.where(LiffIdentity.created_at >= from_dt)
+    if created_to is not None:
+        to_dt = datetime.combine(created_to, time.min, tzinfo=timezone.utc) + timedelta(days=1)
+        stmt = stmt.where(LiffIdentity.created_at < to_dt)
     return session.execute(stmt).scalars().all()
+
+
+def preview_delete_inactive_identities(
+    session: Session,
+    *,
+    identity_ids: list[int],
+) -> dict[str, int]:
+    requested_ids = {identity_id for identity_id in identity_ids if identity_id > 0}
+    if not requested_ids:
+        return {
+            "requested_count": 0,
+            "deletable_count": 0,
+            "skipped_active_count": 0,
+            "skipped_missing_count": 0,
+        }
+    rows = session.execute(
+        select(LiffIdentity.id, LiffIdentity.is_active).where(LiffIdentity.id.in_(requested_ids))
+    ).all()
+    found_ids = {int(identity_id) for identity_id, _ in rows}
+    deletable_count = sum(1 for _, is_active in rows if not is_active)
+    skipped_active_count = sum(1 for _, is_active in rows if is_active)
+    skipped_missing_count = len(requested_ids - found_ids)
+    return {
+        "requested_count": len(requested_ids),
+        "deletable_count": deletable_count,
+        "skipped_active_count": skipped_active_count,
+        "skipped_missing_count": skipped_missing_count,
+    }
+
+
+def delete_inactive_identities(
+    session: Session,
+    *,
+    identity_ids: list[int],
+) -> dict[str, int]:
+    preview = preview_delete_inactive_identities(session, identity_ids=identity_ids)
+    if preview["deletable_count"] <= 0:
+        return {
+            "requested_count": preview["requested_count"],
+            "deleted_count": 0,
+            "skipped_active_count": preview["skipped_active_count"],
+            "skipped_missing_count": preview["skipped_missing_count"],
+        }
+    target_ids = session.execute(
+        select(LiffIdentity.id).where(
+            LiffIdentity.id.in_({identity_id for identity_id in identity_ids if identity_id > 0}),
+            LiffIdentity.is_active.is_(False),
+        )
+    ).scalars().all()
+    if not target_ids:
+        return {
+            "requested_count": preview["requested_count"],
+            "deleted_count": 0,
+            "skipped_active_count": preview["skipped_active_count"],
+            "skipped_missing_count": preview["skipped_missing_count"],
+        }
+    session.execute(delete(LiffIdentity).where(LiffIdentity.id.in_(set(int(identity_id) for identity_id in target_ids))))
+    session.commit()
+    return {
+        "requested_count": preview["requested_count"],
+        "deleted_count": len(target_ids),
+        "skipped_active_count": preview["skipped_active_count"],
+        "skipped_missing_count": preview["skipped_missing_count"],
+    }
 
 
 def update_identity_role(

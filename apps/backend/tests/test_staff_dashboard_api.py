@@ -106,6 +106,41 @@ def _seed_patient_with_uploads(client: TestClient) -> int:
         return patient.id
 
 
+def _seed_patient_with_custom_uploads(
+    client: TestClient,
+    *,
+    case_number: str,
+    line_user_id: str,
+    uploads: list[tuple[datetime, str]],
+) -> int:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        patient = Patient(case_number=case_number, birth_date="1985-01-01", full_name=case_number, is_active=True)
+        session.add(patient)
+        session.flush()
+        session.add(
+            LiffIdentity(
+                line_user_id=line_user_id,
+                display_name=case_number,
+                picture_url=None,
+                patient_id=patient.id,
+                role="patient",
+            )
+        )
+        for index, (upload_time, result) in enumerate(uploads, start=1):
+            upload = Upload(
+                patient_id=patient.id,
+                object_key=f"patients/{patient.id}/uploads/{index}.jpg",
+                content_type="image/jpeg",
+                created_at=upload_time,
+            )
+            session.add(upload)
+            session.flush()
+            session.add(AIResult(upload_id=upload.id, screening_result=result, probability=0.8, threshold=0.5))
+        session.commit()
+        return patient.id
+
+
 def _seed_admin_analytics_data(client: TestClient) -> None:
     now = datetime.now(tz=timezone.utc)
     session_factory = client.app.state.db_session_factory
@@ -177,6 +212,15 @@ def _assign_staff_patient(client: TestClient, *, staff_identity_id: int, patient
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
         session.add(StaffPatientAssignment(staff_identity_id=staff_identity_id, patient_id=patient_id))
+        session.commit()
+
+
+def _set_patient_active(client: TestClient, *, patient_id: int, is_active: bool) -> None:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        patient = session.get(Patient, patient_id)
+        assert patient is not None
+        patient.is_active = is_active
         session.commit()
 
 
@@ -292,6 +336,62 @@ def test_staff_patient_list_and_queue_are_accessible(tmp_path: Path) -> None:
         assert len(queue_response.json()["items"]) >= 1
 
 
+def test_staff_patient_filters_use_latest_upload_status_and_created_range(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-latest-upload-filters.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_latest_suspected = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-LATEST-SUS",
+            line_user_id="U_PATIENT_LATEST_SUS",
+            uploads=[
+                (datetime(2026, 1, 10, 9, 0, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 2, 10, 10, 0, tzinfo=timezone.utc), "suspected"),
+            ],
+        )
+        patient_latest_normal = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-LATEST-NOR",
+            line_user_id="U_PATIENT_LATEST_NOR",
+            uploads=[
+                (datetime(2026, 1, 8, 9, 0, tzinfo=timezone.utc), "suspected"),
+                (datetime(2026, 2, 9, 10, 0, tzinfo=timezone.utc), "normal"),
+            ],
+        )
+        patient_no_upload = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-NO-UPLOAD",
+            line_user_id="U_PATIENT_NO_UPLOAD",
+            uploads=[],
+        )
+
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_latest_suspected)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_latest_normal)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_no_upload)
+
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        suspected_response = client.get("/v1/staff/patients?infection_status=suspected", headers=headers)
+        assert suspected_response.status_code == 200
+        suspected_cases = {item["case_number"] for item in suspected_response.json()["items"]}
+        assert suspected_cases == {"P-LATEST-SUS"}
+
+        normal_response = client.get("/v1/staff/patients?infection_status=normal", headers=headers)
+        assert normal_response.status_code == 200
+        normal_cases = {item["case_number"] for item in normal_response.json()["items"]}
+        assert normal_cases == {"P-LATEST-NOR"}
+
+        feb_range_response = client.get(
+            "/v1/staff/patients?created_from=2026-02-10&created_to=2026-02-10",
+            headers=headers,
+        )
+        assert feb_range_response.status_code == 200
+        feb_cases = {item["case_number"] for item in feb_range_response.json()["items"]}
+        assert feb_cases == {"P-LATEST-SUS"}
+
+
 def test_patient_token_is_denied_for_staff_dashboard_endpoints(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-denied.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
@@ -304,6 +404,127 @@ def test_patient_token_is_denied_for_staff_dashboard_endpoints(tmp_path: Path) -
 
         response = client.get("/v1/staff/patients", headers=headers)
         assert response.status_code == 403
+
+        response = client.post("/v1/staff/patients/delete/preview", headers=headers, json={"patient_ids": [patient_id]})
+        assert response.status_code == 403
+
+        response = client.post("/v1/staff/patients/delete", headers=headers, json={"patient_ids": [patient_id]})
+        assert response.status_code == 403
+
+
+def test_staff_can_preview_and_delete_inactive_patients_with_scope(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-bulk-delete.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        assigned_inactive_id = _seed_patient_with_uploads(client)
+        assigned_active_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-ACTIVE-KEEP",
+            line_user_id="U_PATIENT_ACTIVE_KEEP",
+            uploads=[],
+        )
+        unassigned_inactive_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-FORBIDDEN-INACTIVE",
+            line_user_id="U_PATIENT_FORBIDDEN_INACTIVE",
+            uploads=[],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=assigned_inactive_id)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=assigned_active_id)
+        _set_patient_active(client, patient_id=assigned_inactive_id, is_active=False)
+        _set_patient_active(client, patient_id=unassigned_inactive_id, is_active=False)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+        missing_id = 999999
+
+        preview_response = client.post(
+            "/v1/staff/patients/delete/preview",
+            headers=headers,
+            json={"patient_ids": [assigned_inactive_id, assigned_active_id, unassigned_inactive_id, missing_id]},
+        )
+        assert preview_response.status_code == 200
+        assert preview_response.json() == {
+            "requested_count": 4,
+            "deletable_count": 1,
+            "skipped_active_count": 1,
+            "skipped_forbidden_count": 1,
+            "skipped_missing_count": 1,
+            "impact": {
+                "patients": 1,
+                "uploads": 2,
+                "ai_results": 2,
+                "annotations": 0,
+                "notifications": 0,
+                "assignments": 1,
+            },
+        }
+
+        delete_response = client.post(
+            "/v1/staff/patients/delete",
+            headers=headers,
+            json={"patient_ids": [assigned_inactive_id, assigned_active_id, unassigned_inactive_id, missing_id]},
+        )
+        assert delete_response.status_code == 200
+        assert delete_response.json() == {
+            "requested_count": 4,
+            "deleted_count": 1,
+            "skipped_active_count": 1,
+            "skipped_forbidden_count": 1,
+            "skipped_missing_count": 1,
+            "impact": {
+                "patients": 1,
+                "uploads": 2,
+                "ai_results": 2,
+                "annotations": 0,
+                "notifications": 0,
+                "assignments": 1,
+            },
+        }
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            assert session.get(Patient, assigned_inactive_id) is None
+            assert session.get(Patient, assigned_active_id) is not None
+            assert session.get(Patient, unassigned_inactive_id) is not None
+
+
+def test_patient_single_delete_path_blocks_active_patient(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-single-delete.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        inactive_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-SINGLE-INACTIVE",
+            line_user_id="U_PATIENT_SINGLE_INACTIVE",
+            uploads=[],
+        )
+        active_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-SINGLE-ACTIVE",
+            line_user_id="U_PATIENT_SINGLE_ACTIVE",
+            uploads=[],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=inactive_id)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=active_id)
+        _set_patient_active(client, patient_id=inactive_id, is_active=False)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        active_delete = client.post("/v1/staff/patients/delete", headers=headers, json={"patient_ids": [active_id]})
+        assert active_delete.status_code == 200
+        assert active_delete.json()["deleted_count"] == 0
+        assert active_delete.json()["skipped_active_count"] == 1
+
+        inactive_delete = client.post("/v1/staff/patients/delete", headers=headers, json={"patient_ids": [inactive_id]})
+        assert inactive_delete.status_code == 200
+        assert inactive_delete.json()["deleted_count"] == 1
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            assert session.get(Patient, active_id) is not None
+            assert session.get(Patient, inactive_id) is None
 
 
 def test_staff_can_upsert_annotation(tmp_path: Path) -> None:

@@ -196,6 +196,20 @@ export type AdminIdentityItem = {
   created_at: string;
 };
 
+export type AdminInactiveIdentityDeletePreview = {
+  requested_count: number;
+  deletable_count: number;
+  skipped_active_count: number;
+  skipped_missing_count: number;
+};
+
+export type AdminInactiveIdentityDeleteResult = {
+  requested_count: number;
+  deleted_count: number;
+  skipped_active_count: number;
+  skipped_missing_count: number;
+};
+
 export type AdminAccessRequestItem = {
   id: number;
   requester_identity_id: number;
@@ -235,6 +249,33 @@ export type AdminPatientAssignmentBulkResponse = {
   results: AdminPatientAssignmentBulkItemResult[];
 };
 
+export type StaffPatientDeleteImpact = {
+  patients: number;
+  uploads: number;
+  ai_results: number;
+  annotations: number;
+  notifications: number;
+  assignments: number;
+};
+
+export type StaffInactivePatientDeletePreview = {
+  requested_count: number;
+  deletable_count: number;
+  skipped_active_count: number;
+  skipped_forbidden_count: number;
+  skipped_missing_count: number;
+  impact: StaffPatientDeleteImpact;
+};
+
+export type StaffInactivePatientDeleteResult = {
+  requested_count: number;
+  deleted_count: number;
+  skipped_active_count: number;
+  skipped_forbidden_count: number;
+  skipped_missing_count: number;
+  impact: StaffPatientDeleteImpact;
+};
+
 export async function fetchStaffMe(): Promise<StaffMeResponse> {
   const { data } = await apiClient.get<StaffMeResponse>("/v1/staff/me");
   return data;
@@ -244,8 +285,11 @@ export async function fetchStaffPatients(params: {
   months: number;
   ageMin?: number;
   ageMax?: number;
+  query?: string;
   infectionStatus: "all" | "suspected" | "normal";
   isActiveFilter?: "all" | "active" | "inactive";
+  createdFrom?: string;
+  createdTo?: string;
   sortKey: "latest_upload" | "case_number" | "upload_count" | "suspected_count" | "age";
   sortDir: "asc" | "desc";
 }): Promise<StaffPatientListResponse> {
@@ -254,8 +298,11 @@ export async function fetchStaffPatients(params: {
       months: params.months,
       age_min: params.ageMin,
       age_max: params.ageMax,
+      query: params.query,
       infection_status: params.infectionStatus,
       is_active_filter: params.isActiveFilter ?? "all",
+      created_from: params.createdFrom,
+      created_to: params.createdTo,
       sort_key: params.sortKey,
       sort_dir: params.sortDir,
     },
@@ -458,12 +505,16 @@ export async function fetchAdminUsers(params?: {
   query?: string;
   role?: "patient" | "staff" | "admin";
   isActive?: boolean;
+  createdFrom?: string;
+  createdTo?: string;
 }): Promise<AdminIdentityItem[]> {
   const { data } = await apiClient.get<{ items: AdminIdentityItem[] }>("/v1/staff/admin/users", {
     params: {
       query: params?.query,
       role: params?.role,
       is_active: params?.isActive,
+      created_from: params?.createdFrom,
+      created_to: params?.createdTo,
     },
   });
   return data.items;
@@ -482,6 +533,20 @@ export async function updateAdminUserStatus(
   payload: { is_active: boolean; reason?: string }
 ): Promise<AdminIdentityItem> {
   const { data } = await apiClient.post<AdminIdentityItem>(`/v1/staff/admin/users/${identityId}/status`, payload);
+  return data;
+}
+
+export async function previewDeleteInactiveAdminUsers(identityIds: number[]): Promise<AdminInactiveIdentityDeletePreview> {
+  const { data } = await apiClient.post<AdminInactiveIdentityDeletePreview>("/v1/staff/admin/users/delete/preview", {
+    identity_ids: identityIds,
+  });
+  return data;
+}
+
+export async function deleteInactiveAdminUsers(identityIds: number[]): Promise<AdminInactiveIdentityDeleteResult> {
+  const { data } = await apiClient.post<AdminInactiveIdentityDeleteResult>("/v1/staff/admin/users/delete", {
+    identity_ids: identityIds,
+  });
   return data;
 }
 
@@ -533,5 +598,19 @@ export async function bulkUpsertAdminAssignments(payload: {
   assignments: Array<{ patient_id: number; staff_identity_id: number }>;
 }): Promise<AdminPatientAssignmentBulkResponse> {
   const { data } = await apiClient.post<AdminPatientAssignmentBulkResponse>("/v1/staff/admin/assignments/bulk", payload);
+  return data;
+}
+
+export async function previewDeleteInactivePatients(patientIds: number[]): Promise<StaffInactivePatientDeletePreview> {
+  const { data } = await apiClient.post<StaffInactivePatientDeletePreview>("/v1/staff/patients/delete/preview", {
+    patient_ids: patientIds,
+  });
+  return data;
+}
+
+export async function deleteInactivePatients(patientIds: number[]): Promise<StaffInactivePatientDeleteResult> {
+  const { data } = await apiClient.post<StaffInactivePatientDeleteResult>("/v1/staff/patients/delete", {
+    patient_ids: patientIds,
+  });
   return data;
 }
