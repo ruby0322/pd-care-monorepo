@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -44,6 +45,10 @@ from app.schemas.staff_dashboard import (
     StaffPendingBindingCreatePatientRequest,
     StaffPendingBindingBulkRejectResponse,
     StaffPendingBindingListResponse,
+    StaffPatientBulkDeleteImpact,
+    StaffPatientBulkDeletePreviewResponse,
+    StaffPatientBulkDeleteRequest,
+    StaffPatientBulkDeleteResultResponse,
     StaffPatientStatusUpdateRequest,
     StaffPendingCandidatePatient,
     StaffPatientSummary,
@@ -53,6 +58,9 @@ from app.schemas.staff_dashboard import (
     StaffTodaySuspectedSummaryResponse,
 )
 from app.schemas.admin_user_management import (
+    AdminIdentityBulkDeletePreviewResponse,
+    AdminIdentityBulkDeleteRequest,
+    AdminIdentityBulkDeleteResultResponse,
     AdminApproveHealthcarePermissionRequest,
     AdminHealthcarePermissionRequestItem,
     AdminHealthcarePermissionRequestListResponse,
@@ -65,8 +73,10 @@ from app.schemas.admin_user_management import (
 from app.db.models import AIResult, LiffIdentity, Patient, PendingBinding, Upload
 from app.services.admin_user_management import (
     approve_healthcare_permission_request,
+    delete_inactive_identities,
     list_healthcare_permission_requests,
     list_identities,
+    preview_delete_inactive_identities,
     reject_healthcare_permission_request,
     update_identity_role,
     update_identity_status,
@@ -80,6 +90,7 @@ from app.services.staff_dashboard import (
     bulk_reject_pending_bindings,
     calculate_age,
     create_patient_record,
+    delete_inactive_patients,
     create_patient_and_link_pending_binding,
     DuplicatePatientError,
     ensure_staff_assignment,
@@ -96,6 +107,7 @@ from app.services.staff_dashboard import (
     list_pending_bindings,
     list_staff_patients,
     list_upload_queue,
+    preview_delete_inactive_patients,
     update_pending_binding_status,
     update_patient_active_status,
     upsert_annotation_for_upload,
@@ -145,12 +157,21 @@ async def list_admin_users(
     query: str | None = Query(default=None, min_length=1, max_length=128),
     role: str | None = Query(default=None, pattern="^(patient|staff|admin)$"),
     is_active: bool | None = Query(default=None),
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
     credentials=Depends(bearer_scheme),
 ) -> AdminIdentityListResponse:
     require_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
-        rows = list_identities(session, query=query, role=role, is_active=is_active)
+        rows = list_identities(
+            session,
+            query=query,
+            role=role,
+            is_active=is_active,
+            created_from=created_from,
+            created_to=created_to,
+        )
         return AdminIdentityListResponse(
             items=[
                 AdminIdentityItem(
@@ -164,6 +185,46 @@ async def list_admin_users(
                 )
                 for row in rows
             ]
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/admin/users/delete/preview", response_model=AdminIdentityBulkDeletePreviewResponse)
+async def preview_delete_admin_users(
+    request: Request,
+    payload: AdminIdentityBulkDeleteRequest,
+    credentials=Depends(bearer_scheme),
+) -> AdminIdentityBulkDeletePreviewResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        result = preview_delete_inactive_identities(session, identity_ids=payload.identity_ids)
+        return AdminIdentityBulkDeletePreviewResponse(
+            requested_count=result["requested_count"],
+            deletable_count=result["deletable_count"],
+            skipped_active_count=result["skipped_active_count"],
+            skipped_missing_count=result["skipped_missing_count"],
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/admin/users/delete", response_model=AdminIdentityBulkDeleteResultResponse)
+async def delete_admin_users(
+    request: Request,
+    payload: AdminIdentityBulkDeleteRequest,
+    credentials=Depends(bearer_scheme),
+) -> AdminIdentityBulkDeleteResultResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        result = delete_inactive_identities(session, identity_ids=payload.identity_ids)
+        return AdminIdentityBulkDeleteResultResponse(
+            requested_count=result["requested_count"],
+            deleted_count=result["deleted_count"],
+            skipped_active_count=result["skipped_active_count"],
+            skipped_missing_count=result["skipped_missing_count"],
         )
     finally:
         session.close()
@@ -687,11 +748,14 @@ async def create_staff_patient(
 @router.get("/v1/staff/patients", response_model=StaffPatientListResponse)
 async def get_staff_patients(
     request: Request,
+    query: str | None = Query(default=None, min_length=1, max_length=128),
     months: int = Query(default=12, ge=1, le=60),
     age_min: int | None = Query(default=None, ge=0),
     age_max: int | None = Query(default=None, ge=0),
     infection_status: str = Query(default="all", pattern="^(all|suspected|normal)$"),
     is_active_filter: str = Query(default="all", pattern="^(all|active|inactive)$"),
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
     sort_key: str = Query(default="latest_upload", pattern="^(latest_upload|case_number|upload_count|suspected_count|age)$"),
     sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     credentials=Depends(bearer_scheme),
@@ -706,11 +770,14 @@ async def get_staff_patients(
         )
         rows = list_staff_patients(
             session,
+            query=query,
             months=months,
             age_min=age_min,
             age_max=age_max,
             infection_status=infection_status,
             is_active_filter=is_active_filter,
+            created_from=created_from,
+            created_to=created_to,
             accessible_patient_ids=accessible_patient_ids,
         )
         reverse = sort_dir == "desc"
@@ -747,6 +814,86 @@ async def get_staff_patients(
             total_uploads=sum(item.upload_count for item in items),
             suspected_patients=sum(1 for item in items if item.suspected_count > 0),
             items=items,
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/patients/delete/preview", response_model=StaffPatientBulkDeletePreviewResponse)
+async def preview_delete_staff_patients(
+    request: Request,
+    payload: StaffPatientBulkDeleteRequest,
+    credentials=Depends(bearer_scheme),
+) -> StaffPatientBulkDeletePreviewResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        result = preview_delete_inactive_patients(
+            session,
+            patient_ids=payload.patient_ids,
+            accessible_patient_ids=accessible_patient_ids,
+        )
+        impact = result["impact"]
+        assert isinstance(impact, dict)
+        return StaffPatientBulkDeletePreviewResponse(
+            requested_count=result["requested_count"],
+            deletable_count=result["deletable_count"],
+            skipped_active_count=result["skipped_active_count"],
+            skipped_forbidden_count=result["skipped_forbidden_count"],
+            skipped_missing_count=result["skipped_missing_count"],
+            impact=StaffPatientBulkDeleteImpact(
+                patients=int(impact["patients"]),
+                uploads=int(impact["uploads"]),
+                ai_results=int(impact["ai_results"]),
+                annotations=int(impact["annotations"]),
+                notifications=int(impact["notifications"]),
+                assignments=int(impact["assignments"]),
+            ),
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/patients/delete", response_model=StaffPatientBulkDeleteResultResponse)
+async def delete_staff_patients(
+    request: Request,
+    payload: StaffPatientBulkDeleteRequest,
+    credentials=Depends(bearer_scheme),
+) -> StaffPatientBulkDeleteResultResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        result = delete_inactive_patients(
+            session,
+            patient_ids=payload.patient_ids,
+            accessible_patient_ids=accessible_patient_ids,
+        )
+        impact = result["impact"]
+        assert isinstance(impact, dict)
+        return StaffPatientBulkDeleteResultResponse(
+            requested_count=result["requested_count"],
+            deleted_count=result["deleted_count"],
+            skipped_active_count=result["skipped_active_count"],
+            skipped_forbidden_count=result["skipped_forbidden_count"],
+            skipped_missing_count=result["skipped_missing_count"],
+            impact=StaffPatientBulkDeleteImpact(
+                patients=int(impact["patients"]),
+                uploads=int(impact["uploads"]),
+                ai_results=int(impact["ai_results"]),
+                annotations=int(impact["annotations"]),
+                notifications=int(impact["notifications"]),
+                assignments=int(impact["assignments"]),
+            ),
         )
     finally:
         session.close()
@@ -1195,11 +1342,14 @@ async def update_staff_patient_status(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         row = list_staff_patients(
             session,
+            query=None,
             months=12,
             age_min=None,
             age_max=None,
             infection_status="all",
             is_active_filter="all",
+            created_from=None,
+            created_to=None,
             accessible_patient_ids=_get_accessible_patient_ids(
                 session,
                 role=principal.role,

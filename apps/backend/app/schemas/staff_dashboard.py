@@ -127,6 +127,37 @@ class StaffPatientStatusUpdateRequest(BaseModel):
     is_active: bool
 
 
+class StaffPatientBulkDeleteRequest(BaseModel):
+    patient_ids: list[int] = Field(min_length=1)
+
+
+class StaffPatientBulkDeleteImpact(BaseModel):
+    patients: int
+    uploads: int
+    ai_results: int
+    annotations: int
+    notifications: int
+    assignments: int
+
+
+class StaffPatientBulkDeletePreviewResponse(BaseModel):
+    requested_count: int
+    deletable_count: int
+    skipped_active_count: int
+    skipped_forbidden_count: int
+    skipped_missing_count: int
+    impact: StaffPatientBulkDeleteImpact
+
+
+class StaffPatientBulkDeleteResultResponse(BaseModel):
+    requested_count: int
+    deleted_count: int
+    skipped_active_count: int
+    skipped_forbidden_count: int
+    skipped_missing_count: int
+    impact: StaffPatientBulkDeleteImpact
+
+
 class StaffPatientCreateRequest(BaseModel):
     case_number: str = Field(min_length=1, max_length=64)
     birth_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")

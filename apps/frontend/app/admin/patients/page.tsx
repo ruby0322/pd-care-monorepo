@@ -3,6 +3,7 @@
 import { flexRender, getCoreRowModel, getSortedRowModel, useReactTable, type ColumnDef, type SortingState } from "@tanstack/react-table";
 import { ArrowUpDown, ChevronRight, RefreshCw } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
@@ -12,17 +13,19 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getReadableApiError } from "@/lib/api/client";
+import { AdminActiveFilter, AdminInfectionFilter, parsePatientsFilters, patientsFiltersToSearchParams } from "@/lib/admin/filters";
 import {
   createStaffPatient,
+  deleteInactivePatients,
   fetchAdminAgeHistogram,
   fetchAdminGenderDistribution,
   fetchStaffMe,
   fetchStaffPatients,
+  previewDeleteInactivePatients,
+  StaffInactivePatientDeletePreview,
   StaffPatientSummary,
   updateStaffPatientStatus,
 } from "@/lib/api/staff";
-
-type ActiveFilter = "all" | "active" | "inactive";
 
 const GENDER_LABELS: Record<string, string> = {
   male: "男性",
@@ -39,6 +42,11 @@ const GENDER_COLORS: Record<string, string> = {
 };
 
 export default function AdminPatientsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const parsedFilters = useMemo(() => parsePatientsFilters(searchParams), [searchParams]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -46,9 +54,13 @@ export default function AdminPatientsPage() {
   const [genderDistribution, setGenderDistribution] = useState<{ gender: string; count: number }[]>([]);
   const [ageHistogram, setAgeHistogram] = useState<{ label: string; count: number }[]>([]);
   const [patients, setPatients] = useState<StaffPatientSummary[]>([]);
-  const [keyword, setKeyword] = useState("");
+  const [queryDraft, setQueryDraft] = useState(parsedFilters.q);
+  const [debouncedQuery, setDebouncedQuery] = useState(parsedFilters.q);
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [activeFilter, setActiveFilter] = useState<ActiveFilter>("all");
+  const [activeFilter, setActiveFilter] = useState<AdminActiveFilter>(parsedFilters.active);
+  const [infectionFilter, setInfectionFilter] = useState<AdminInfectionFilter>(parsedFilters.infection);
+  const [createdFrom, setCreatedFrom] = useState(parsedFilters.createdFrom);
+  const [createdTo, setCreatedTo] = useState(parsedFilters.createdTo);
   const [workingPatientId, setWorkingPatientId] = useState<number | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -56,15 +68,35 @@ export default function AdminPatientsPage() {
   const [newBirthDate, setNewBirthDate] = useState("");
   const [newFullName, setNewFullName] = useState("");
   const [newGender, setNewGender] = useState<"male" | "female" | "other" | "unknown">("unknown");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTargetIds, setDeleteTargetIds] = useState<number[]>([]);
+  const [deletePreview, setDeletePreview] = useState<StaffInactivePatientDeletePreview | null>(null);
+  const [deleteScopeLabel, setDeleteScopeLabel] = useState<string>("");
+
+  const query = useMemo(
+    () => ({
+      q: debouncedQuery.trim(),
+      active: activeFilter,
+      infection: infectionFilter,
+      createdFrom,
+      createdTo,
+    }),
+    [activeFilter, createdFrom, createdTo, debouncedQuery, infectionFilter]
+  );
+  const queryString = useMemo(() => patientsFiltersToSearchParams(query).toString(), [query]);
 
   const loadPatients = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const response = await fetchStaffPatients({
+        query: query.q || undefined,
         months: 12,
-        infectionStatus: "all",
-        isActiveFilter: activeFilter,
+        infectionStatus: query.infection,
+        isActiveFilter: query.active,
+        createdFrom: query.createdFrom || undefined,
+        createdTo: query.createdTo || undefined,
         sortKey: "latest_upload",
         sortDir: "desc",
       });
@@ -74,7 +106,35 @@ export default function AdminPatientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeFilter]);
+  }, [query]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setQueryDraft(parsedFilters.q);
+      setDebouncedQuery(parsedFilters.q);
+      setActiveFilter(parsedFilters.active);
+      setInfectionFilter(parsedFilters.infection);
+      setCreatedFrom(parsedFilters.createdFrom);
+      setCreatedTo(parsedFilters.createdTo);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [parsedFilters]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(queryDraft);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [queryDraft]);
+
+  useEffect(() => {
+    const current = searchParams.toString();
+    if (current === queryString) {
+      return;
+    }
+    const href = queryString ? `${pathname}?${queryString}` : pathname;
+    router.replace(href);
+  }, [pathname, queryString, router, searchParams]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -161,19 +221,55 @@ export default function AdminPatientsPage() {
     }
   }
 
-  const filtered = useMemo(() => {
-    if (!keyword.trim()) {
-      return patients;
+  const inactivePatientIds = useMemo(
+    () => patients.filter((patient) => !patient.is_active).map((patient) => patient.patient_id),
+    [patients]
+  );
+
+  async function openDeleteDialog(patientIds: number[], scopeLabel: string) {
+    if (patientIds.length === 0) {
+      toast.error("目前沒有可刪除的停權病患。");
+      return;
     }
-    const key = keyword.trim().toLowerCase();
-    return patients.filter((item) => {
-      return (
-        (item.full_name ?? "").toLowerCase().includes(key) ||
-        (item.line_display_name ?? "").toLowerCase().includes(key) ||
-        item.case_number.toLowerCase().includes(key)
+    try {
+      const preview = await previewDeleteInactivePatients(patientIds);
+      setDeleteTargetIds(patientIds);
+      setDeletePreview(preview);
+      setDeleteScopeLabel(scopeLabel);
+      setDeleteDialogOpen(true);
+    } catch (requestError) {
+      toast.error(getReadableApiError(requestError));
+    }
+  }
+
+  function closeDeleteDialog(force = false) {
+    if (deleting && !force) {
+      return;
+    }
+    setDeleteDialogOpen(false);
+    setDeleteTargetIds([]);
+    setDeletePreview(null);
+    setDeleteScopeLabel("");
+  }
+
+  async function confirmDelete() {
+    if (deleteTargetIds.length === 0) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const result = await deleteInactivePatients(deleteTargetIds);
+      await loadPatients();
+      toast.success(
+        `刪除完成：刪除 ${result.deleted_count} 筆，略過停用狀態不符 ${result.skipped_active_count} 筆，權限不足 ${result.skipped_forbidden_count} 筆，找不到 ${result.skipped_missing_count} 筆`
       );
-    });
-  }, [keyword, patients]);
+      closeDeleteDialog(true);
+    } catch (requestError) {
+      toast.error(getReadableApiError(requestError));
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const genderChartData = useMemo(
     () =>
@@ -311,10 +407,21 @@ export default function AdminPatientsPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => void togglePatientStatus(patient)}
-                disabled={workingPatientId === patient.patient_id}
+                disabled={workingPatientId === patient.patient_id || deleting}
               >
                 {patient.is_active ? "停權" : "恢復"}
               </Button>
+              {!patient.is_active ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="whitespace-nowrap border-red-200 text-red-700 hover:bg-red-50"
+                  onClick={() => void openDeleteDialog([patient.patient_id], `病患 ${patient.case_number}`)}
+                  disabled={workingPatientId === patient.patient_id || deleting}
+                >
+                  刪除
+                </Button>
+              ) : null}
               <Link
                 href={`/admin/patients/${patient.patient_id}`}
                 className="inline-flex h-8 items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 transition-colors hover:bg-zinc-50"
@@ -330,7 +437,7 @@ export default function AdminPatientsPage() {
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: filtered,
+    data: patients,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -425,20 +532,46 @@ export default function AdminPatientsPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         <Input
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
+          value={queryDraft}
+          onChange={(event) => setQueryDraft(event.target.value)}
           className="w-56"
           placeholder="搜尋姓名 / LINE 名稱 / 病例號"
         />
         <select
+          value={infectionFilter}
+          onChange={(event) => setInfectionFilter(event.target.value as AdminInfectionFilter)}
+          className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+        >
+          <option value="all">全部感染狀態</option>
+          <option value="suspected">latest: suspected</option>
+          <option value="normal">latest: normal</option>
+        </select>
+        <select
           value={activeFilter}
-          onChange={(event) => setActiveFilter(event.target.value as ActiveFilter)}
+          onChange={(event) => setActiveFilter(event.target.value as AdminActiveFilter)}
           className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
         >
           <option value="all">全部狀態</option>
           <option value="active">僅啟用</option>
           <option value="inactive">僅停權</option>
         </select>
+        <label className="inline-flex items-center gap-2 text-xs text-zinc-500">
+          最新上傳起
+          <Input type="date" value={createdFrom} onChange={(event) => setCreatedFrom(event.target.value)} className="w-44" />
+        </label>
+        <label className="inline-flex items-center gap-2 text-xs text-zinc-500">
+          最新上傳迄
+          <Input type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} className="w-44" />
+        </label>
+        <Button
+          type="button"
+          variant="outline"
+          className="whitespace-nowrap border-red-200 text-red-700 hover:bg-red-50"
+          disabled={inactivePatientIds.length === 0 || deleting}
+          onClick={() => void openDeleteDialog(inactivePatientIds, "目前篩選結果")}
+        >
+          移除篩選結果中的停權病患
+        </Button>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
@@ -481,9 +614,49 @@ export default function AdminPatientsPage() {
           </TableBody>
         </Table>
         <div className="border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
-          顯示 {table.getRowModel().rows.length} / {patients.length} 位病患
+          顯示 {table.getRowModel().rows.length} 位病患
         </div>
       </div>
+
+      {deleteDialogOpen && deletePreview ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-zinc-200 bg-white p-5">
+            <h2 className="text-base font-semibold text-zinc-900">確認刪除停權病患</h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              刪除範圍：{deleteScopeLabel}。此操作為永久刪除，且會連帶刪除關聯資料，無法復原。
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-sm text-zinc-700">
+              <p>請求筆數：{deletePreview.requested_count}</p>
+              <p>可刪除：{deletePreview.deletable_count}</p>
+              <p>略過（非停權）：{deletePreview.skipped_active_count}</p>
+              <p>略過（權限不足）：{deletePreview.skipped_forbidden_count}</p>
+              <p>略過（找不到）：{deletePreview.skipped_missing_count}</p>
+            </div>
+            <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
+              <p className="font-medium text-zinc-900">刪除影響預估</p>
+              <p>病患：{deletePreview.impact.patients}</p>
+              <p>上傳影像：{deletePreview.impact.uploads}</p>
+              <p>AI 結果：{deletePreview.impact.ai_results}</p>
+              <p>註記：{deletePreview.impact.annotations}</p>
+              <p>通知：{deletePreview.impact.notifications}</p>
+              <p>指派關係：{deletePreview.impact.assignments}</p>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => closeDeleteDialog()} disabled={deleting}>
+                取消
+              </Button>
+              <Button
+                type="button"
+                className="whitespace-nowrap bg-red-600 text-white hover:bg-red-700"
+                onClick={() => void confirmDelete()}
+                disabled={deleting || deletePreview.deletable_count === 0}
+              >
+                {deleting ? "刪除中..." : "確認刪除"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
