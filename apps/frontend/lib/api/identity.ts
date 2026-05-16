@@ -28,16 +28,14 @@ export type HealthcareAccessRequestStatusResponse = {
 };
 
 type BindIdentityPayload = {
-  line_user_id: string;
-  display_name: string | null;
-  picture_url: string | null;
+  line_id_token: string;
   case_number: string;
   birth_date: string;
 };
 
-export async function fetchIdentityStatus(lineUserId: string): Promise<IdentityStatusResponse> {
-  const { data } = await apiClient.get<IdentityStatusResponse>("/v1/identity/bind/status", {
-    params: { line_user_id: lineUserId },
+export async function fetchIdentityStatus(lineIdToken: string): Promise<IdentityStatusResponse> {
+  const { data } = await apiClient.post<IdentityStatusResponse>("/v1/identity/bind/status", {
+    line_id_token: lineIdToken,
   });
   return data;
 }
@@ -53,9 +51,7 @@ export async function fetchPatientProfile(): Promise<PatientProfileResponse> {
 }
 
 export async function createHealthcareAccessRequest(payload: {
-  line_user_id: string;
-  display_name: string | null;
-  picture_url: string | null;
+  line_id_token: string;
 }): Promise<{ request_id: number; status: "pending" | "approved" | "rejected" }> {
   const { data } = await apiClient.post<{ request_id: number; status: "pending" | "approved" | "rejected" }>(
     "/v1/identity/healthcare-access-request",
@@ -65,12 +61,12 @@ export async function createHealthcareAccessRequest(payload: {
 }
 
 export async function fetchHealthcareAccessRequestStatus(
-  lineUserId: string
+  lineIdToken: string
 ): Promise<HealthcareAccessRequestStatusResponse> {
-  const { data } = await apiClient.get<HealthcareAccessRequestStatusResponse>(
+  const { data } = await apiClient.post<HealthcareAccessRequestStatusResponse>(
     "/v1/identity/healthcare-access-request/status",
     {
-      params: { line_user_id: lineUserId },
+      line_id_token: lineIdToken,
     }
   );
   return data;

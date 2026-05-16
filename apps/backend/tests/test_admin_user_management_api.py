@@ -95,9 +95,7 @@ def test_admin_can_approve_healthcare_access_request_and_grant_staff(tmp_path: P
         create_response = client.post(
             "/v1/identity/healthcare-access-request",
             json={
-                "line_user_id": "U_REQUESTER_1",
-                "display_name": "Requester One",
-                "picture_url": None,
+                "line_id_token": "stub:U_REQUESTER_1",
             },
         )
         assert create_response.status_code == 200
@@ -114,9 +112,9 @@ def test_admin_can_approve_healthcare_access_request_and_grant_staff(tmp_path: P
         assert approve_response.json()["status"] == "approved"
         assert approve_response.json()["decision_role"] == "staff"
 
-        status_response = client.get(
+        status_response = client.post(
             "/v1/identity/healthcare-access-request/status",
-            params={"line_user_id": "U_REQUESTER_1"},
+            json={"line_id_token": "stub:U_REQUESTER_1"},
         )
         assert status_response.status_code == 200
         assert status_response.json()["status"] == "approved"
@@ -154,3 +152,28 @@ def test_admin_can_update_user_role_and_status(tmp_path: Path) -> None:
 
         target_login = client.post("/v1/auth/login", json={"line_id_token": "stub:U_TARGET"})
         assert target_login.status_code == 403
+
+
+def test_healthcare_request_status_uses_token_subject(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-subject.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/v1/identity/healthcare-access-request",
+            json={"line_id_token": "stub:U_REQUESTER_OWNER"},
+        )
+        assert create_response.status_code == 200
+
+        owner_status = client.post(
+            "/v1/identity/healthcare-access-request/status",
+            json={"line_id_token": "stub:U_REQUESTER_OWNER"},
+        )
+        assert owner_status.status_code == 200
+        assert owner_status.json()["status"] == "pending"
+
+        other_status = client.post(
+            "/v1/identity/healthcare-access-request/status",
+            json={"line_id_token": "stub:U_REQUESTER_OTHER"},
+        )
+        assert other_status.status_code == 200
+        assert other_status.json()["status"] == "none"

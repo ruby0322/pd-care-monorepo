@@ -79,11 +79,9 @@ export default function AdminLoginPage() {
     setSuccessMessage(null);
     setIsRequestingAccess(true);
     try {
-      const { profile } = await getLiffLoginProof();
+      const { idToken } = await getLiffLoginProof();
       const result = await createHealthcareAccessRequest({
-        line_user_id: profile.userId,
-        display_name: profile.displayName,
-        picture_url: profile.pictureUrl ?? null,
+        line_id_token: idToken,
       });
       if (result.status === "pending") {
         setSuccessMessage("已送出「我是醫護人員」權限申請，請等待管理員審核。");

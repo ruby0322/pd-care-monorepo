@@ -4,11 +4,13 @@ from pydantic import BaseModel, Field
 
 
 class BindIdentityRequest(BaseModel):
-    line_user_id: str = Field(min_length=1, max_length=128)
-    display_name: str | None = Field(default=None, max_length=255)
-    picture_url: str | None = Field(default=None, max_length=1024)
+    line_id_token: str = Field(min_length=1, max_length=4096)
     case_number: str = Field(min_length=1, max_length=64)
     birth_date: str = Field(min_length=1, max_length=16)
+
+
+class IdentityStatusRequest(BaseModel):
+    line_id_token: str = Field(min_length=1, max_length=4096)
 
 
 class IdentityBindResponse(BaseModel):

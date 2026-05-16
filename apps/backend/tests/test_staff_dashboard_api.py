@@ -487,9 +487,7 @@ def test_precreated_patient_can_match_identity_without_review(tmp_path: Path) ->
         bind_response = client.post(
             "/v1/identity/bind",
             json={
-                "line_user_id": "U_PRECREATE_MATCH",
-                "display_name": "Line User",
-                "picture_url": "https://example.com/match.jpg",
+                "line_id_token": "stub:U_PRECREATE_MATCH",
                 "case_number": "PRE004",
                 "birth_date": "1988-08-08",
             },

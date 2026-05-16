@@ -19,9 +19,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type LiffProfileState = {
-  userId: string;
   displayName: string;
-  pictureUrl: string | null;
 };
 
 type LoginResponse = {
@@ -78,12 +76,10 @@ export default function PatientPage() {
           return;
         }
         const profileState: LiffProfileState = {
-          userId: liffProfile.userId,
           displayName: liffProfile.displayName,
-          pictureUrl: liffProfile.pictureUrl ?? null,
         };
         setProfile(profileState);
-        const bindStatus = await fetchIdentityStatus(profileState.userId);
+        const bindStatus = await fetchIdentityStatus(proof.idToken);
         if (!cancelled) {
           setStatus(bindStatus.status);
         }
@@ -193,9 +189,7 @@ export default function PatientPage() {
       setSubmitting(true);
       setError(null);
       const result = await bindIdentity({
-        line_user_id: profile.userId,
-        display_name: profile.displayName,
-        picture_url: profile.pictureUrl,
+        line_id_token: (await getLiffLoginProof()).idToken,
         case_number: caseNumber.trim(),
         birth_date: birthDate,
       });
