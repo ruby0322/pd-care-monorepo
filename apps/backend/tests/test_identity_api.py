@@ -42,6 +42,7 @@ def make_settings(db_path: Path) -> Settings:
         s3_bucket_name="pd-care-private",
         image_access_token_secret="test-secret",
         image_access_token_ttl_seconds=300,
+        line_verify_mode="stub",
     )
 
 
@@ -63,9 +64,7 @@ def test_bind_identity_matches_existing_patient(tmp_path: Path) -> None:
         response = client.post(
             "/v1/identity/bind",
             json={
-                "line_user_id": "U_LINE_001",
-                "display_name": "Patient A",
-                "picture_url": "https://example.com/a.jpg",
+                "line_id_token": "stub:U_LINE_001",
                 "case_number": "P123456",
                 "birth_date": "1980-01-02",
             },
@@ -85,9 +84,7 @@ def test_bind_identity_creates_pending_request_when_no_match(tmp_path: Path) -> 
         response = client.post(
             "/v1/identity/bind",
             json={
-                "line_user_id": "U_LINE_002",
-                "display_name": "Patient B",
-                "picture_url": "https://example.com/b.jpg",
+                "line_id_token": "stub:U_LINE_002",
                 "case_number": "P999999",
                 "birth_date": "1970-05-08",
             },
@@ -99,7 +96,10 @@ def test_bind_identity_creates_pending_request_when_no_match(tmp_path: Path) -> 
         assert payload["patient_id"] is None
         assert payload["can_upload"] is False
 
-        status_response = client.get("/v1/identity/bind/status", params={"line_user_id": "U_LINE_002"})
+        status_response = client.post(
+            "/v1/identity/bind/status",
+            json={"line_id_token": "stub:U_LINE_002"},
+        )
         assert status_response.status_code == 200
         status_payload = status_response.json()
         assert status_payload["status"] == "pending"
@@ -114,9 +114,7 @@ def test_already_bound_user_stays_matched_on_later_bind_attempt(tmp_path: Path) 
         first = client.post(
             "/v1/identity/bind",
             json={
-                "line_user_id": "U_LINE_003",
-                "display_name": "Patient C",
-                "picture_url": "https://example.com/c.jpg",
+                "line_id_token": "stub:U_LINE_003",
                 "case_number": "P123456",
                 "birth_date": "1980-01-02",
             },
@@ -128,9 +126,7 @@ def test_already_bound_user_stays_matched_on_later_bind_attempt(tmp_path: Path) 
         second = client.post(
             "/v1/identity/bind",
             json={
-                "line_user_id": "U_LINE_003",
-                "display_name": "Patient C",
-                "picture_url": "https://example.com/c.jpg",
+                "line_id_token": "stub:U_LINE_003",
                 "case_number": "P-NON-EXIST",
                 "birth_date": "1999-09-09",
             },
@@ -140,7 +136,10 @@ def test_already_bound_user_stays_matched_on_later_bind_attempt(tmp_path: Path) 
         assert second.json()["patient_id"] == patient_id
         assert second.json()["can_upload"] is True
 
-        status_response = client.get("/v1/identity/bind/status", params={"line_user_id": "U_LINE_003"})
+        status_response = client.post(
+            "/v1/identity/bind/status",
+            json={"line_id_token": "stub:U_LINE_003"},
+        )
         assert status_response.status_code == 200
         assert status_response.json()["status"] == "matched"
         assert status_response.json()["patient_id"] == patient_id
@@ -153,9 +152,7 @@ def test_pending_binding_is_resolved_after_successful_match(tmp_path: Path) -> N
         pending = client.post(
             "/v1/identity/bind",
             json={
-                "line_user_id": "U_LINE_004",
-                "display_name": "Patient D",
-                "picture_url": "https://example.com/d.jpg",
+                "line_id_token": "stub:U_LINE_004",
                 "case_number": "P-NOT-YET",
                 "birth_date": "1977-07-07",
             },
@@ -167,9 +164,7 @@ def test_pending_binding_is_resolved_after_successful_match(tmp_path: Path) -> N
         matched = client.post(
             "/v1/identity/bind",
             json={
-                "line_user_id": "U_LINE_004",
-                "display_name": "Patient D",
-                "picture_url": "https://example.com/d.jpg",
+                "line_id_token": "stub:U_LINE_004",
                 "case_number": "P777777",
                 "birth_date": "1977-07-07",
             },
@@ -184,6 +179,17 @@ def test_pending_binding_is_resolved_after_successful_match(tmp_path: Path) -> N
             assert pending_rows
             assert all(row.status == "approved" for row in pending_rows)
 
-        status_response = client.get("/v1/identity/bind/status", params={"line_user_id": "U_LINE_004"})
+        status_response = client.post(
+            "/v1/identity/bind/status",
+            json={"line_id_token": "stub:U_LINE_004"},
+        )
         assert status_response.status_code == 200
         assert status_response.json()["status"] == "matched"
+
+
+def test_bind_status_rejects_invalid_line_token(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "invalid-token.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        response = client.post("/v1/identity/bind/status", json={"line_id_token": "not-a-stub-token"})
+        assert response.status_code == 400

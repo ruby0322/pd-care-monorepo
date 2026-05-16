@@ -11,9 +11,11 @@ AccessRequestStatus = Literal["pending", "approved", "rejected"]
 
 
 class HealthcarePermissionRequestCreateRequest(BaseModel):
-    line_user_id: str = Field(min_length=1, max_length=128)
-    display_name: str | None = Field(default=None, max_length=255)
-    picture_url: str | None = Field(default=None, max_length=1024)
+    line_id_token: str = Field(min_length=1, max_length=4096)
+
+
+class HealthcarePermissionRequestStatusRequest(BaseModel):
+    line_id_token: str = Field(min_length=1, max_length=4096)
 
 
 class HealthcarePermissionRequestCreateResponse(BaseModel):

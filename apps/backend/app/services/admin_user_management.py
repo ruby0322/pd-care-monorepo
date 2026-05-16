@@ -6,6 +6,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AuthorizationAuditEvent, HealthcareAccessRequest, LiffIdentity
+from app.services.identity_validation import assert_valid_line_user_id
 
 
 def create_or_replace_healthcare_permission_request(
@@ -15,6 +16,7 @@ def create_or_replace_healthcare_permission_request(
     display_name: str | None,
     picture_url: str | None,
 ) -> HealthcareAccessRequest:
+    line_user_id = assert_valid_line_user_id(line_user_id)
     identity = session.execute(
         select(LiffIdentity).where(LiffIdentity.line_user_id == line_user_id)
     ).scalar_one_or_none()
@@ -24,7 +26,7 @@ def create_or_replace_healthcare_permission_request(
             display_name=display_name,
             picture_url=picture_url,
             role="patient",
-            is_active=True,
+            is_active=False,
         )
         session.add(identity)
         session.flush()
@@ -59,6 +61,7 @@ def get_latest_healthcare_permission_request_status(
     *,
     line_user_id: str,
 ) -> HealthcareAccessRequest | None:
+    line_user_id = assert_valid_line_user_id(line_user_id)
     identity = session.execute(
         select(LiffIdentity).where(LiffIdentity.line_user_id == line_user_id)
     ).scalar_one_or_none()

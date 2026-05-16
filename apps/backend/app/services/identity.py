@@ -6,6 +6,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.db.models import LiffIdentity, Patient, PendingBinding
+from app.services.identity_validation import assert_valid_line_user_id
 
 
 def _select_active_patient(case_number: str, birth_date: str) -> Select[tuple[Patient]]:
@@ -25,6 +26,7 @@ def bind_identity(
     case_number: str,
     birth_date: str,
 ) -> tuple[str, int | None, bool]:
+    line_user_id = assert_valid_line_user_id(line_user_id)
     patient_matches = session.execute(_select_active_patient(case_number, birth_date)).scalars().all()
     patient = patient_matches[0] if len(patient_matches) == 1 else None
 
@@ -38,6 +40,8 @@ def bind_identity(
             display_name=display_name,
             picture_url=picture_url,
             patient_id=None,
+            role="patient",
+            is_active=False,
         )
         session.add(identity)
     else:
@@ -47,17 +51,24 @@ def bind_identity(
     # Once a LINE user is bound to a patient, do not downgrade it back to pending.
     # This keeps access stable across repeated login/bind attempts.
     if identity.patient_id is not None:
-        _resolve_pending_bindings(session, line_user_id=line_user_id)
-        session.commit()
-        return ("matched", identity.patient_id, True)
+        active_patient = session.get(Patient, identity.patient_id)
+        if active_patient is not None and active_patient.is_active:
+            identity.is_active = True
+            _resolve_pending_bindings(session, line_user_id=line_user_id)
+            session.commit()
+            return ("matched", identity.patient_id, True)
+        identity.patient_id = None
 
     if patient is not None:
         identity.patient_id = patient.id
+        identity.is_active = True
         _resolve_pending_bindings(session, line_user_id=line_user_id)
         session.commit()
         return ("matched", patient.id, True)
 
     identity.patient_id = None
+    if identity.role == "patient":
+        identity.is_active = False
     _replace_existing_pending_bindings(session, line_user_id=line_user_id)
     session.add(
         PendingBinding(
@@ -94,11 +105,18 @@ def _replace_existing_pending_bindings(session: Session, *, line_user_id: str) -
 
 
 def get_identity_status(session: Session, *, line_user_id: str) -> tuple[str, int | None, bool]:
+    line_user_id = assert_valid_line_user_id(line_user_id)
     identity = session.execute(
         select(LiffIdentity).where(LiffIdentity.line_user_id == line_user_id)
     ).scalar_one_or_none()
     if identity and identity.patient_id is not None:
-        return ("matched", identity.patient_id, True)
+        patient = session.get(Patient, identity.patient_id)
+        if patient is not None and patient.is_active:
+            return ("matched", identity.patient_id, True)
+        identity.patient_id = None
+        if identity.role == "patient":
+            identity.is_active = False
+        session.commit()
 
     has_pending = session.execute(
         select(PendingBinding.id).where(
@@ -124,6 +142,7 @@ class IdentityProfile:
 
 
 def get_identity_profile(session: Session, *, line_user_id: str) -> IdentityProfile:
+    line_user_id = assert_valid_line_user_id(line_user_id)
     identity = session.execute(
         select(LiffIdentity).where(LiffIdentity.line_user_id == line_user_id)
     ).scalar_one_or_none()
