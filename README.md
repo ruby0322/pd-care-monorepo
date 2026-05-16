@@ -110,6 +110,15 @@ npm run docker:up
 npm run docker:down
 ```
 
+### Git Hooks (Husky)
+
+After `npm install` at the repository root, Husky installs Git hooks automatically.
+
+- `pre-commit` runs `npm run lint`
+- `pre-push` runs `npm run lint`
+
+If you need to bypass hooks for an emergency commit or push, use `--no-verify`.
+
 ### Repository Layout
 
 ```text
