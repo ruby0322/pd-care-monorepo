@@ -183,6 +183,12 @@ def _seed_admin_analytics_data(client: TestClient) -> None:
                 created_at=now - timedelta(hours=2),
             ),
             Upload(
+                patient_id=patient_female.id,
+                object_key="patients/a1002/uploads/today-rejected.jpg",
+                content_type="image/jpeg",
+                created_at=now - timedelta(minutes=30),
+            ),
+            Upload(
                 patient_id=patient_male.id,
                 object_key="patients/a1001/uploads/day-3.jpg",
                 content_type="image/jpeg",
@@ -201,8 +207,9 @@ def _seed_admin_analytics_data(client: TestClient) -> None:
             [
                 AIResult(upload_id=uploads[0].id, screening_result="suspected", probability=0.88, threshold=0.5),
                 AIResult(upload_id=uploads[1].id, screening_result="normal", probability=0.12, threshold=0.5),
-                AIResult(upload_id=uploads[2].id, screening_result="suspected", probability=0.84, threshold=0.5),
-                AIResult(upload_id=uploads[3].id, screening_result="normal", probability=0.25, threshold=0.5),
+                AIResult(upload_id=uploads[2].id, screening_result="rejected", probability=0.0, threshold=0.5),
+                AIResult(upload_id=uploads[3].id, screening_result="suspected", probability=0.84, threshold=0.5),
+                AIResult(upload_id=uploads[4].id, screening_result="normal", probability=0.25, threshold=0.5),
             ]
         )
         session.commit()
@@ -874,6 +881,11 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         daily_payload = daily_response.json()
         assert daily_payload["lookback_days"] == 30
         assert len(daily_payload["items"]) == 30
+        today_key = datetime.now(tz=timezone.utc).date().isoformat()
+        today_item = next(item for item in daily_payload["items"] if item["date"] == today_key)
+        assert today_item["total_uploads"] == 2
+        assert today_item["suspected_uploads"] == 1
+        assert today_item["suspected_ratio"] == 0.5
         assert any(item["total_uploads"] == 0 and item["suspected_ratio"] == 0 for item in daily_payload["items"])
 
 
@@ -887,6 +899,37 @@ def test_staff_is_denied_for_admin_analytics_endpoints(tmp_path: Path) -> None:
 
         response = client.get("/v1/staff/admin/analytics/gender-distribution", headers=headers)
         assert response.status_code == 403
+
+
+def test_staff_patient_list_excludes_rejected_uploads_from_counts(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-rejected-excluded.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-REJECTED-STATS",
+            line_user_id="U_PATIENT_REJECTED_STATS",
+            uploads=[
+                (datetime(2026, 2, 10, 8, 0, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 2, 11, 8, 0, tzinfo=timezone.utc), "rejected"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/v1/staff/patients", headers=headers)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total_uploads"] == 1
+        assert payload["suspected_patients"] == 0
+        assert payload["items"][0]["upload_count"] == 1
+        assert payload["items"][0]["suspected_count"] == 0
+
+        normal_filter = client.get("/v1/staff/patients?infection_status=normal", headers=headers)
+        assert normal_filter.status_code == 200
+        assert [item["case_number"] for item in normal_filter.json()["items"]] == ["P-REJECTED-STATS"]
 
 
 def test_admin_can_assign_patient_to_staff_and_list_assignments(tmp_path: Path) -> None:

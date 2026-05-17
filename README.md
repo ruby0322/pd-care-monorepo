@@ -31,8 +31,8 @@ PD Care is a peritoneal dialysis exit-site imaging and infection alert system. T
   - Single-step image capture with on-screen guidance (lighting, exit-site alignment, catheter-line visibility).
 - **Backend validation and AI pipeline**
   - Preliminary image checks reject low-quality uploads with explicit reasons.
-  - `YOLODetection` stage verifies exit-site and catheter-line targets and supports ROI generation.
-  - `CNNBinaryClassification` stage returns normal vs suspected infection screening output.
+  - **Exit-site presence pre-screen** (optional): CLIP vision encoder + sklearn **linear classifier** (logistic-style probe on frozen embeddings) gates whether an upload is treated as exit-site imagery for screening. Frames that fail the gate are persisted as **rejected** with an explicit reason so random or off-topic photos do not run infection inference. Inference errors on this step **fail open** so screening still proceeds if the probe cannot run.
+  - **CNN multiclass classifier** produces the guided-capture pathology labels used for suspected-infection alerting (distinct from presence pre-screening).
 - **Clinical review workflow**
   - Healthcare staff review upload history, model outputs, rejected reasons, and follow-up status.
   - Filtered/sorted table workflows and export support operational monitoring.
@@ -72,16 +72,19 @@ flowchart LR
 flowchart TD
     patientApp[PatientFrontendLIFF] --> apiBackend[BackendAPI]
     apiBackend --> precheck[ImagePrecheck]
-    precheck --> yoloDetect[YOLODetection]
-    yoloDetect --> cnnClassify[CNNBinaryClassification]
-    cnnClassify --> reviewPortal[HealthcareReviewPortal]
-    cnnClassify --> lineNotify[LINEAlert]
+    precheck --> presenceGate["Exit-site presence gate (CLIP + linear probe)"]
+    presenceGate -->|accept| infectionScreen[CNN infection-oriented classifier]
+    presenceGate -->|reject| rejectedUpload[Rejected upload record]
+    infectionScreen --> reviewPortal[HealthcareReviewPortal]
+    infectionScreen --> lineNotify[LINEAlert]
     reviewPortal --> dataExport[FilteredDataExport]
 ```
 
+When pre-screen is **disabled**, or inference **throws**, the backend **does not reject** uploads on this gate (fail-open toward infection screening).
+
 ### Component Planning Focus
 
-- `YOLODetection`: CV pre-classification component for target detection and quality gating.
+- **Exit-site presence pre-screen**: CLIP image features + sklearn linear classifier; configurable via `PRESCREEN_*` env (see compose / `apps/backend` config). Separate from pathology classification.
 - `LINEAlert`: downstream notification component triggered by screening outcomes.
 
 <a id="section-3-project-startup"></a>
@@ -194,6 +197,7 @@ Important backend environment variables:
 - `MAX_UPLOAD_MB`: maximum upload size
 - `MODEL_BACKBONE`: fallback backbone for `state_dict` reconstruction
 - `MODEL_ARCH`: fallback architecture when `MODEL_BACKBONE=none`
+- Presence pre-screen (optional): `PRESCREEN_ENABLED`, `PRESCREEN_MODEL_REPO_ID`, `PRESCREEN_MODEL_REVISION`, `PRESCREEN_REJECT_REASON`, `PRESCREEN_MODEL_CACHE_DIR`, plus `HF_TOKEN` when downloading the probe bundle from Hugging Face Hub
 
 ### Docker Compose
 
@@ -247,6 +251,7 @@ Common overrides:
 - `PDCARE_S3_BUCKET_NAME`
 - `PDCARE_IMAGE_ACCESS_TOKEN_SECRET`
 - `PDCARE_IMAGE_ACCESS_TOKEN_TTL_SECONDS`
+- `PDCARE_PRESCREEN_ENABLED`, `PDCARE_PRESCREEN_MODEL_REPO_ID`, `PDCARE_PRESCREEN_MODEL_REVISION`, `PDCARE_PRESCREEN_REJECT_REASON`, `PDCARE_PRESCREEN_MODEL_CACHE_DIR`, `PDCARE_HF_TOKEN` (CLIP+logreg bundle and Hub access)
 
 PostgreSQL persistence/auth note:
 
@@ -340,7 +345,7 @@ Example response shape:
 
 ### Model Notes
 
-The backend is designed around the current production checkpoint and training setup:
+**Infection-oriented classifier (multiclass backbone)** — production screening path:
 
 - 5 output classes: `class_0` through `class_4`
 - `class_4` is the infection-positive class
@@ -348,8 +353,15 @@ The backend is designed around the current production checkpoint and training se
 
 If a future checkpoint is exported as a plain `state_dict`, set `MODEL_BACKBONE` and related fallback environment variables correctly so the service can reconstruct the model before loading weights.
 
+**Exit-site presence pre-screen (CLIP + linear probe)** — optional upload gate:
+
+- Loads a Hugging Face **snapshot** (probe weights + bundle metadata such as CLIP checkpoint id and decision threshold); default repo id is set in `docker-compose.yml` (`ruby0322/pd-exit-site-clip-linear-probe`).
+- At inference time the service embeds each image with **CLIP**, then applies the **sklearn linear probe** scored like logistic regression (`predict_proba` or `decision_function` fallback).
+- Does **not** use a YOLO detector in the deployed patient-upload path for this gate. Separate **YOLO-based detection** experimentation and training live in [`ntuh-pd-exit-site-detection`](https://github.com/ruby0322/ntuh-pd-exit-site-detection) and are not described here as runtime dependencies for presence compliance unless you intentionally wire something else later.
+
 ### Sources
 
-- [Training repository](https://github.com/ruby0322/ntuh-pd-exit-site-classification)
+- [Classification training repository](https://github.com/ruby0322/ntuh-pd-exit-site-classification)
+- [Detection model training repository](https://github.com/ruby0322/ntuh-pd-exit-site-detection)
 - [Model repository](https://huggingface.co/ruby0322/pd-exit-site-classification)
 - [Next.js Documentation](https://nextjs.org/docs)

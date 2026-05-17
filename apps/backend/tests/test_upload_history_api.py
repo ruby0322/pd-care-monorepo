@@ -337,6 +337,51 @@ def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: P
         assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
 
 
+def test_upload_history_excludes_rejected_from_summary_and_daily_counts(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-summary-rejected-excluded.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_SUMMARY_REJECTED")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_SUMMARY_REJECTED")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            now_utc = datetime.now(tz=timezone.utc)
+            upload_suspected = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/summary-suspected.jpg",
+                content_type="image/jpeg",
+                created_at=now_utc - timedelta(minutes=5),
+            )
+            upload_rejected = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/summary-rejected.jpg",
+                content_type="image/jpeg",
+                created_at=now_utc,
+            )
+            session.add_all([upload_suspected, upload_rejected])
+            session.flush()
+            session.add_all(
+                [
+                    AIResult(upload_id=upload_suspected.id, screening_result="suspected"),
+                    AIResult(upload_id=upload_rejected.id, screening_result="rejected"),
+                ]
+            )
+            session.commit()
+
+        response = client.get(
+            "/v1/patient/upload-history",
+            params={"line_user_id": "U_LINE_SUMMARY_REJECTED"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert len(payload["days"]) == 1
+        assert payload["days"][0]["upload_count"] == 1
+        assert payload["days"][0]["has_suspected_risk"] is True
+        assert payload["summary_28d"]["all_upload_count_28d"] == 1
+        assert payload["summary_28d"]["suspected_upload_count_28d"] == 1
+
+
 def test_patient_uploads_by_day_returns_day_scoped_records(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "history-by-day.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
