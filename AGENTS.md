@@ -15,3 +15,27 @@ Reduce wasted development time by avoiding long, repeated test runs during imple
 - Forbidden during coding loop: `npm test`, `pytest`, `go test ./...` without user request.
 - Allowed near integration step: run project test suite once as part of pre-commit/pre-push verification.
 
+## Cursor Cloud specific instructions
+
+### Services overview
+
+| Service | How to run | Port |
+|---------|-----------|------|
+| Frontend (Next.js) | `npm run dev:frontend` from repo root | 3000 |
+| Backend (FastAPI) | `npm run dev:backend` from repo root | 8000 |
+| PostgreSQL | `docker compose up -d postgres` | 5432 |
+| SeaweedFS (S3) | `docker compose up -d seaweedfs-master seaweedfs-volume seaweedfs-filer seaweedfs-s3` | 8333 |
+
+All standard commands are in root `package.json`: `npm run dev`, `npm run lint`, `npm run test`, `npm run build`.
+
+### Key caveats
+
+- **Docker required**: Postgres and SeaweedFS run via `docker compose`. Start the daemon with `sudo dockerd &` if not running, then `docker compose up -d postgres seaweedfs-master seaweedfs-volume seaweedfs-filer seaweedfs-s3`.
+- **Backend `.env`**: Copy `apps/backend/.env.example` to `apps/backend/.env` and change hostnames from container names to `localhost` (e.g. `postgres` → `localhost`, `seaweedfs-s3` → `localhost`).
+- **MODEL_BACKBONE**: Must be set to `mobilenet_v3_large` for the production checkpoint (`model_e41_production_best.pt`).
+- **MODEL_URL**: The correct HuggingFace URL is `https://huggingface.co/ruby0322/pd-exit-site-classification/resolve/main/model_e41_production_best.pt`.
+- **Postgres password sync**: If Docker volumes already exist from a prior session, the password set in compose won't override. Reset with: `docker exec <postgres-container> psql -U postgres -c "ALTER USER postgres WITH PASSWORD 'pdcare-local-dev-change-me';"`.
+- **CPU-only PyTorch**: For Cloud Agent VMs without GPU, install torch/torchvision from the CPU index (`--extra-index-url https://download.pytorch.org/whl/cpu`) and set `DEVICE=cpu` in `.env`.
+- **Pre-commit/pre-push hooks**: Both run `npm run lint` (ESLint on frontend). Use `--no-verify` to bypass.
+- **Frontend builds fine standalone**: `npm run build` compiles the Next.js app without needing a running backend.
+
