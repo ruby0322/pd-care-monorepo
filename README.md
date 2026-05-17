@@ -216,6 +216,17 @@ The root `docker-compose.yml` starts:
 - `postgres` on `127.0.0.1:5432` by default (override bind/port with `PDCARE_POSTGRES_PORT_BIND`)
 - SeaweedFS S3 on `http://localhost:8333`
 
+PostgreSQL network access modes:
+
+- **Local-only mode (default, recommended):**
+  - `PDCARE_POSTGRES_PORT_BIND=127.0.0.1:5432`
+  - Keep `PDCARE_POSTGRES_HBA_FILE` unset (Postgres uses data-directory default `pg_hba.conf`).
+- **Controlled remote mode (exception only):**
+  - Set an explicit host bind like `PDCARE_POSTGRES_PORT_BIND=0.0.0.0:5432`
+  - Set `PDCARE_POSTGRES_HBA_FILE=/etc/pd-care/postgres/pg_hba.remote.conf`
+  - Require host/cloud firewall allowlists before exposing `5432`
+  - Validate exposure after startup (`docker ps --format '{{.Names}} {{.Ports}}' | awk '/postgres/'` and `./ops/security/postgres_audit.sh`)
+
 Bring the full stack up with:
 
 ```bash
@@ -252,6 +263,7 @@ Common overrides:
 - `PDCARE_POSTGRES_PASSWORD` (set in project root `.env`; keep this synchronized with `PDCARE_DATABASE_URL`)
 - `PDCARE_DATABASE_URL`
 - `PDCARE_POSTGRES_PORT_BIND` (defaults to `127.0.0.1:5432`; set `0.0.0.0:5432` only if you explicitly need remote DB access)
+- `PDCARE_POSTGRES_HBA_FILE` (optional; defaults to in-data-dir `pg_hba.conf`, set to `/etc/pd-care/postgres/pg_hba.remote.conf` for controlled remote mode)
 - `PDCARE_S3_ENDPOINT_URL`
 - `PDCARE_S3_REGION`
 - `PDCARE_S3_ACCESS_KEY`

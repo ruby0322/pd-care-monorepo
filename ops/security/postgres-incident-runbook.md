@@ -21,7 +21,10 @@ This runbook standardizes the four operational phases:
 
 1. Ensure PostgreSQL is not publicly exposed (`127.0.0.1:5432` bind default).
 2. Confirm no unknown direct DB clients should connect from public networks.
-3. If emergency containment is needed, stop backend write traffic before schema-level cleanup.
+3. If non-local bind is required for operations, enforce both controls before reopening access:
+   - host/cloud firewall allowlist for trusted source IPs only
+   - `PDCARE_POSTGRES_HBA_FILE=/etc/pd-care/postgres/pg_hba.remote.conf`
+4. If emergency containment is needed, stop backend write traffic before schema-level cleanup.
 
 ## 3) Credential Rotation + Cleanup
 
@@ -45,13 +48,19 @@ docker compose up -d postgres backend
 docker ps --format 'table {{.Names}}\t{{.Status}}'
 ```
 
-2. Security baseline check:
+2. Port exposure check:
+
+```bash
+docker ps --format '{{.Names}} {{.Ports}}' | awk '/postgres/'
+```
+
+3. Security baseline check:
 
 ```bash
 ./ops/security/postgres_audit.sh
 ```
 
-3. Backend DB connectivity check:
+4. Backend DB connectivity check:
 
 ```bash
 set -a && . ./.env && set +a
@@ -64,3 +73,4 @@ docker run --rm --network pd-care_default -e PGPASSWORD="$PDCARE_POSTGRES_PASSWO
 - Run `./ops/security/postgres_audit.sh` weekly.
 - Keep DB credentials out of source control and rotate on incident or credential leakage suspicion.
 - Re-run `collect_forensics.sh` on every suspicious event before cleanup.
+- Keep default local-only bind (`PDCARE_POSTGRES_PORT_BIND=127.0.0.1:5432`) unless remote access is explicitly required.
