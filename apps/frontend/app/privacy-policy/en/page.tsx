@@ -11,24 +11,27 @@ export default function PrivacyPolicyEnPage() {
               中文版
             </Link>
           </div>
-          <p className="text-sm text-zinc-500">PD Care Peritoneal Dialysis Exit-Site Monitoring System</p>
+          <p className="text-sm text-zinc-500">PD Care Peritoneal Dialysis Exit-Site Care System</p>
         </header>
 
         <section className="space-y-3 text-sm leading-7 text-zinc-700">
           <p>
-            This system (AI-assisted real-time monitoring of peritoneal dialysis catheter exit wounds) uses artificial intelligence and deep learning technologies to assist peritoneal dialysis (PD) patients with standardized exit-site imaging capture and early risk alerts.
+            This system uses artificial intelligence and deep learning technologies to assist peritoneal dialysis (PD) patients with standardized catheter exit-site imaging capture and early risk alerts.
           </p>
           <p>
-            To support clinical care and review workflows, the system collects and processes necessary data, including LINE identity information, patient matching data, uploaded images, AI analysis outputs, and operation logs, solely for medical care, clinical review, and research analysis at National Taiwan University Hospital.
+            To provide care and image review services, the system collects and processes necessary data, including LINE identity information, medical record matching data, uploaded images, AI analysis results, and operation logs, solely for medical care, clinical review, and research analysis at National Taiwan University Hospital.
           </p>
           <p>
-            All images and related records are stored in protected backend systems with role-based access control and audit mechanisms; only authorized medical staff or administrators may access and process data when required.
+            All images and records are stored in protected backend systems with role-based access control and audit mechanisms; only authorized medical staff or administrators may view and process them within the scope necessary for their duties.
           </p>
           <p>
-            AI outputs are risk prompts only and do not constitute medical diagnosis or treatment advice. Final medical judgment remains the responsibility of qualified healthcare professionals. If you have questions about data usage, retention, or access control, please contact the hospital or system administrators.
+            AI outputs provided by this system are for risk reference only and do not constitute medical diagnosis or treatment advice; final determinations are made by qualified healthcare professionals. If you have questions about data use, retention, or access management, please contact the hospital or the system administration unit.
           </p>
           <p>
             Related patent information: Republic of China (Taiwan) Patent No. M678111, titled Peritoneal Dialysis Intelligent Identification System.
+          </p>
+          <p>
+            Contact: National Taiwan University Hospital Peritoneal Dialysis Center, (02) 2356-2277
           </p>
         </section>
 
