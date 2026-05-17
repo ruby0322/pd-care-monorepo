@@ -114,6 +114,8 @@ def summarize_patient_upload_history(
     latest_annotation_by_upload = _load_latest_annotation_by_upload(session, patient_id=patient_id)
     by_day: dict[date, UploadHistoryDay] = {}
     for upload_id, created_at, screening_result in rows:
+        if screening_result == "rejected":
+            continue
         normalized = _normalize_datetime(created_at)
         day_key = normalized.astimezone(local_timezone).date()
         existing = by_day.get(day_key)
@@ -161,6 +163,8 @@ def summarize_patient_upload_metrics_28d(
     suspected_upload_count_28d = 0
 
     for upload_id, created_at, screening_result in rows:
+        if screening_result == "rejected":
+            continue
         normalized = _normalize_datetime(created_at)
         local_date = normalized.astimezone(local_timezone).date()
         if local_date < window_start or local_date > local_today:

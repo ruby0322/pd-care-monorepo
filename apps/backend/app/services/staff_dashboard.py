@@ -225,6 +225,8 @@ def list_staff_patients(
         lambda: {"upload_count": 0, "suspected_count": 0, "latest_upload_at": None, "latest_upload_status": None}
     )
     for upload, ai_result in uploads:
+        if ai_result.screening_result == "rejected":
+            continue
         metric = metrics[upload.patient_id]
         metric["upload_count"] = int(metric["upload_count"]) + 1
         if ai_result.screening_result == "suspected":
@@ -674,7 +676,11 @@ def get_today_suspected_summary(
         )
         .join(AIResult, AIResult.upload_id == Upload.id)
         .join(Patient, Patient.id == Upload.patient_id)
-        .where(Upload.created_at >= today_start, Upload.created_at < tomorrow_start)
+        .where(
+            Upload.created_at >= today_start,
+            Upload.created_at < tomorrow_start,
+            AIResult.screening_result != "rejected",
+        )
     )
     if accessible_patient_ids is not None:
         if not accessible_patient_ids:
@@ -781,7 +787,7 @@ def get_daily_suspected_series(
         )
         .join(AIResult, AIResult.upload_id == Upload.id)
         .join(Patient, Patient.id == Upload.patient_id)
-        .where(Upload.created_at >= start_dt)
+        .where(Upload.created_at >= start_dt, AIResult.screening_result != "rejected")
         .group_by("day")
         .order_by("day")
     )
