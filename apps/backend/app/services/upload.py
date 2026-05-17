@@ -6,10 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.logging import get_logger
 from app.db.models import AIResult, LiffIdentity, Notification, Upload
 from app.schemas.prediction import PredictionResponse
 from app.services.model_loader import LoadedModel, predict_bytes
+from app.services.prescreen import LoadedPrescreenModel, PrescreenInferenceError, is_exit_site_present
 from app.services.storage import StorageService
+
+LOGGER = get_logger(__name__)
 
 CONTENT_TYPE_TO_EXTENSION = {
     "image/jpeg": "jpg",
@@ -24,7 +28,7 @@ CONTENT_TYPE_TO_EXTENSION = {
 class PersistedUploadResult:
     upload: Upload
     ai_result: AIResult
-    prediction: PredictionResponse
+    prediction: PredictionResponse | None
     notification: Notification | None
 
 
@@ -51,14 +55,32 @@ def persist_patient_upload(
     *,
     settings: Settings,
     loaded_model: LoadedModel,
+    loaded_prescreen_model: LoadedPrescreenModel | None,
     storage_service: StorageService,
     patient_id: int,
     content_type: str,
     filename: str | None,
     image_bytes: bytes,
 ) -> PersistedUploadResult:
-    prediction = predict_bytes(loaded_model, image_bytes, settings)
-    screening_result = "suspected" if prediction.screening.is_infection_positive else "normal"
+    prediction: PredictionResponse | None = None
+    error_reason: str | None = None
+    screening_result = "technical_error"
+
+    should_run_infection_inference = True
+    if settings.prescreen_enabled and loaded_prescreen_model is not None:
+        try:
+            should_run_infection_inference = is_exit_site_present(loaded_prescreen_model, image_bytes)
+        except PrescreenInferenceError:
+            LOGGER.exception("Pre-screen inference failed; continuing with fail-open policy")
+            should_run_infection_inference = True
+
+    if should_run_infection_inference:
+        prediction = predict_bytes(loaded_model, image_bytes, settings)
+        screening_result = "suspected" if prediction.screening.is_infection_positive else "normal"
+    elif settings.prescreen_enabled:
+        screening_result = "rejected"
+        error_reason = settings.prescreen_reject_reason
+
     model_version = settings.model_path.name if settings.model_path else None
     extension = resolve_file_extension(content_type, filename)
 
@@ -81,18 +103,18 @@ def persist_patient_upload(
 
         ai_result = AIResult(
             upload_id=upload.id,
-            predicted_class=prediction.predicted_class_name,
-            probability=prediction.predicted_probability,
-            threshold=prediction.screening.threshold,
+            predicted_class=prediction.predicted_class_name if prediction else None,
+            probability=prediction.predicted_probability if prediction else None,
+            threshold=prediction.screening.threshold if prediction else None,
             screening_result=screening_result,
             model_version=model_version,
-            error_reason=None,
+            error_reason=error_reason,
         )
         session.add(ai_result)
         session.flush()
 
         notification: Notification | None = None
-        if screening_result == "suspected":
+        if screening_result == "suspected" and prediction is not None:
             notification = Notification(
                 patient_id=patient_id,
                 upload_id=upload.id,

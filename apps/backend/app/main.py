@@ -17,6 +17,7 @@ from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging, get_logger
 from app.db.init_db import initialize_database
 from app.services.model_loader import LoadedModel, load_model
+from app.services.prescreen import LoadedPrescreenModel, PrescreenLoadError, load_prescreen_model
 from app.services.storage import StorageService, build_storage_client
 
 
@@ -53,6 +54,7 @@ OPENAPI_TAGS = [
 def create_app(
     settings: Settings | None = None,
     loaded_model: LoadedModel | None = None,
+    loaded_prescreen_model: LoadedPrescreenModel | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -89,6 +91,18 @@ def create_app(
             LOGGER.info("Loading model at startup")
             app.state.loaded_model = load_model(settings)
             LOGGER.info("Model loaded on device %s", app.state.loaded_model.device)
+
+        if loaded_prescreen_model is not None:
+            app.state.loaded_prescreen_model = loaded_prescreen_model
+        elif settings.prescreen_enabled:
+            try:
+                app.state.loaded_prescreen_model = load_prescreen_model(settings)
+                LOGGER.info("Pre-screen model loaded at startup")
+            except PrescreenLoadError:
+                LOGGER.exception("Failed to load pre-screen model; continuing with fail-open policy")
+                app.state.loaded_prescreen_model = None
+        else:
+            app.state.loaded_prescreen_model = None
         yield
 
     app = FastAPI(
@@ -106,6 +120,7 @@ def create_app(
     )
     app.state.settings = settings
     app.state.loaded_model = loaded_model
+    app.state.loaded_prescreen_model = loaded_prescreen_model
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_allowed_origins),

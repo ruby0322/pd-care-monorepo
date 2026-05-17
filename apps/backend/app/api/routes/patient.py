@@ -26,6 +26,7 @@ from app.schemas.upload import PatientUploadResponse, PatientUploadResultRespons
 from app.services.auth.token_service import AuthPrincipal
 from app.services.identity import get_identity_profile, get_identity_status
 from app.services.model_loader import LoadedModel
+from app.services.prescreen import LoadedPrescreenModel
 from app.services.storage import StorageService
 from app.services.upload import get_patient_result_for_line_user, persist_patient_upload
 from app.services.upload_history import (
@@ -60,6 +61,10 @@ def _get_storage_service(request: Request) -> StorageService:
     if storage_service is None:
         raise HTTPException(status_code=503, detail="Storage is not initialized")
     return storage_service
+
+
+def _get_loaded_prescreen_model(request: Request) -> LoadedPrescreenModel | None:
+    return getattr(request.app.state, "loaded_prescreen_model", None)
 
 
 def _resolve_patient_line_user_id(
@@ -443,6 +448,7 @@ async def upload_patient_image(
     )
     settings = request.app.state.settings
     loaded_model = _get_loaded_model(request)
+    loaded_prescreen_model = _get_loaded_prescreen_model(request)
     storage_service = _get_storage_service(request)
 
     content_type = (file.content_type or "").lower()
@@ -475,6 +481,7 @@ async def upload_patient_image(
             session,
             settings=settings,
             loaded_model=loaded_model,
+            loaded_prescreen_model=loaded_prescreen_model,
             storage_service=storage_service,
             patient_id=patient_id,
             content_type=content_type,

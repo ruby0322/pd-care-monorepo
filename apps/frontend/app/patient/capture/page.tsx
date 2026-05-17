@@ -224,17 +224,19 @@ function CapturePageInner() {
       const file = await dataUrlToJpegFile(capturedImage);
       const payload = await uploadPatientExitSiteImage(file);
       const result = payload.screening_result;
-      const confidence = Math.round(payload.prediction.predicted_probability * 100);
 
       const params = new URLSearchParams({
         pain: searchParams.get("pain") ?? "false",
         discharge: searchParams.get("discharge") ?? "false",
         cloudyDialysate: searchParams.get("cloudyDialysate") ?? "false",
         result,
-        confidence: String(confidence),
         uploadId: String(payload.upload_id),
         aiResultId: String(payload.ai_result_id),
       });
+      if (payload.prediction?.predicted_probability !== undefined) {
+        const confidence = Math.round(payload.prediction.predicted_probability * 100);
+        params.set("confidence", String(confidence));
+      }
       router.push(`/patient/result?${params.toString()}`);
     } catch (error) {
       const detail = getApiErrorDetail(error);
