@@ -42,7 +42,7 @@ function getMessageLabelDotClass(label: string): string {
   return "bg-emerald-500";
 }
 
-const PATIENT_FEEDBACK_FORM_URL = "https://forms.gle/7N32JRbgcYPbD1R39";
+const PATIENT_FEEDBACK_FORM_URL = "https://forms.gle/gcmw6nPBCuhQ1bHn8";
 
 export default function PatientPage() {
   const router = useRouter();
