@@ -36,6 +36,7 @@ All standard commands are in root `package.json`: `npm run dev`, `npm run lint`,
 - **MODEL_URL**: The correct HuggingFace URL is `https://huggingface.co/ruby0322/pd-exit-site-classification/resolve/main/model_e41_production_best.pt`.
 - **Postgres password sync**: If Docker volumes already exist from a prior session, the password set in compose won't override. Reset with: `docker exec <postgres-container> psql -U postgres -c "ALTER USER postgres WITH PASSWORD 'pdcare-local-dev-change-me';"`.
 - **CPU-only PyTorch**: For Cloud Agent VMs without GPU, install torch/torchvision from the CPU index (`--extra-index-url https://download.pytorch.org/whl/cpu`) and set `DEVICE=cpu` in `.env`.
+- **NEXT_PUBLIC_LIFF_ID**: Set to `1657724367-uzPg8SgK` when running the frontend locally (pass as env var or add to `apps/frontend/.env.local`).
 - **Pre-commit/pre-push hooks**: Both run `npm run lint` (ESLint on frontend). Use `--no-verify` to bypass.
 - **Frontend builds fine standalone**: `npm run build` compiles the Next.js app without needing a running backend.
 
