@@ -42,6 +42,8 @@ function getMessageLabelDotClass(label: string): string {
   return "bg-emerald-500";
 }
 
+const PATIENT_FEEDBACK_FORM_URL = "https://forms.gle/7N32JRbgcYPbD1R39";
+
 export default function PatientPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<LiffProfileState | null>(null);
@@ -291,6 +293,17 @@ export default function PatientPage() {
               </Link>
             </div>
           ) : null}
+
+          <div className="mt-6 flex justify-center pb-2">
+            <a
+              href={PATIENT_FEEDBACK_FORM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-zinc-400 underline underline-offset-4"
+            >
+              填寫意見回饋
+            </a>
+          </div>
         </div>
 
         <div className="pt-4">
