@@ -19,4 +19,12 @@ async def readyz(request: Request) -> ReadyResponse:
     loaded: LoadedModel | None = getattr(request.app.state, "loaded_model", None)
     if loaded is None:
         raise HTTPException(status_code=503, detail="Model is not loaded")
-    return ReadyResponse(status="ready", model_loaded=True, device=str(loaded.device))
+    settings = request.app.state.settings
+    loaded_prescreen_model = getattr(request.app.state, "loaded_prescreen_model", None)
+    return ReadyResponse(
+        status="ready",
+        model_loaded=True,
+        device=str(loaded.device),
+        prescreen_enabled=bool(settings.prescreen_enabled),
+        prescreen_model_loaded=loaded_prescreen_model is not None,
+    )
