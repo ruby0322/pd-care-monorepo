@@ -37,6 +37,8 @@ All standard commands are in root `package.json`: `npm run dev`, `npm run lint`,
 - **Postgres password sync**: If Docker volumes already exist from a prior session, the password set in compose won't override. Reset with: `docker exec <postgres-container> psql -U postgres -c "ALTER USER postgres WITH PASSWORD 'pdcare-local-dev-change-me';"`.
 - **CPU-only PyTorch**: For Cloud Agent VMs without GPU, install torch/torchvision from the CPU index (`--extra-index-url https://download.pytorch.org/whl/cpu`) and set `DEVICE=cpu` in `.env`.
 - **NEXT_PUBLIC_LIFF_ID**: Set to `1657724367-uzPg8SgK` when running the frontend locally (pass as env var or add to `apps/frontend/.env.local`).
+- **LIFF endpoint URL**: The LIFF app's endpoint is `https://pd.lu.im.ntu.edu.tw/patient`. LINE's OAuth only accepts redirect URIs under that domain. For local dev LINE login, either update the LIFF endpoint URL in LINE Developers Console to your tunnel URL, or access the app from the production domain.
+- **Backend env priority**: When injected secrets exist (e.g. `LINE_CHANNEL_ID`, `PILOT_ADMIN_IDENTITY_IDS`), do NOT set those in `apps/backend/.env` or they will be overridden to empty values. Remove from `.env` any variable that comes from injected secrets.
 - **Pre-commit/pre-push hooks**: Both run `npm run lint` (ESLint on frontend). Use `--no-verify` to bypass.
 - **Frontend builds fine standalone**: `npm run build` compiles the Next.js app without needing a running backend.
 
