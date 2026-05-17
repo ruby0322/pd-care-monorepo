@@ -131,7 +131,17 @@ def _extract_embedding(loaded: LoadedPrescreenModel, image_bytes: bytes) -> np.n
     inputs = {key: value.to(loaded.device) for key, value in inputs.items()}
     with torch.inference_mode():
         raw_feats = loaded.clip_model.get_image_features(**inputs)
-        feats = torch.nn.functional.normalize(raw_feats, p=2, dim=-1)
+        if isinstance(raw_feats, torch.Tensor):
+            feature_tensor = raw_feats
+        elif hasattr(raw_feats, "pooler_output") and isinstance(raw_feats.pooler_output, torch.Tensor):
+            feature_tensor = raw_feats.pooler_output
+        elif hasattr(raw_feats, "last_hidden_state") and isinstance(raw_feats.last_hidden_state, torch.Tensor):
+            feature_tensor = raw_feats.last_hidden_state[:, 0, :]
+        else:
+            raise PrescreenInferenceError(
+                f"Unsupported CLIP feature output type: {type(raw_feats).__name__}"
+            )
+        feats = torch.nn.functional.normalize(feature_tensor, p=2, dim=-1)
     return feats.detach().cpu().numpy()
 
 
@@ -139,10 +149,17 @@ def is_exit_site_present(loaded: LoadedPrescreenModel, image_bytes: bytes) -> bo
     try:
         embedding = _extract_embedding(loaded, image_bytes)
         if hasattr(loaded.linear_probe, "predict_proba"):
-            prob_positive = float(loaded.linear_probe.predict_proba(embedding)[0][1])
+            try:
+                prob_positive = float(loaded.linear_probe.predict_proba(embedding)[0][1])
+            except Exception:
+                # Some sklearn-version-unpickled probes miss internal attrs required by predict_proba.
+                # Fallback to decision_function-based sigmoid keeps runtime behavior available.
+                decision = loaded.linear_probe.decision_function(embedding)
+                prob_positive = float(1.0 / (1.0 + np.exp(-decision[0])))
         else:
             decision = loaded.linear_probe.decision_function(embedding)
             prob_positive = float(1.0 / (1.0 + np.exp(-decision[0])))
-        return prob_positive >= loaded.threshold
+        decision_positive = prob_positive >= loaded.threshold
+        return decision_positive
     except Exception as exc:
         raise PrescreenInferenceError(f"Pre-screen inference failed: {exc}") from exc
