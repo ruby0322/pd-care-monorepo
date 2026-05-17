@@ -94,15 +94,19 @@ def create_app(
 
         if loaded_prescreen_model is not None:
             app.state.loaded_prescreen_model = loaded_prescreen_model
+            LOGGER.info("Pre-screen status: enabled=%s loaded=%s (injected)", settings.prescreen_enabled, True)
         elif settings.prescreen_enabled:
             try:
                 app.state.loaded_prescreen_model = load_prescreen_model(settings)
                 LOGGER.info("Pre-screen model loaded at startup")
+                LOGGER.info("Pre-screen status: enabled=%s loaded=%s", True, True)
             except PrescreenLoadError:
                 LOGGER.exception("Failed to load pre-screen model; continuing with fail-open policy")
                 app.state.loaded_prescreen_model = None
+                LOGGER.warning("Pre-screen status: enabled=%s loaded=%s (fail-open active)", True, False)
         else:
             app.state.loaded_prescreen_model = None
+            LOGGER.warning("Pre-screen status: enabled=%s loaded=%s (gate bypassed)", False, False)
         yield
 
     app = FastAPI(
