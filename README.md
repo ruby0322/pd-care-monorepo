@@ -2,6 +2,14 @@
 
 PD Care is a peritoneal dialysis exit-site imaging and infection alert system. This repository contains the patient-facing frontend, backend API/inference services, PostgreSQL metadata storage, and SeaweedFS object-storage services that together power guided capture, AI screening, clinical review, and alert workflows.
 
+## Related Repositories
+
+- [Classification training repository](https://github.com/ruby0322/ntuh-pd-exit-site-classification)
+- [Detection model training repository](https://github.com/ruby0322/ntuh-pd-exit-site-detection)
+- [Classification model repository](https://huggingface.co/ruby0322/pd-exit-site-classification)
+- [Detection model repository](https://huggingface.co/ruby0322/pd-exit-site-clip-linear-probe)
+
+
 ## Table of Contents
 
 - [1) Functions / Features](#section-1-functions-features)
@@ -358,10 +366,3 @@ If a future checkpoint is exported as a plain `state_dict`, set `MODEL_BACKBONE`
 - Loads a Hugging Face **snapshot** (probe weights + bundle metadata such as CLIP checkpoint id and decision threshold); default repo id is set in `docker-compose.yml` (`ruby0322/pd-exit-site-clip-linear-probe`).
 - At inference time the service embeds each image with **CLIP**, then applies the **sklearn linear probe** scored like logistic regression (`predict_proba` or `decision_function` fallback).
 - Does **not** use a YOLO detector in the deployed patient-upload path for this gate. Separate **YOLO-based detection** experimentation and training live in [`ntuh-pd-exit-site-detection`](https://github.com/ruby0322/ntuh-pd-exit-site-detection) and are not described here as runtime dependencies for presence compliance unless you intentionally wire something else later.
-
-### Sources
-
-- [Classification training repository](https://github.com/ruby0322/ntuh-pd-exit-site-classification)
-- [Detection model training repository](https://github.com/ruby0322/ntuh-pd-exit-site-detection)
-- [Model repository](https://huggingface.co/ruby0322/pd-exit-site-classification)
-- [Next.js Documentation](https://nextjs.org/docs)
