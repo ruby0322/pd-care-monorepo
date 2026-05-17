@@ -16,7 +16,7 @@ class PatientUploadResponse(BaseModel):
     model_version: str | None
     threshold: float | None
     notification_id: int | None
-    prediction: PredictionResponse
+    prediction: PredictionResponse | None
 
 
 class PatientUploadResultResponse(BaseModel):

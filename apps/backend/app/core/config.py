@@ -89,6 +89,12 @@ class Settings:
     line_channel_id: str = ""
     line_verify_endpoint: str = "https://api.line.me/oauth2/v2.1/verify"
     line_verify_timeout_seconds: float = 5.0
+    prescreen_enabled: bool = False
+    prescreen_model_repo_id: str = ""
+    prescreen_model_revision: str | None = None
+    prescreen_reject_reason: str = "non_exit_site_or_random_photo"
+    prescreen_model_cache_dir: Path | None = None
+    hf_token: str | None = None
 
     @property
     def max_upload_bytes(self) -> int:
@@ -106,6 +112,9 @@ def _default_model_path() -> Path:
 def get_settings() -> Settings:
     model_path = Path(os.getenv("MODEL_PATH", str(_default_model_path())))
     model_cache_dir = Path(os.getenv("MODEL_CACHE_DIR", str(model_path.parent)))
+    prescreen_model_cache_dir = Path(
+        os.getenv("PRESCREEN_MODEL_CACHE_DIR", str(model_cache_dir / "prescreen"))
+    )
 
     return Settings(
         app_name=os.getenv("APP_NAME", "pd-exit-site-inference-api"),
@@ -155,4 +164,13 @@ def get_settings() -> Settings:
         line_channel_id=os.getenv("LINE_CHANNEL_ID", "").strip(),
         line_verify_endpoint=os.getenv("LINE_VERIFY_ENDPOINT", "https://api.line.me/oauth2/v2.1/verify").strip(),
         line_verify_timeout_seconds=_parse_float("LINE_VERIFY_TIMEOUT_SECONDS", 5.0),
+        prescreen_enabled=_parse_bool("PRESCREEN_ENABLED", False),
+        prescreen_model_repo_id=os.getenv("PRESCREEN_MODEL_REPO_ID", "").strip(),
+        prescreen_model_revision=(os.getenv("PRESCREEN_MODEL_REVISION") or "").strip() or None,
+        prescreen_reject_reason=(
+            os.getenv("PRESCREEN_REJECT_REASON", "non_exit_site_or_random_photo").strip()
+            or "non_exit_site_or_random_photo"
+        ),
+        prescreen_model_cache_dir=prescreen_model_cache_dir,
+        hf_token=(os.getenv("HF_TOKEN") or "").strip() or None,
     )

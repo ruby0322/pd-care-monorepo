@@ -2,6 +2,7 @@ from __future__ import annotations
 # pyright: reportMissingImports=false
 
 import io
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ from app.config import Settings
 from app.db.models import AIResult, LiffIdentity, Notification, Patient, PendingBinding, Upload
 from app.main import create_app
 from app.model_loader import LoadedModel
+from app.services.prescreen import PrescreenInferenceError
 from app.services.auth.token_service import AuthTokenService
 
 
@@ -234,6 +236,100 @@ def test_patient_upload_creates_notification_for_suspected_risk(tmp_path: Path) 
             assert notifications[0].patient_id == patient_id
             assert notifications[0].upload_id == payload["upload_id"]
             assert notifications[0].ai_result_id == payload["ai_result_id"]
+
+
+def test_patient_upload_rejected_when_prescreen_detects_non_exit_site(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = replace(
+        _make_settings(tmp_path / "upload-prescreen-reject.db"),
+        prescreen_enabled=True,
+        prescreen_reject_reason="non_exit_site_or_random_photo",
+    )
+    app = create_app(
+        settings=settings,
+        loaded_model=_make_loaded_model(_NormalModel(), settings),
+        loaded_prescreen_model=SimpleNamespace(device="cpu"),
+    )
+    monkeypatch.setattr("app.services.upload.is_exit_site_present", lambda _loaded, _bytes: False)
+
+    with TestClient(app) as client:
+        patient_id = _seed_bound_identity(client, line_user_id="U_LINE_PRESCREEN_REJECT")
+        client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_PRESCREEN_REJECT")
+
+        response = client.post(
+            "/v1/patient/uploads",
+            data={"line_user_id": "U_LINE_PRESCREEN_REJECT"},
+            files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["patient_id"] == patient_id
+        assert payload["screening_result"] == "rejected"
+        assert payload["prediction"] is None
+        assert payload["notification_id"] is None
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            ai_results = session.query(AIResult).all()
+            notifications = session.query(Notification).all()
+            assert len(ai_results) == 1
+            assert ai_results[0].screening_result == "rejected"
+            assert ai_results[0].predicted_class is None
+            assert ai_results[0].probability is None
+            assert ai_results[0].threshold is None
+            assert ai_results[0].error_reason == "non_exit_site_or_random_photo"
+            assert len(notifications) == 0
+
+
+def test_patient_upload_fails_open_when_prescreen_inference_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = replace(
+        _make_settings(tmp_path / "upload-prescreen-fail-open.db"),
+        prescreen_enabled=True,
+        prescreen_reject_reason="non_exit_site_or_random_photo",
+    )
+    app = create_app(
+        settings=settings,
+        loaded_model=_make_loaded_model(_NormalModel(), settings),
+        loaded_prescreen_model=SimpleNamespace(device="cpu"),
+    )
+
+    def _raise_prescreen_error(_loaded: object, _bytes: bytes) -> bool:
+        raise PrescreenInferenceError("simulated prescreen failure")
+
+    monkeypatch.setattr("app.services.upload.is_exit_site_present", _raise_prescreen_error)
+
+    with TestClient(app) as client:
+        patient_id = _seed_bound_identity(client, line_user_id="U_LINE_PRESCREEN_FAIL_OPEN")
+        client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_PRESCREEN_FAIL_OPEN")
+
+        response = client.post(
+            "/v1/patient/uploads",
+            data={"line_user_id": "U_LINE_PRESCREEN_FAIL_OPEN"},
+            files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["patient_id"] == patient_id
+        assert payload["screening_result"] == "normal"
+        assert payload["prediction"] is not None
+        assert payload["prediction"]["screening"]["is_infection_positive"] is False
+        assert payload["notification_id"] is None
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            ai_results = session.query(AIResult).all()
+            assert len(ai_results) == 1
+            assert ai_results[0].screening_result == "normal"
+            assert ai_results[0].error_reason is None
 
 
 def test_patient_upload_rejects_unsupported_media_type(tmp_path: Path) -> None:

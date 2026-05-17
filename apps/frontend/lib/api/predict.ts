@@ -28,12 +28,14 @@ export type PatientUploadResponse = {
   model_version: string | null;
   threshold: number | null;
   notification_id: number | null;
-  prediction: PredictResponse & {
-    screening: PredictResponse["screening"] & {
-      threshold: number;
-      infection_probability: number;
-    };
-  };
+  prediction:
+    | (PredictResponse & {
+        screening: PredictResponse["screening"] & {
+          threshold: number;
+          infection_probability: number;
+        };
+      })
+    | null;
 };
 
 export async function uploadPatientExitSiteImage(
