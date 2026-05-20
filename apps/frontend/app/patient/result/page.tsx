@@ -4,11 +4,11 @@ import { apiClient, getApiErrorDetail, getReadableApiError } from "@/lib/api/cli
 import { getPatientUploadResult } from "@/lib/api/predict";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
-import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { CheckCircle, AlertTriangle, XCircle, Home, RotateCcw, CalendarDays, ShieldAlert } from "lucide-react";
 import clsx from "clsx";
+import { AlertTriangle, CalendarDays, CheckCircle, Home, RotateCcw, ShieldAlert, XCircle } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 type ResultState = "normal" | "suspected" | "rejected" | "technical_error";
 
@@ -200,7 +200,7 @@ function ResultPageInner() {
 
         {effectiveConfidence !== null && result !== "rejected" && result !== "technical_error" && (
           <div className="px-5 py-4 rounded-2xl bg-zinc-50 border border-zinc-100">
-            <p className="text-xs text-zinc-400 uppercase tracking-wider mb-1">AI 信心分數</p>
+            <p className="text-xs text-zinc-400 uppercase tracking-wider mb-1">確信度</p>
             <p className="text-lg font-semibold text-zinc-900">{effectiveConfidence}%</p>
           </div>
         )}
@@ -320,9 +320,10 @@ function ResultPageInner() {
           </Link>
         </div>
 
-        <p className="text-center text-xs text-zinc-500 pb-2">
-          本系統僅供輔助提醒，不構成醫療診斷
-        </p>
+        <div className="space-y-1 pb-2 text-center text-xs text-zinc-500">
+          <p>本系統僅供輔助提醒，不構成醫療診斷</p>
+          <p className="text-zinc-400">預測結果僅依據目前訓練資料。</p>
+        </div>
       </main>
     </div>
   );

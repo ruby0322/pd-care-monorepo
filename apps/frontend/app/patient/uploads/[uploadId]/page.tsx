@@ -1,14 +1,14 @@
 "use client";
 
+import clsx from "clsx";
+import { AlertTriangle, CalendarDays, CheckCircle, ChevronLeft, ChevronRight, ShieldAlert, XCircle } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { AlertTriangle, CalendarDays, CheckCircle, ChevronLeft, ChevronRight, ShieldAlert, XCircle } from "lucide-react";
-import clsx from "clsx";
+import { useEffect, useMemo, useState } from "react";
 
-import { fetchPatientUploadDetail, PatientUploadDetailResponse } from "@/lib/api/upload-history";
 import { getReadableApiError } from "@/lib/api/client";
+import { fetchPatientUploadDetail, PatientUploadDetailResponse } from "@/lib/api/upload-history";
 
 function ResultBadge({ result }: { result: PatientUploadDetailResponse["screening_result"] }) {
   const config = {
@@ -135,7 +135,7 @@ export default function PatientUploadDetailPage() {
         </div>
         <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-zinc-600">
           <div className="rounded-xl bg-zinc-50 px-3 py-2">
-            <p className="text-zinc-400">信心分數</p>
+            <p className="text-zinc-400">確信度</p>
             <p className="font-medium text-zinc-800">
               {detail.probability === null ? "N/A" : `${Math.round(detail.probability * 100)}%`}
             </p>
