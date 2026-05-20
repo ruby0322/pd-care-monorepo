@@ -109,3 +109,13 @@ export async function markPatientMessageRead(annotationId: number): Promise<Pati
   const { data } = await apiClient.post<PatientMessageItem>(`/v1/patient/messages/${annotationId}/read`);
   return data;
 }
+
+export type PatientMarkAllMessagesReadResponse = {
+  updated_count: number;
+  unread_count: number;
+};
+
+export async function markAllPatientMessagesRead(): Promise<PatientMarkAllMessagesReadResponse> {
+  const { data } = await apiClient.post<PatientMarkAllMessagesReadResponse>("/v1/patient/messages/read-all");
+  return data;
+}

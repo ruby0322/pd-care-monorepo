@@ -6,7 +6,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, MessageSquare, RefreshCw } from "lucide-react";
 
-import { fetchPatientMessages, markPatientMessageRead, PatientMessageItem } from "@/lib/api/upload-history";
+import {
+  fetchPatientMessages,
+  markAllPatientMessagesRead,
+  markPatientMessageRead,
+  PatientMessageItem,
+} from "@/lib/api/upload-history";
 import { apiClient, getReadableApiError } from "@/lib/api/client";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
@@ -23,6 +28,7 @@ export default function PatientMessagesPage() {
   const [items, setItems] = useState<PatientMessageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+  const [markAllLoading, setMarkAllLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -83,6 +89,23 @@ export default function PatientMessagesPage() {
     return "目前沒有未讀訊息";
   }, [loading, unreadCount]);
 
+  const handleMarkAllRead = async () => {
+    if (unreadCount === 0 || markAllLoading) {
+      return;
+    }
+    try {
+      setMarkAllLoading(true);
+      setError(null);
+      await markAllPatientMessagesRead();
+      setUnreadCount(0);
+      setItems((prev) => prev.map((item) => ({ ...item, is_read: true })));
+    } catch (err) {
+      setError(getReadableApiError(err));
+    } finally {
+      setMarkAllLoading(false);
+    }
+  };
+
   const handleReadAndOpen = async (item: PatientMessageItem) => {
     try {
       setActionLoadingId(item.annotation_id);
@@ -112,14 +135,24 @@ export default function PatientMessagesPage() {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => void loadMessages()}
-        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs text-zinc-600 transition-colors hover:bg-zinc-50"
-      >
-        <RefreshCw className="h-3.5 w-3.5" />
-        重新整理
-      </button>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => void loadMessages()}
+          className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs text-zinc-600 transition-colors hover:bg-zinc-50"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          重新整理
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleMarkAllRead()}
+          disabled={loading || unreadCount === 0 || markAllLoading}
+          className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs text-zinc-600 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {markAllLoading ? "處理中..." : "已讀全部"}
+        </button>
+      </div>
 
       {error ? <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 

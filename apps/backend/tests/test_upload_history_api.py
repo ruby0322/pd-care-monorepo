@@ -597,6 +597,66 @@ def test_patient_message_mark_read_updates_read_state(tmp_path: Path) -> None:
         assert unread_payload["unread_count"] == 0
 
 
+def test_patient_message_mark_all_read_updates_all_unread(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "patient-messages-read-all.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_MESSAGES_READ_ALL")
+        _seed_upload_history(client, patient_id=patient_id)
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_MESSAGES_READ_ALL")
+        client.app.state.storage_service = _FakeStorageService()
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            uploads = session.query(Upload).filter(Upload.patient_id == patient_id).order_by(Upload.created_at.desc()).all()
+            reviewer = LiffIdentity(
+                line_user_id="U_LINE_MESSAGES_READ_ALL_REVIEWER",
+                display_name="Reviewer",
+                picture_url=None,
+                patient_id=None,
+                role="staff",
+            )
+            session.add(reviewer)
+            session.flush()
+            session.add(
+                Annotation(
+                    patient_id=patient_id,
+                    upload_id=uploads[0].id,
+                    reviewer_identity_id=reviewer.id,
+                    label="suspected",
+                    comment="unread one",
+                )
+            )
+            session.add(
+                Annotation(
+                    patient_id=patient_id,
+                    upload_id=uploads[1].id,
+                    reviewer_identity_id=reviewer.id,
+                    label="normal",
+                    comment="unread two",
+                )
+            )
+            session.commit()
+
+        response = client.post(
+            "/v1/patient/messages/read-all",
+            params={"line_user_id": "U_LINE_MESSAGES_READ_ALL"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["updated_count"] == 2
+        assert payload["unread_count"] == 0
+
+        unread_after = client.get(
+            "/v1/patient/messages",
+            params={"line_user_id": "U_LINE_MESSAGES_READ_ALL", "unread_only": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert unread_after.status_code == 200
+        unread_payload = unread_after.json()
+        assert unread_payload["unread_count"] == 0
+
+
 def test_staff_with_bound_patient_can_access_patient_messages(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "patient-messages-staff-role.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
