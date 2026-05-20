@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, Upload
@@ -349,3 +349,14 @@ def mark_patient_annotation_message_read(
         session.commit()
         session.refresh(annotation)
     return annotation
+
+
+def mark_all_patient_annotation_messages_read(session: Session, *, patient_id: int) -> int:
+    now = datetime.now(tz=timezone.utc)
+    result = session.execute(
+        update(Annotation)
+        .where(and_(Annotation.patient_id == patient_id, Annotation.patient_read_at.is_(None)))
+        .values(patient_read_at=now)
+    )
+    session.commit()
+    return int(result.rowcount or 0)

@@ -13,6 +13,7 @@ from app.api.deps.auth import bearer_scheme, get_current_principal
 from app.db.models import Upload
 from app.schemas.identity import PatientProfileResponse
 from app.schemas.upload_history import (
+    PatientMarkAllMessagesReadResponse,
     PatientMessageItemResponse,
     PatientMessageListResponse,
     PatientDayUploadItemResponse,
@@ -33,6 +34,7 @@ from app.services.upload_history import (
     get_patient_upload_detail,
     list_patient_uploads_by_local_day,
     list_patient_annotation_messages,
+    mark_all_patient_annotation_messages_read,
     mark_patient_annotation_message_read,
     summarize_patient_upload_history,
     summarize_patient_upload_metrics_28d,
@@ -385,6 +387,26 @@ async def patient_messages(
             limit=limit,
             offset=offset,
         )
+    finally:
+        session.close()
+
+
+@router.post("/v1/patient/messages/read-all", response_model=PatientMarkAllMessagesReadResponse)
+async def mark_all_patient_messages_read(
+    request: Request,
+    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> PatientMarkAllMessagesReadResponse:
+    principal = get_current_principal(request, credentials)
+    session = _get_session(request)
+    try:
+        patient_id = _resolve_message_patient_id(
+            session,
+            principal=principal,
+            provided_line_user_id=line_user_id,
+        )
+        updated_count = mark_all_patient_annotation_messages_read(session, patient_id=patient_id)
+        return PatientMarkAllMessagesReadResponse(updated_count=updated_count, unread_count=0)
     finally:
         session.close()
 

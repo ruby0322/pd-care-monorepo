@@ -77,3 +77,8 @@ class PatientMessageListResponse(BaseModel):
     unread_count: int = Field(ge=0)
     limit: int = Field(ge=1)
     offset: int = Field(ge=0)
+
+
+class PatientMarkAllMessagesReadResponse(BaseModel):
+    updated_count: int = Field(ge=0)
+    unread_count: int = Field(ge=0)
