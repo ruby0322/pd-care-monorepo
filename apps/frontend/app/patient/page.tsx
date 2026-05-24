@@ -11,7 +11,8 @@ import {
     UploadHistorySummary28d,
 } from "@/lib/api/upload-history";
 import { getLiffLoginProof } from "@/lib/auth/liff";
-import { clearPatientSession, setPatientSession } from "@/lib/auth/patient-session";
+import { clearPatientSession, getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
+import { setStaffSession } from "@/lib/auth/staff-session";
 import { Camera, MessageSquare, UserRound } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -64,6 +65,7 @@ export default function PatientPage() {
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [messagePreviewError, setMessagePreviewError] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<LoginResponse["role"] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,15 +109,29 @@ export default function PatientPage() {
             return;
           }
           const loginPayload = loginResponse.data;
-          if (loginPayload.role !== "patient" && loginPayload.role !== "admin") {
+          if (
+            loginPayload.role !== "patient" &&
+            loginPayload.role !== "staff" &&
+            loginPayload.role !== "admin"
+          ) {
             throw new Error("目前 LINE 帳號角色無法使用病患端功能。");
           }
+          const sessionExpiresAt = Date.now() + loginPayload.expires_in * 1000;
           setPatientSession({
             accessToken: loginPayload.access_token,
-            expiresAt: Date.now() + loginPayload.expires_in * 1000,
+            expiresAt: sessionExpiresAt,
             role: loginPayload.role,
             lineUserId: loginPayload.line_user_id,
           });
+          if (loginPayload.role === "staff" || loginPayload.role === "admin") {
+            setStaffSession({
+              accessToken: loginPayload.access_token,
+              expiresAt: sessionExpiresAt,
+              role: loginPayload.role,
+              lineUserId: loginPayload.line_user_id,
+            });
+          }
+          setUserRole(loginPayload.role);
           if (!cancelled) {
             setHistoryLoading(true);
             setHistoryError(null);
@@ -294,7 +310,27 @@ export default function PatientPage() {
             </div>
           ) : null}
 
-          <div className="mt-6 flex justify-center pb-2">
+          <div className="mt-6 flex items-center justify-center gap-3 pb-2">
+            {userRole === "staff" || userRole === "admin" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const session = getPatientSession();
+                  if (session && (session.role === "staff" || session.role === "admin")) {
+                    setStaffSession({
+                      accessToken: session.accessToken,
+                      expiresAt: session.expiresAt,
+                      role: session.role,
+                      lineUserId: session.lineUserId,
+                    });
+                  }
+                  router.push("/admin");
+                }}
+                className="text-xs text-zinc-400 underline underline-offset-4"
+              >
+                前往後台
+              </button>
+            ) : null}
             <a
               href={PATIENT_FEEDBACK_FORM_URL}
               target="_blank"

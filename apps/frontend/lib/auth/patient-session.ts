@@ -1,6 +1,6 @@
 "use client";
 
-type PatientRole = "patient" | "admin";
+type PatientRole = "patient" | "staff" | "admin";
 
 type PatientSession = {
   accessToken: string;
@@ -24,7 +24,7 @@ function parseSession(raw: string | null): PatientSession | null {
     if (!parsed.accessToken || !parsed.expiresAt || !parsed.role || !parsed.lineUserId) {
       return null;
     }
-    if (parsed.role !== "patient" && parsed.role !== "admin") {
+    if (parsed.role !== "patient" && parsed.role !== "staff" && parsed.role !== "admin") {
       return null;
     }
     return {
