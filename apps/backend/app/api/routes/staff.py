@@ -130,6 +130,24 @@ def _assert_patient_access(session, *, role: str, identity_id: int, patient_id: 
         raise HTTPException(status_code=403, detail="Forbidden: patient is not assigned to this staff")
 
 
+def _get_upload_or_404(session, *, upload_id: int) -> Upload:
+    upload = session.get(Upload, upload_id)
+    if upload is None:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    return upload
+
+
+def _assert_upload_access(session, *, role: str, identity_id: int, upload_id: int) -> Upload:
+    upload = _get_upload_or_404(session, upload_id=upload_id)
+    _assert_patient_access(
+        session,
+        role=role,
+        identity_id=identity_id,
+        patient_id=upload.patient_id,
+    )
+    return upload
+
+
 @router.get("/v1/staff/me")
 async def get_staff_profile(
     request: Request,
@@ -643,10 +661,20 @@ async def staff_notifications(
     offset: int = Query(default=0, ge=0),
     credentials=Depends(bearer_scheme),
 ) -> StaffNotificationListResponse:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
-        rows, total, unread_count = list_staff_notifications(session, limit=limit, offset=offset)
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        rows, total, unread_count = list_staff_notifications(
+            session,
+            limit=limit,
+            offset=offset,
+            accessible_patient_ids=accessible_patient_ids,
+        )
         return StaffNotificationListResponse(
             items=[
                 StaffNotificationItem(
@@ -679,13 +707,24 @@ async def mark_staff_notification_as_read(
     notification_id: int,
     credentials=Depends(bearer_scheme),
 ) -> StaffNotificationItem:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
         try:
-            notification = mark_staff_notification_read(session, notification_id=notification_id)
+            notification = mark_staff_notification_read(
+                session,
+                notification_id=notification_id,
+                accessible_patient_ids=accessible_patient_ids,
+            )
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         patient = session.get(Patient, notification.patient_id)
         if patient is None:
             raise HTTPException(status_code=404, detail="Patient not found")
@@ -1005,6 +1044,12 @@ async def upsert_staff_annotation(
     principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
+        _assert_upload_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            upload_id=upload_id,
+        )
         reviewer = session.get(LiffIdentity, principal.identity_id)
         if reviewer is None:
             raise HTTPException(status_code=401, detail="Identity not found")
@@ -1037,9 +1082,15 @@ async def get_staff_annotations(
     patient_id: int,
     credentials=Depends(bearer_scheme),
 ) -> StaffAnnotationListResponse:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
+        _assert_patient_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            patient_id=patient_id,
+        )
         rows = list_annotations_for_patient(session, patient_id=patient_id)
         return StaffAnnotationListResponse(
             items=[
@@ -1227,12 +1278,15 @@ async def get_staff_upload_image(
     upload_id: int,
     credentials=Depends(bearer_scheme),
 ) -> StreamingResponse:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
-        upload = session.get(Upload, upload_id)
-        if upload is None:
-            raise HTTPException(status_code=404, detail="Upload not found")
+        upload = _assert_upload_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            upload_id=upload_id,
+        )
 
         storage_service = getattr(request.app.state, "storage_service", None)
         if storage_service is None:
@@ -1258,12 +1312,15 @@ async def get_staff_upload_image_access(
     upload_id: int,
     credentials=Depends(bearer_scheme),
 ) -> dict[str, object]:
-    require_staff_or_admin(get_current_principal(request, credentials))
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
-        upload = session.get(Upload, upload_id)
-        if upload is None:
-            raise HTTPException(status_code=404, detail="Upload not found")
+        upload = _assert_upload_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            upload_id=upload_id,
+        )
         storage_service = getattr(request.app.state, "storage_service", None)
         if storage_service is None:
             raise HTTPException(status_code=503, detail="Storage is not initialized")

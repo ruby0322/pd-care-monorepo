@@ -246,16 +246,23 @@ def _seed_pending_binding(client: TestClient, *, line_user_id: str = "U_PENDING_
         return pending.id
 
 
-def _seed_notifications_for_patient(client: TestClient) -> tuple[int, int, int]:
+def _seed_notifications_for_patient(
+    client: TestClient,
+    *,
+    line_user_id: str = "U_PATIENT_NOTIFY",
+    case_number: str = "P778899",
+    full_name: str = "Patient Notify",
+    object_key_prefix: str = "99",
+) -> tuple[int, int, int]:
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
-        patient = Patient(case_number="P778899", birth_date="1979-08-01", full_name="Patient Notify", is_active=True)
+        patient = Patient(case_number=case_number, birth_date="1979-08-01", full_name=full_name, is_active=True)
         session.add(patient)
         session.flush()
         session.add(
             LiffIdentity(
-                line_user_id="U_PATIENT_NOTIFY",
-                display_name="Patient Notify",
+                line_user_id=line_user_id,
+                display_name=full_name,
                 picture_url=None,
                 patient_id=patient.id,
                 role="patient",
@@ -263,13 +270,13 @@ def _seed_notifications_for_patient(client: TestClient) -> tuple[int, int, int]:
         )
         older_upload = Upload(
             patient_id=patient.id,
-            object_key="patients/99/uploads/99.jpg",
+            object_key=f"patients/{object_key_prefix}/uploads/older.jpg",
             content_type="image/jpeg",
             created_at=datetime(2026, 5, 8, 0, 0, tzinfo=timezone.utc),
         )
         newer_upload = Upload(
             patient_id=patient.id,
-            object_key="patients/99/uploads/100.jpg",
+            object_key=f"patients/{object_key_prefix}/uploads/newer.jpg",
             content_type="image/jpeg",
             created_at=datetime(2026, 5, 10, 0, 0, tzinfo=timezone.utc),
         )
@@ -575,6 +582,44 @@ def test_staff_can_upsert_annotation(tmp_path: Path) -> None:
             assert updated.patient_read_at is None
 
 
+def test_staff_cannot_review_unassigned_uploads_or_annotations(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-unassigned-upload-forbidden.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        assigned_patient_id = _seed_patient_with_uploads(client)
+        unassigned_patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-UNASSIGNED-REVIEW",
+            line_user_id="U_PATIENT_UNASSIGNED_REVIEW",
+            uploads=[(datetime(2026, 5, 10, 0, 0, tzinfo=timezone.utc), "suspected")],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=assigned_patient_id)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            unassigned_upload = session.query(Upload).filter(Upload.patient_id == unassigned_patient_id).one()
+            unassigned_upload_id = unassigned_upload.id
+
+        annotation_response = client.post(
+            f"/v1/staff/uploads/{unassigned_upload_id}/annotation",
+            headers=headers,
+            json={"label": "suspected", "comment": "out of scope"},
+        )
+        assert annotation_response.status_code == 403
+
+        annotation_list_response = client.get(f"/v1/staff/patients/{unassigned_patient_id}/annotations", headers=headers)
+        assert annotation_list_response.status_code == 403
+
+        image_access_response = client.get(f"/v1/staff/uploads/{unassigned_upload_id}/image-access", headers=headers)
+        assert image_access_response.status_code == 403
+
+        image_response = client.get(f"/v1/staff/uploads/{unassigned_upload_id}/image", headers=headers)
+        assert image_response.status_code == 403
+
+
 def test_staff_can_link_and_reject_pending_bindings(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-pending.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
@@ -774,6 +819,125 @@ def test_staff_can_mark_single_notification_as_read_without_changing_ai_result(t
             assert ai_result.screening_result == "suspected"
             assert ai_result.probability == 0.91
 
+
+def test_staff_notifications_are_limited_to_assigned_patients(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-notifications-assignment-scope.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        assigned_patient_id, _, _ = _seed_notifications_for_patient(
+            client,
+            line_user_id="U_PATIENT_NOTIFY_ASSIGNED",
+            case_number="P-NOTIFY-ASSIGNED",
+            full_name="Notify Assigned",
+            object_key_prefix="201",
+        )
+        unassigned_patient_id, _, _ = _seed_notifications_for_patient(
+            client,
+            line_user_id="U_PATIENT_NOTIFY_UNASSIGNED",
+            case_number="P-NOTIFY-UNASSIGNED",
+            full_name="Notify Unassigned",
+            object_key_prefix="202",
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=assigned_patient_id)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/v1/staff/notifications", headers=headers)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total"] == 2
+        assert payload["unread_count"] == 1
+        assert all(item["patient_id"] == assigned_patient_id for item in payload["items"])
+        assert all(item["patient_id"] != unassigned_patient_id for item in payload["items"])
+
+
+def test_staff_cannot_mark_unassigned_notification_as_read(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-notifications-mark-scope.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        assigned_patient_id, _, _ = _seed_notifications_for_patient(
+            client,
+            line_user_id="U_PATIENT_NOTIFY_MARK_ASSIGNED",
+            case_number="P-NOTIFY-MARK-ASSIGNED",
+            full_name="Notify Mark Assigned",
+            object_key_prefix="203",
+        )
+        unassigned_patient_id, _, _ = _seed_notifications_for_patient(
+            client,
+            line_user_id="U_PATIENT_NOTIFY_MARK_UNASSIGNED",
+            case_number="P-NOTIFY-MARK-UNASSIGNED",
+            full_name="Notify Mark Unassigned",
+            object_key_prefix="204",
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=assigned_patient_id)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            unassigned_notification = (
+                session.query(Notification)
+                .filter(Notification.patient_id == unassigned_patient_id, Notification.status == "new")
+                .one()
+            )
+            assigned_notification = (
+                session.query(Notification)
+                .filter(Notification.patient_id == assigned_patient_id, Notification.status == "new")
+                .one()
+            )
+
+        forbidden_response = client.post(f"/v1/staff/notifications/{unassigned_notification.id}/read", headers=headers)
+        assert forbidden_response.status_code == 403
+
+        allowed_response = client.post(f"/v1/staff/notifications/{assigned_notification.id}/read", headers=headers)
+        assert allowed_response.status_code == 200
+        assert allowed_response.json()["patient_id"] == assigned_patient_id
+
+
+def test_admin_notifications_are_not_assignment_scoped(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-notifications-admin-scope.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_NOTIFY_SCOPE", role="admin")
+        patient_a_id, _, _ = _seed_notifications_for_patient(
+            client,
+            line_user_id="U_PATIENT_NOTIFY_ADMIN_A",
+            case_number="P-NOTIFY-ADMIN-A",
+            full_name="Notify Admin A",
+            object_key_prefix="205",
+        )
+        patient_b_id, _, _ = _seed_notifications_for_patient(
+            client,
+            line_user_id="U_PATIENT_NOTIFY_ADMIN_B",
+            case_number="P-NOTIFY-ADMIN-B",
+            full_name="Notify Admin B",
+            object_key_prefix="206",
+        )
+        token = _login_staff_token(client, "U_ADMIN_NOTIFY_SCOPE")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        list_response = client.get("/v1/staff/notifications", headers=headers)
+        assert list_response.status_code == 200
+        payload = list_response.json()
+        assert payload["total"] == 4
+        assert payload["unread_count"] == 2
+        patient_ids = {item["patient_id"] for item in payload["items"]}
+        assert patient_a_id in patient_ids
+        assert patient_b_id in patient_ids
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            patient_b_notification = (
+                session.query(Notification)
+                .filter(Notification.patient_id == patient_b_id, Notification.status == "new")
+                .one()
+            )
+
+        mark_response = client.post(f"/v1/staff/notifications/{patient_b_notification.id}/read", headers=headers)
+        assert mark_response.status_code == 200
+        assert mark_response.json()["patient_id"] == patient_b_id
 
 def test_patient_token_is_denied_for_notification_endpoints(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-notifications-rbac.db")
