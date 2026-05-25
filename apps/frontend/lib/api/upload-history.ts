@@ -1,4 +1,5 @@
 import { apiClient } from "@/lib/api/client";
+import { getRelativeMonthKey } from "@/lib/utils/upload-calendar";
 
 export type UploadHistoryDay = {
   date: string;
@@ -76,6 +77,32 @@ export type PatientMessageListResponse = {
 export async function fetchUploadHistory(): Promise<UploadHistoryResponse> {
   const { data } = await apiClient.get<UploadHistoryResponse>("/v1/patient/upload-history");
   return data;
+}
+
+export function getWindowStartMonthKey(monthEnd: string): string {
+  return getRelativeMonthKey(monthEnd, -2);
+}
+
+export async function fetchUploadHistoryByMonthWindow(monthEnd: string): Promise<UploadHistoryResponse> {
+  const monthStart = getWindowStartMonthKey(monthEnd);
+  const { data } = await apiClient.get<UploadHistoryResponse>("/v1/patient/upload-history", {
+    params: {
+      month_start: monthStart,
+      month_end: monthEnd,
+    },
+  });
+  return data;
+}
+
+export function mergeUploadHistoryDays(previous: UploadHistoryDay[], incoming: UploadHistoryDay[]): UploadHistoryDay[] {
+  const byDate = new Map<string, UploadHistoryDay>();
+  for (const day of previous) {
+    byDate.set(day.date, day);
+  }
+  for (const day of incoming) {
+    byDate.set(day.date, day);
+  }
+  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function fetchUploadsByDay(date: string): Promise<PatientDayUploadListResponse> {

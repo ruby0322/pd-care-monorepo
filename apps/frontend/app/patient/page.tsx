@@ -5,7 +5,8 @@ import { apiClient, getApiErrorDetail } from "@/lib/api/client";
 import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
 import {
     fetchPatientMessages,
-    fetchUploadHistory,
+    fetchUploadHistoryByMonthWindow,
+    mergeUploadHistoryDays,
     PatientMessageItem,
     UploadHistoryDay,
     UploadHistorySummary28d,
@@ -17,7 +18,8 @@ import { Camera, MessageSquare, UserRound } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getMonthKeyFromDateKey, getRelativeMonthKey, getTaipeiTodayKey } from "@/lib/utils/upload-calendar";
 
 type LiffProfileState = {
   displayName: string;
@@ -66,9 +68,86 @@ export default function PatientPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [messagePreviewError, setMessagePreviewError] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<LoginResponse["role"] | null>(null);
+  const [visibleCalendarMonth, setVisibleCalendarMonth] = useState<string | null>(null);
+  const [loadedCalendarBounds, setLoadedCalendarBounds] = useState<{
+    oldestMonthKey: string | null;
+    newestMonthKey: string | null;
+  }>({
+    oldestMonthKey: null,
+    newestMonthKey: null,
+  });
+  const loadedMonthWindowsRef = useRef<Set<string>>(new Set());
+  const loadingMonthWindowsRef = useRef<Set<string>>(new Set());
+  const historyInflightRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const loadHistoryWindow = useCallback(async (monthEnd: string, options?: { replace?: boolean }) => {
+    const replace = options?.replace ?? false;
+    if (!monthEnd) {
+      return;
+    }
+    if (loadedMonthWindowsRef.current.has(monthEnd) || loadingMonthWindowsRef.current.has(monthEnd)) {
+      return;
+    }
+    loadingMonthWindowsRef.current.add(monthEnd);
+    historyInflightRef.current += 1;
+    if (mountedRef.current) {
+      setHistoryLoading(true);
+    }
+    try {
+      const history = await fetchUploadHistoryByMonthWindow(monthEnd);
+      if (!mountedRef.current) {
+        return;
+      }
+      setHistoryDays((current) => (replace ? history.days : mergeUploadHistoryDays(current, history.days)));
+      setSummary28d(history.summary_28d);
+      setHistoryError(null);
+      loadedMonthWindowsRef.current.add(monthEnd);
+      const monthStart = getRelativeMonthKey(monthEnd, -2);
+      setLoadedCalendarBounds((current) => ({
+        oldestMonthKey:
+          current.oldestMonthKey === null || monthStart < current.oldestMonthKey
+            ? monthStart
+            : current.oldestMonthKey,
+        newestMonthKey:
+          current.newestMonthKey === null || monthEnd > current.newestMonthKey
+            ? monthEnd
+            : current.newestMonthKey,
+      }));
+    } catch (historyRequestError) {
+      if (mountedRef.current) {
+        setHistoryError(getApiErrorDetail(historyRequestError) ?? "無法載入上傳日曆，仍可繼續拍攝。");
+      }
+    } finally {
+      loadingMonthWindowsRef.current.delete(monthEnd);
+      historyInflightRef.current = Math.max(0, historyInflightRef.current - 1);
+      if (mountedRef.current) {
+        setHistoryLoading(historyInflightRef.current > 0);
+      }
+    }
+  }, []);
+
+  const handleCalendarMonthChange = useCallback(
+    (monthKey: string) => {
+      setVisibleCalendarMonth(monthKey);
+      if (status !== "matched") {
+        return;
+      }
+      const prefetchWindowEnd = getRelativeMonthKey(monthKey, -3);
+      void loadHistoryWindow(prefetchWindowEnd);
+    },
+    [loadHistoryWindow, status]
+  );
 
   useEffect(() => {
     let cancelled = false;
+    const currentMonthKey = getMonthKeyFromDateKey(getTaipeiTodayKey());
 
     const run = async () => {
       try {
@@ -133,21 +212,23 @@ export default function PatientPage() {
           }
           setUserRole(loginPayload.role);
           if (!cancelled) {
-            setHistoryLoading(true);
             setHistoryError(null);
             setMessagePreviewError(null);
+            setVisibleCalendarMonth(currentMonthKey);
+            setLoadedCalendarBounds({
+              oldestMonthKey: null,
+              newestMonthKey: null,
+            });
+          }
+          loadedMonthWindowsRef.current.clear();
+          loadingMonthWindowsRef.current.clear();
+          historyInflightRef.current = 0;
+          if (!cancelled) {
+            setHistoryDays([]);
           }
           try {
-            const history = await fetchUploadHistory();
-            if (!cancelled) {
-              setHistoryDays(history.days);
-              setSummary28d(history.summary_28d);
-            }
-          } catch (historyRequestError) {
-            if (!cancelled) {
-              setHistoryError(getApiErrorDetail(historyRequestError) ?? "無法載入上傳日曆，仍可繼續拍攝。");
-            }
-          }
+            await loadHistoryWindow(currentMonthKey, { replace: true });
+          } catch {}
           try {
             const latest = await fetchPatientMessages({ limit: 1 });
             if (!cancelled) {
@@ -160,7 +241,7 @@ export default function PatientPage() {
             }
           } finally {
             if (!cancelled) {
-              setHistoryLoading(false);
+              setHistoryLoading(historyInflightRef.current > 0);
             }
           }
         } else if (!cancelled) {
@@ -176,6 +257,14 @@ export default function PatientPage() {
           setHistoryLoading(false);
           setHistoryError(null);
           setMessagePreviewError(null);
+          setVisibleCalendarMonth(null);
+          setLoadedCalendarBounds({
+            oldestMonthKey: null,
+            newestMonthKey: null,
+          });
+          loadedMonthWindowsRef.current.clear();
+          loadingMonthWindowsRef.current.clear();
+          historyInflightRef.current = 0;
         }
       } catch (err) {
         if (!cancelled) {
@@ -192,7 +281,7 @@ export default function PatientPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadHistoryWindow]);
 
   const submitBinding = async () => {
     if (!profile) {
@@ -228,6 +317,7 @@ export default function PatientPage() {
   }
 
   if (status === "matched") {
+    const currentMonthKey = getMonthKeyFromDateKey(getTaipeiTodayKey());
     const suspectedRate =
       summary28d.all_upload_count_28d > 0
         ? Math.round((summary28d.suspected_upload_count_28d / summary28d.all_upload_count_28d) * 100)
@@ -262,6 +352,14 @@ export default function PatientPage() {
             ) : (
               <PatientDailyCalendar
                 days={historyDays}
+                initialMonthKey={visibleCalendarMonth ?? undefined}
+                loadedOldestMonthKey={loadedCalendarBounds.oldestMonthKey ?? undefined}
+                loadedNewestMonthKey={loadedCalendarBounds.newestMonthKey ?? currentMonthKey}
+                onMonthChange={handleCalendarMonthChange}
+                onReachOldestEdge={(oldestMonthKey) => {
+                  const nextWindowEnd = getRelativeMonthKey(oldestMonthKey, -1);
+                  void loadHistoryWindow(nextWindowEnd);
+                }}
                 onDayClick={(dayKey) => {
                   router.push(`/patient/day/${dayKey}`);
                 }}

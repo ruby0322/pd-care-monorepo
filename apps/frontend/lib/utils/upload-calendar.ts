@@ -9,6 +9,19 @@ export type CalendarDaySummary = {
   has_suspected_risk: boolean;
 };
 
+export type TaipeiMonthGridCell = {
+  dateKey: string;
+  dayOfMonth: number;
+  isCurrentMonth: boolean;
+};
+
+export type TaipeiMonthGrid = {
+  monthKey: string;
+  year: number;
+  month: number;
+  cells: TaipeiMonthGridCell[];
+};
+
 const taipeiDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Taipei",
   year: "numeric",
@@ -59,4 +72,59 @@ export function listRecentTaipeiDateKeys(windowDays: number, reference: Date = n
     const offset = windowDays - 1 - index;
     return new Date(utcMidnight - offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   });
+}
+
+function formatMonthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function parseMonthKey(monthKey: string): { year: number; month: number } {
+  const [yearPart, monthPart] = monthKey.split("-");
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error(`Invalid month key: ${monthKey}`);
+  }
+  return { year, month };
+}
+
+export function getMonthKeyFromDateKey(dateKey: string): string {
+  return dateKey.slice(0, 7);
+}
+
+export function getRelativeMonthKey(monthKey: string, offset: number): string {
+  const { year, month } = parseMonthKey(monthKey);
+  const shifted = new Date(Date.UTC(year, month - 1 + offset, 1));
+  return formatMonthKey(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1);
+}
+
+function formatDateKeyFromUtc(utcDate: Date): string {
+  return utcDate.toISOString().slice(0, 10);
+}
+
+export function buildTaipeiMonthGrid(monthKey: string): TaipeiMonthGrid {
+  const { year, month } = parseMonthKey(monthKey);
+  const firstDayUtc = new Date(Date.UTC(year, month - 1, 1));
+  const firstWeekday = firstDayUtc.getUTCDay();
+  const gridStartUtc = new Date(Date.UTC(year, month - 1, 1 - firstWeekday));
+
+  const cells: TaipeiMonthGridCell[] = Array.from({ length: 42 }, (_, index) => {
+    const cellDateUtc = new Date(Date.UTC(
+      gridStartUtc.getUTCFullYear(),
+      gridStartUtc.getUTCMonth(),
+      gridStartUtc.getUTCDate() + index
+    ));
+    return {
+      dateKey: formatDateKeyFromUtc(cellDateUtc),
+      dayOfMonth: cellDateUtc.getUTCDate(),
+      isCurrentMonth: cellDateUtc.getUTCMonth() === month - 1,
+    };
+  });
+
+  return {
+    monthKey,
+    year,
+    month,
+    cells,
+  };
 }
