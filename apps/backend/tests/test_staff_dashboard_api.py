@@ -406,6 +406,40 @@ def test_staff_patient_filters_use_latest_upload_status_and_created_range(tmp_pa
         assert feb_cases == {"P-LATEST-SUS"}
 
 
+def test_staff_patient_list_suspected_patients_uses_latest_status(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-suspected-patient-count-latest.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_latest_suspected = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-LATEST-SUS-COUNT",
+            line_user_id="U_PATIENT_LATEST_SUS_COUNT",
+            uploads=[
+                (datetime(2026, 1, 11, 9, 0, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 2, 11, 10, 0, tzinfo=timezone.utc), "suspected"),
+            ],
+        )
+        patient_latest_normal = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-LATEST-NOR-COUNT",
+            line_user_id="U_PATIENT_LATEST_NOR_COUNT",
+            uploads=[
+                (datetime(2026, 1, 12, 9, 0, tzinfo=timezone.utc), "suspected"),
+                (datetime(2026, 2, 12, 10, 0, tzinfo=timezone.utc), "normal"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_latest_suspected)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_latest_normal)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/v1/staff/patients", headers=headers)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total_patients"] == 2
+        assert payload["suspected_patients"] == 1
+
 def test_patient_token_is_denied_for_staff_dashboard_endpoints(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-denied.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

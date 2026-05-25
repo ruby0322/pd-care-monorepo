@@ -847,11 +847,12 @@ async def get_staff_patients(
             )
             for row in rows
         ]
+        suspected_patients = sum(1 for row in rows if row.latest_upload_status == "suspected")
         return StaffPatientListResponse(
             months=months,
             total_patients=len(items),
             total_uploads=sum(item.upload_count for item in items),
-            suspected_patients=sum(1 for item in items if item.suspected_count > 0),
+            suspected_patients=suspected_patients,
             items=items,
         )
     finally:
