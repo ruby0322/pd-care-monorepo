@@ -30,6 +30,8 @@ type PatientDailyCalendarProps = {
   onMonthChange?: (monthKey: string) => void;
   loadedOldestMonthKey?: string;
   loadedNewestMonthKey?: string;
+  oldestEdgeLoading?: boolean;
+  overlayLoading?: boolean;
   onReachOldestEdge?: (oldestMonthKey: string) => void | Promise<void>;
 };
 
@@ -81,6 +83,8 @@ export function PatientDailyCalendar({
   onMonthChange,
   loadedOldestMonthKey,
   loadedNewestMonthKey,
+  oldestEdgeLoading = false,
+  overlayLoading = false,
   onReachOldestEdge,
 }: PatientDailyCalendarProps) {
   const dayMap = new Map(days.map((entry) => [entry.date, entry]));
@@ -100,9 +104,10 @@ export function PatientDailyCalendar({
   const [isInteracting, setIsInteracting] = useState(false);
   const loadMoreInFlightRef = useRef(false);
   const loadMoreRequestedOldestRef = useRef<string | null>(null);
+  const isCalendarOverlayVisible = overlayLoading || oldestEdgeLoading;
 
   const visibleMonthKey = useMemo(() => {
-    const sourceMonthKey = initialMonthKey ?? visibleMonthKeyState;
+    const sourceMonthKey = visibleMonthKeyState;
     if (sourceMonthKey < effectiveOldestMonthKey) {
       return effectiveOldestMonthKey;
     }
@@ -110,17 +115,12 @@ export function PatientDailyCalendar({
       return effectiveNewestMonthKey;
     }
     return sourceMonthKey;
-  }, [effectiveOldestMonthKey, effectiveNewestMonthKey, initialMonthKey, visibleMonthKeyState]);
+  }, [effectiveOldestMonthKey, effectiveNewestMonthKey, visibleMonthKeyState]);
 
   const monthKeys = useMemo(
     () => buildMonthRange(effectiveOldestMonthKey, getRelativeMonthKey(currentMonthKey, 1)),
     [currentMonthKey, effectiveOldestMonthKey]
   );
-
-  const visibleMonthIndex = useMemo(() => {
-    const idx = monthKeys.indexOf(visibleMonthKey);
-    return idx >= 0 ? idx : monthKeys.indexOf(currentMonthKey);
-  }, [monthKeys, visibleMonthKey, currentMonthKey]);
 
   const reboundToNewestAllowedMonth = useCallback(() => {
     const newestIndex = monthKeys.indexOf(effectiveNewestMonthKey);
@@ -155,18 +155,17 @@ export function PatientDailyCalendar({
   }, [effectiveOldestMonthKey]);
 
   useEffect(() => {
-    const currentIndex = monthKeys.indexOf(visibleMonthKey);
-    if (currentIndex >= 0) {
-      carouselApi?.scrollTo(currentIndex);
-    }
-  }, [carouselApi, monthKeys, visibleMonthKey]);
-
-  useEffect(() => {
-    if (!carouselApi || visibleMonthIndex < 0) {
+    if (!carouselApi) {
       return;
     }
-    carouselApi.scrollTo(visibleMonthIndex, true);
-  }, [carouselApi, visibleMonthIndex]);
+    const targetIndex = monthKeys.indexOf(visibleMonthKey);
+    if (targetIndex < 0) {
+      return;
+    }
+    if (carouselApi.selectedScrollSnap() !== targetIndex) {
+      carouselApi.scrollTo(targetIndex, true);
+    }
+  }, [carouselApi, monthKeys, visibleMonthKey]);
 
   useEffect(() => {
     if (!carouselApi) {
@@ -182,17 +181,17 @@ export function PatientDailyCalendar({
         reboundToNewestAllowedMonth();
         return;
       }
-      setVisibleMonthKeyState(selectedMonthKey);
+      if (selectedMonthKey !== visibleMonthKeyState) {
+        setVisibleMonthKeyState(selectedMonthKey);
+      }
       requestLoadOlderAtEdge(selectedMonthKey);
     };
     carouselApi.on("select", onSelect);
-    carouselApi.on("settle", onSelect);
     onSelect();
     return () => {
       carouselApi.off("select", onSelect);
-      carouselApi.off("settle", onSelect);
     };
-  }, [carouselApi, effectiveNewestMonthKey, monthKeys, reboundToNewestAllowedMonth, requestLoadOlderAtEdge]);
+  }, [carouselApi, effectiveNewestMonthKey, monthKeys, reboundToNewestAllowedMonth, requestLoadOlderAtEdge, visibleMonthKeyState]);
 
   useEffect(() => {
     if (visibleMonthKey <= effectiveNewestMonthKey) {
@@ -201,6 +200,9 @@ export function PatientDailyCalendar({
   }, [effectiveNewestMonthKey, onMonthChange, visibleMonthKey]);
 
   function moveMonth(offset: number): void {
+    if (isCalendarOverlayVisible) {
+      return;
+    }
     const currentIndex = monthKeys.indexOf(visibleMonthKey);
     if (currentIndex < 0 || !carouselApi) {
       return;
@@ -213,10 +215,16 @@ export function PatientDailyCalendar({
   }
 
   function handleTouchStart(): void {
+    if (isCalendarOverlayVisible) {
+      return;
+    }
     setIsInteracting(true);
   }
 
   function handleTouchEnd(): void {
+    if (isCalendarOverlayVisible) {
+      return;
+    }
     setIsInteracting(false);
   }
 
@@ -248,7 +256,7 @@ export function PatientDailyCalendar({
           key={cell.dateKey}
           data-testid="calendar-day-cell"
           className={clsx(
-            "h-11 rounded-md border border-white/80 text-center flex items-center justify-center",
+            "aspect-square h-auto min-h-10 rounded-md border border-white/80 text-center flex items-center justify-center lg:aspect-auto lg:h-11",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-700/80 focus-visible:ring-offset-1",
             backgroundClass,
             cell.isToday && "ring-2 ring-zinc-800/70 ring-offset-1",
@@ -258,7 +266,7 @@ export function PatientDailyCalendar({
           title={`${cell.dateKey}：${cell.uploadCount} 次上傳`}
           aria-label={`${cell.dateKey} ${cell.uploadCount} uploads`}
           onClick={() => onDayClick?.(cell.dateKey)}
-          disabled={!onDayClick}
+          disabled={!onDayClick || isCalendarOverlayVisible}
         >
           <span className={clsx("text-[11px]", isMutedAdjacentDay ? "font-normal" : "font-semibold")}>{cell.dayOfMonth}</span>
         </button>
@@ -266,9 +274,22 @@ export function PatientDailyCalendar({
     });
   }
 
+  function renderCalendarOverlaySkeleton() {
+    const skeletonGrid = buildTaipeiMonthGrid(visibleMonthKey);
+    return skeletonGrid.cells.map((cell) => (
+      <div
+        key={`calendar-skeleton-${cell.dateKey}`}
+        data-testid="calendar-skeleton-cell"
+        className="aspect-square h-auto min-h-10 rounded-md border border-white/80 bg-zinc-200/60 animate-pulse lg:aspect-auto lg:h-11"
+        aria-hidden="true"
+      />
+    ));
+  }
+
   return (
     <section
       aria-label="每日上傳日曆"
+      aria-busy={isCalendarOverlayVisible}
       className="rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-4"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
@@ -279,30 +300,53 @@ export function PatientDailyCalendar({
         <span className="text-xs text-zinc-500">{monthLabel}</span>
       </div>
 
-      <div className="mt-3 grid grid-cols-7 gap-2 text-center text-xs text-zinc-500">
-        {weekdayLabels.map((weekday) => (
-          <span key={weekday}>{weekday}</span>
-        ))}
-      </div>
-
-      <Carousel
-        setApi={setCarouselApi}
-        opts={{ align: "start" }}
-        withGutter={false}
-        data-testid="calendar-carousel"
-        className="mt-2"
-      >
-        <CarouselContent data-testid="calendar-carousel-content">
-          {monthKeys.map((monthKey) => (
-            <CarouselItem
-              key={monthKey}
-              data-testid="calendar-carousel-item"
-            >
-              <div className="grid grid-cols-7 gap-2">{renderMonthCells(monthKey)}</div>
-            </CarouselItem>
+      <div className="relative mt-3">
+        <div className="grid grid-cols-7 gap-2 text-center text-xs text-zinc-500">
+          {weekdayLabels.map((weekday) => (
+            <span key={weekday}>{weekday}</span>
           ))}
-        </CarouselContent>
-      </Carousel>
+        </div>
+
+        <Carousel
+          setApi={setCarouselApi}
+          opts={{ align: "start", watchDrag: !isCalendarOverlayVisible }}
+          withGutter={false}
+          data-testid="calendar-carousel"
+          className="mt-2"
+        >
+          <CarouselContent data-testid="calendar-carousel-content">
+            {monthKeys.map((monthKey) => (
+              <CarouselItem
+                key={monthKey}
+                data-testid="calendar-carousel-item"
+              >
+                <div className="grid grid-cols-7 gap-2">
+                  {renderMonthCells(monthKey)}
+                </div>
+              </CarouselItem>
+            ))}
+          </CarouselContent>
+        </Carousel>
+
+        {isCalendarOverlayVisible ? (
+          <div
+            data-testid="calendar-loading-overlay"
+            className="absolute inset-0 z-10 rounded-2xl bg-zinc-50/85 backdrop-blur-[1px] p-1"
+            aria-hidden="true"
+          >
+            <div className="grid grid-cols-7 gap-2 text-center text-xs">
+              {weekdayLabels.map((weekday) => (
+                <span key={`skeleton-weekday-${weekday}`} className="text-zinc-300">
+                  {weekday}
+                </span>
+              ))}
+            </div>
+            <div className="mt-2 grid grid-cols-7 gap-2">
+              {renderCalendarOverlaySkeleton()}
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
         <span className="inline-flex items-center gap-1">
