@@ -6,12 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:unit": "jest",
+    "test:unit:watch": "jest --watch"
   },
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",
     "axios": "^1.15.1",
     "clsx": "^2.1.1",
+    "embla-carousel-react": "^8.6.0",
     "http-proxy": "^1.18.1",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",
@@ -22,11 +25,18 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.2.0",
+    "jsdom": "^24.1.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

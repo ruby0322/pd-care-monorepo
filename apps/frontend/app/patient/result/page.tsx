@@ -12,6 +12,11 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 
 type ResultState = "normal" | "suspected" | "rejected" | "technical_error";
 
+const EDUCATION_MATERIALS = [
+  { label: "導管出口換藥影片", href: "https://youtu.be/3aADSNm-9B0?si=lGOmXhqPxJgL11Gd" },
+  { label: "導管出口照護影片", href: "https://youtu.be/KOMvyUt0ap4?si=O4IM6e2LONrNGhYn" },
+] as const;
+
 function ResultPageInner() {
   const searchParams = useSearchParams();
   const queryResult = searchParams.get("result");
@@ -250,38 +255,37 @@ function ResultPageInner() {
           <div className="px-5 py-4 rounded-2xl bg-emerald-50 border border-emerald-100">
             <p className="text-sm font-medium text-emerald-700">附加衛教影片及素材</p>
             <div className="mt-2 flex flex-col gap-2">
-              <a
-                href="https://youtu.be/3aADSNm-9B0?si=lGOmXhqPxJgL11Gd"
-                target="_blank"
-                rel="noreferrer"
-                className="text-sm text-emerald-700 underline underline-offset-2"
-              >
-                導管出口換藥影片
-              </a>
-              <a
-                href="https://youtu.be/KOMvyUt0ap4?si=O4IM6e2LONrNGhYn"
-                target="_blank"
-                rel="noreferrer"
-                className="text-sm text-emerald-700 underline underline-offset-2"
-              >
-                導管出口照護影片
-              </a>
+              {EDUCATION_MATERIALS.map(({ label, href }) => (
+                <a
+                  key={href}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm text-emerald-700 underline underline-offset-2"
+                >
+                  {label}
+                </a>
+              ))}
             </div>
           </div>
         )}
 
         {result === "suspected" && (
           <div className="flex flex-col gap-2 px-4 py-4 rounded-2xl bg-red-600 text-white">
-            <p className="text-xs font-medium text-red-100">照護團隊提醒</p>
-            <p className="text-sm">本次異常紀錄已同步到照護團隊儀表板，護理人員會進一步檢視。</p>
-            <a
-              href="https://reg.ntuh.gov.tw/WebReg"
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm underline underline-offset-2 text-white"
-            >
-              附加網路掛號連結：臺大醫院網路掛號
-            </a>
+            <p className="text-sm font-medium text-red-100">附加衛教影片及素材</p>
+            <div className="flex flex-col gap-2">
+              {EDUCATION_MATERIALS.map(({ label, href }) => (
+                <a
+                  key={href}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm underline underline-offset-2 text-white"
+                >
+                  {label}
+                </a>
+              ))}
+            </div>
           </div>
         )}
 
