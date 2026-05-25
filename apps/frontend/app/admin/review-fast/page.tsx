@@ -50,8 +50,21 @@ function predictionBadgeClass(item: StaffRapidReviewQueueItem): string {
 }
 
 export default function AdminFastReviewPage() {
-  const { loading, saving, bulkSaving, error, visibleItems, imageUrlByUploadId, selectedItem, remainingCount, reloadQueue, selectUpload, annotateUpload, acceptAllVisible } =
-    useRapidReviewGridState();
+  const {
+    loading,
+    saving,
+    bulkSaving,
+    error,
+    visibleItems,
+    imageUrlByUploadId,
+    imageLoadErrorByUploadId,
+    selectedItem,
+    remainingCount,
+    reloadQueue,
+    selectUpload,
+    annotateUpload,
+    acceptAllVisible,
+  } = useRapidReviewGridState();
   const [draft, setDraft] = useState<DraftVerdict>({ label: "suspected", comment: "" });
 
   useEffect(() => {
@@ -131,26 +144,27 @@ export default function AdminFastReviewPage() {
         <section className="grid grid-cols-4 gap-2">
           {visibleItems.map((item) => {
             const imageUrl = imageUrlByUploadId[item.upload_id];
+            const hasImageLoadError = imageLoadErrorByUploadId[item.upload_id] ?? false;
             return (
               <button
                 key={item.upload_id}
                 type="button"
                 onClick={() => selectUpload(item.upload_id)}
-                className="flex aspect-square flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white text-left transition hover:border-zinc-400"
+                className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-100 text-left ring-1 ring-zinc-200 transition hover:ring-zinc-400"
               >
-                <div className="relative flex-1 bg-zinc-100">
-                  {imageUrl ? (
-                    <Image src={imageUrl} alt={`upload-${item.upload_id}`} fill unoptimized className="object-cover" />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-[10px] text-zinc-400">載入中</div>
-                  )}
-                </div>
-                <div className="space-y-1 px-2 py-1.5">
-                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${predictionBadgeClass(item)}`}>
-                    {predictionLabelText(item)}
-                  </span>
-                  <p className="truncate text-[10px] text-zinc-500">{item.case_number}</p>
-                </div>
+                {imageUrl ? (
+                  <Image src={imageUrl} alt={`upload-${item.upload_id}`} fill unoptimized className="object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center px-1 text-center text-[10px] text-zinc-400">
+                    {hasImageLoadError ? "載入失敗" : "載入中"}
+                  </div>
+                )}
+
+                <span
+                  className={`absolute right-1 top-1 inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-medium backdrop-blur ${predictionBadgeClass(item)}`}
+                >
+                  {predictionLabelText(item)}
+                </span>
               </button>
             );
           })}

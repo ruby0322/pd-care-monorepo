@@ -25,6 +25,7 @@ type RapidReviewGridState = {
   queue: StaffRapidReviewQueueItem[];
   visibleItems: StaffRapidReviewQueueItem[];
   imageUrlByUploadId: Record<number, string>;
+  imageLoadErrorByUploadId: Record<number, boolean>;
   selectedUploadId: number | null;
   selectedItem: StaffRapidReviewQueueItem | null;
   remainingCount: number;
@@ -51,6 +52,7 @@ export function useRapidReviewGridState(): RapidReviewGridState {
   const [error, setError] = useState<string | null>(null);
   const [queue, setQueue] = useState<StaffRapidReviewQueueItem[]>([]);
   const [imageUrlByUploadId, setImageUrlByUploadId] = useState<Record<number, string>>({});
+  const [imageLoadErrorByUploadId, setImageLoadErrorByUploadId] = useState<Record<number, boolean>>({});
   const [selectedUploadId, setSelectedUploadId] = useState<number | null>(null);
 
   const reloadQueue = useCallback(async () => {
@@ -60,6 +62,13 @@ export function useRapidReviewGridState(): RapidReviewGridState {
       const sorted = sortUploadsByRisk(response.items);
       const unreviewed = sorted.filter((item) => !item.has_annotation);
       setQueue(unreviewed);
+      const queueUploadIdSet = new Set(unreviewed.map((item) => item.upload_id));
+      setImageUrlByUploadId((current) =>
+        Object.fromEntries(Object.entries(current).filter(([uploadId]) => queueUploadIdSet.has(Number(uploadId))))
+      );
+      setImageLoadErrorByUploadId((current) =>
+        Object.fromEntries(Object.entries(current).filter(([uploadId]) => queueUploadIdSet.has(Number(uploadId))))
+      );
       setSelectedUploadId((current) => (current && unreviewed.some((item) => item.upload_id === current) ? current : null));
       setError(null);
     } catch (queueError) {
@@ -100,6 +109,13 @@ export function useRapidReviewGridState(): RapidReviewGridState {
           if (result.status === "fulfilled") {
             next[missing[index].upload_id] = result.value.image_url;
           }
+        });
+        return next;
+      });
+      setImageLoadErrorByUploadId((current) => {
+        const next = { ...current };
+        accessList.forEach((result, index) => {
+          next[missing[index].upload_id] = result.status === "rejected";
         });
         return next;
       });
@@ -174,6 +190,7 @@ export function useRapidReviewGridState(): RapidReviewGridState {
     queue,
     visibleItems,
     imageUrlByUploadId,
+    imageLoadErrorByUploadId,
     selectedUploadId,
     selectedItem,
     remainingCount: queue.length,
