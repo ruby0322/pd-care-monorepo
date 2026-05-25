@@ -202,8 +202,8 @@ export default function AdminDashboard() {
   );
   const todayChartData = useMemo(
     () => [
-      { key: "suspected", label: "疑似", count: todaySummary?.suspected_uploads ?? 0, fill: "#dc2626" },
-      { key: "normal", label: "非疑似", count: todaySummary?.normal_uploads ?? 0, fill: "#16a34a" },
+      { key: "suspected", label: "疑似感染", count: todaySummary?.suspected_uploads ?? 0, fill: "#dc2626" },
+      { key: "normal", label: "正常", count: todaySummary?.normal_uploads ?? 0, fill: "#16a34a" },
     ],
     [todaySummary]
   );
@@ -225,8 +225,8 @@ export default function AdminDashboard() {
     [dailySuspectedSeries]
   );
   const todayChartConfig: ChartConfig = {
-    suspected: { label: "疑似", color: "#dc2626" },
-    normal: { label: "非疑似", color: "#16a34a" },
+    suspected: { label: "疑似感染", color: "#dc2626" },
+    normal: { label: "正常", color: "#16a34a" },
     count: { label: "筆數" },
   };
   const activeChartConfig: ChartConfig = {

@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  Bolt,
   ChartNoAxesCombined,
   ChevronLeft,
   ChevronRight,
@@ -164,6 +165,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               快速審核
             </Link>
             <Link
+              href="/admin/review-fast"
+              onClick={closeMobileSidebar}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/review-fast"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <Bolt className="w-4 h-4" strokeWidth={1.5} />
+              極速審核
+            </Link>
+            <Link
               href="/admin/registration-review"
               onClick={closeMobileSidebar}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
@@ -303,6 +316,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               <ClipboardCheck className="w-4 h-4" strokeWidth={1.5} />
               {!isSidebarCollapsed ? "快速審核" : null}
+            </Link>
+            <Link
+              href="/admin/review-fast"
+              className={`flex items-center rounded-xl transition-colors text-sm ${
+                isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+              } ${
+                pathname === "/admin/review-fast"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+              aria-label="極速審核"
+              title={isSidebarCollapsed ? "極速審核" : undefined}
+            >
+              <Bolt className="w-4 h-4" strokeWidth={1.5} />
+              {!isSidebarCollapsed ? "極速審核" : null}
             </Link>
             <Link
               href="/admin/registration-review"
