@@ -35,10 +35,12 @@ jest.mock("@/components/ui/carousel", () => {
     Carousel: ({
       children,
       setApi,
+      withGutter: _withGutter,
       ...props
     }: {
       children: React.ReactNode;
       setApi?: (api: FakeApi) => void;
+      withGutter?: boolean;
     }) => {
       const [index, setIndex] = ReactLocal.useState(0);
       const apiRef = ReactLocal.useRef<FakeApi | null>(null);
@@ -152,6 +154,24 @@ describe("PatientDailyCalendar month paging UI", () => {
     expect(screen.getByText("4 月")).toBeInTheDocument();
   });
 
+  test("month header updates when initialMonthKey is controlled", () => {
+    render(
+      <PatientDailyCalendar
+        days={days}
+        initialMonthKey="2026-05"
+        loadedOldestMonthKey="2026-04"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "上個月" }));
+    act(() => {
+      jest.advanceTimersByTime(120);
+    });
+
+    expect(screen.getByText("4 月")).toBeInTheDocument();
+  });
+
   test("centers day labels and bolds current-month dates", () => {
     render(<PatientDailyCalendar days={days} />);
 
@@ -193,7 +213,7 @@ describe("PatientDailyCalendar month paging UI", () => {
     expect(screen.queryByText("6 月")).not.toBeInTheDocument();
   });
 
-  test("reaches oldest edge and triggers load callback once", () => {
+  test("reaches oldest edge and triggers load callback once", async () => {
     const onReachOldestEdge = jest.fn();
     render(
       <PatientDailyCalendar
@@ -214,8 +234,79 @@ describe("PatientDailyCalendar month paging UI", () => {
       jest.advanceTimersByTime(120);
     });
 
+    await act(async () => {
+      await Promise.resolve();
+    });
+
     expect(onReachOldestEdge).toHaveBeenCalledTimes(1);
     expect(onReachOldestEdge).toHaveBeenCalledWith("2026-03");
+  });
+
+  test("shows full-calendar overlay while background loading and keeps base cells mounted", () => {
+    const { rerender } = render(
+      <PatientDailyCalendar
+        days={days}
+        overlayLoading
+        loadedOldestMonthKey="2026-04"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    expect(screen.getByTestId("calendar-loading-overlay")).toBeInTheDocument();
+    expect(screen.getAllByTestId("calendar-skeleton-cell").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("calendar-day-cell").length).toBeGreaterThan(0);
+
+    rerender(
+      <PatientDailyCalendar
+        days={days}
+        loadedOldestMonthKey="2026-04"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    expect(screen.queryByTestId("calendar-loading-overlay")).not.toBeInTheDocument();
+  });
+
+  test("locks month navigation while overlay is visible", () => {
+    render(
+      <PatientDailyCalendar
+        days={days}
+        overlayLoading
+        loadedOldestMonthKey="2026-04"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "上個月" }));
+    act(() => {
+      jest.advanceTimersByTime(120);
+    });
+
+    expect(screen.getByText("5 月")).toBeInTheDocument();
+  });
+
+  test("keeps current month header stable when loaded range expands older months", () => {
+    const { rerender } = render(
+      <PatientDailyCalendar
+        days={days}
+        initialMonthKey="2026-04"
+        loadedOldestMonthKey="2026-04"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    expect(screen.getByText("4 月")).toBeInTheDocument();
+
+    rerender(
+      <PatientDailyCalendar
+        days={days}
+        initialMonthKey="2026-04"
+        loadedOldestMonthKey="2026-01"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    expect(screen.getByText("4 月")).toBeInTheDocument();
   });
 
   test("calendar no longer applies conflicting gutter override classes", () => {

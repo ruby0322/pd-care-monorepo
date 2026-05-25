@@ -60,7 +60,8 @@ export default function PatientPage() {
   const [caseNumber, setCaseNumber] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [loading, setLoading] = useState(true);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [initialHistoryLoading, setInitialHistoryLoading] = useState(false);
+  const [calendarBackgroundLoading, setCalendarBackgroundLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [latestMessage, setLatestMessage] = useState<PatientMessageItem | null>(null);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
@@ -69,6 +70,7 @@ export default function PatientPage() {
   const [messagePreviewError, setMessagePreviewError] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<LoginResponse["role"] | null>(null);
   const [visibleCalendarMonth, setVisibleCalendarMonth] = useState<string | null>(null);
+  const [oldestEdgeLoading, setOldestEdgeLoading] = useState(false);
   const [loadedCalendarBounds, setLoadedCalendarBounds] = useState<{
     oldestMonthKey: string | null;
     newestMonthKey: string | null;
@@ -78,7 +80,8 @@ export default function PatientPage() {
   });
   const loadedMonthWindowsRef = useRef<Set<string>>(new Set());
   const loadingMonthWindowsRef = useRef<Set<string>>(new Set());
-  const historyInflightRef = useRef(0);
+  const initialHistoryInflightRef = useRef(0);
+  const backgroundHistoryInflightRef = useRef(0);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -87,8 +90,13 @@ export default function PatientPage() {
     };
   }, []);
 
-  const loadHistoryWindow = useCallback(async (monthEnd: string, options?: { replace?: boolean }) => {
+  const loadHistoryWindow = useCallback(async (
+    monthEnd: string,
+    options?: { replace?: boolean; mode?: "initial" | "background" }
+  ) => {
     const replace = options?.replace ?? false;
+    const mode = options?.mode ?? "background";
+    const isInitialMode = mode === "initial";
     if (!monthEnd) {
       return;
     }
@@ -96,9 +104,17 @@ export default function PatientPage() {
       return;
     }
     loadingMonthWindowsRef.current.add(monthEnd);
-    historyInflightRef.current += 1;
+    if (isInitialMode) {
+      initialHistoryInflightRef.current += 1;
+    } else {
+      backgroundHistoryInflightRef.current += 1;
+    }
     if (mountedRef.current) {
-      setHistoryLoading(true);
+      if (isInitialMode) {
+        setInitialHistoryLoading(true);
+      } else {
+        setCalendarBackgroundLoading(true);
+      }
     }
     try {
       const history = await fetchUploadHistoryByMonthWindow(monthEnd);
@@ -126,9 +142,14 @@ export default function PatientPage() {
       }
     } finally {
       loadingMonthWindowsRef.current.delete(monthEnd);
-      historyInflightRef.current = Math.max(0, historyInflightRef.current - 1);
+      if (isInitialMode) {
+        initialHistoryInflightRef.current = Math.max(0, initialHistoryInflightRef.current - 1);
+      } else {
+        backgroundHistoryInflightRef.current = Math.max(0, backgroundHistoryInflightRef.current - 1);
+      }
       if (mountedRef.current) {
-        setHistoryLoading(historyInflightRef.current > 0);
+        setInitialHistoryLoading(initialHistoryInflightRef.current > 0);
+        setCalendarBackgroundLoading(backgroundHistoryInflightRef.current > 0);
       }
     }
   }, []);
@@ -140,7 +161,7 @@ export default function PatientPage() {
         return;
       }
       const prefetchWindowEnd = getRelativeMonthKey(monthKey, -3);
-      void loadHistoryWindow(prefetchWindowEnd);
+      void loadHistoryWindow(prefetchWindowEnd, { mode: "background" });
     },
     [loadHistoryWindow, status]
   );
@@ -215,19 +236,23 @@ export default function PatientPage() {
             setHistoryError(null);
             setMessagePreviewError(null);
             setVisibleCalendarMonth(currentMonthKey);
+            setOldestEdgeLoading(false);
             setLoadedCalendarBounds({
               oldestMonthKey: null,
               newestMonthKey: null,
             });
+            setInitialHistoryLoading(true);
+            setCalendarBackgroundLoading(false);
           }
           loadedMonthWindowsRef.current.clear();
           loadingMonthWindowsRef.current.clear();
-          historyInflightRef.current = 0;
+          initialHistoryInflightRef.current = 0;
+          backgroundHistoryInflightRef.current = 0;
           if (!cancelled) {
             setHistoryDays([]);
           }
           try {
-            await loadHistoryWindow(currentMonthKey, { replace: true });
+            await loadHistoryWindow(currentMonthKey, { replace: true, mode: "initial" });
           } catch {}
           try {
             const latest = await fetchPatientMessages({ limit: 1 });
@@ -241,7 +266,8 @@ export default function PatientPage() {
             }
           } finally {
             if (!cancelled) {
-              setHistoryLoading(historyInflightRef.current > 0);
+              setInitialHistoryLoading(initialHistoryInflightRef.current > 0);
+              setCalendarBackgroundLoading(backgroundHistoryInflightRef.current > 0);
             }
           }
         } else if (!cancelled) {
@@ -254,17 +280,20 @@ export default function PatientPage() {
           });
           setLatestMessage(null);
           setUnreadMessageCount(0);
-          setHistoryLoading(false);
+          setInitialHistoryLoading(false);
+          setCalendarBackgroundLoading(false);
           setHistoryError(null);
           setMessagePreviewError(null);
           setVisibleCalendarMonth(null);
+          setOldestEdgeLoading(false);
           setLoadedCalendarBounds({
             oldestMonthKey: null,
             newestMonthKey: null,
           });
           loadedMonthWindowsRef.current.clear();
           loadingMonthWindowsRef.current.clear();
-          historyInflightRef.current = 0;
+          initialHistoryInflightRef.current = 0;
+          backgroundHistoryInflightRef.current = 0;
         }
       } catch (err) {
         if (!cancelled) {
@@ -345,7 +374,7 @@ export default function PatientPage() {
           </div>
 
           <div className="mt-6">
-            {historyLoading ? (
+            {initialHistoryLoading && historyDays.length === 0 ? (
               <div className="rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-6 text-sm text-zinc-500">
                 正在載入上傳日曆...
               </div>
@@ -355,10 +384,17 @@ export default function PatientPage() {
                 initialMonthKey={visibleCalendarMonth ?? undefined}
                 loadedOldestMonthKey={loadedCalendarBounds.oldestMonthKey ?? undefined}
                 loadedNewestMonthKey={loadedCalendarBounds.newestMonthKey ?? currentMonthKey}
+                oldestEdgeLoading={oldestEdgeLoading}
+                overlayLoading={calendarBackgroundLoading || oldestEdgeLoading}
                 onMonthChange={handleCalendarMonthChange}
-                onReachOldestEdge={(oldestMonthKey) => {
+                onReachOldestEdge={async (oldestMonthKey) => {
+                  setOldestEdgeLoading(true);
                   const nextWindowEnd = getRelativeMonthKey(oldestMonthKey, -1);
-                  void loadHistoryWindow(nextWindowEnd);
+                  try {
+                    await loadHistoryWindow(nextWindowEnd, { mode: "background" });
+                  } finally {
+                    setOldestEdgeLoading(false);
+                  }
                 }}
                 onDayClick={(dayKey) => {
                   router.push(`/patient/day/${dayKey}`);
