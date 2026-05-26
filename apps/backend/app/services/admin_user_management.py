@@ -191,6 +191,7 @@ def list_identities(
             or_(
                 LiffIdentity.line_user_id.ilike(q),
                 LiffIdentity.display_name.ilike(q),
+                LiffIdentity.real_name.ilike(q),
             )
         )
     if role:
@@ -329,6 +330,45 @@ def update_identity_status(
             action="identity_status_update",
             before_value=before_value,
             after_value=after_value,
+            reason=reason,
+        )
+    )
+    session.commit()
+    session.refresh(identity)
+    return identity
+
+
+def update_identity_real_name(
+    session: Session,
+    *,
+    actor_identity_id: int,
+    actor_role: str,
+    target_identity_id: int,
+    real_name: str,
+    reason: str | None,
+) -> LiffIdentity:
+    if actor_role != "admin":
+        raise PermissionError("不可踰越階級：僅 admin 可調整姓名")
+    identity = session.get(LiffIdentity, target_identity_id)
+    if identity is None:
+        raise LookupError("Identity not found")
+    if identity.role not in {"staff", "admin"}:
+        raise PermissionError("僅可編輯 staff/admin 的真實姓名")
+
+    normalized_name = real_name.strip()
+    if not normalized_name:
+        raise ValueError("Real name cannot be empty")
+
+    before_value = identity.real_name
+    identity.real_name = normalized_name
+    session.add(
+        AuthorizationAuditEvent(
+            actor_identity_id=actor_identity_id,
+            actor_role=actor_role,
+            target_identity_id=identity.id,
+            action="identity_real_name_update",
+            before_value=before_value,
+            after_value=normalized_name,
             reason=reason,
         )
     )

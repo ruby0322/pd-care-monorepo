@@ -60,6 +60,7 @@ cp .env.example .env
 set -a
 . ./.env
 set +a
+python3 -m alembic -c alembic.ini upgrade head
 python3 -m uvicorn app.main:app --reload
 ```
 
@@ -200,6 +201,32 @@ docker-compose exec -T postgres psql -U postgres -d pd_care < sql/manual/patient
 Adjust `-U`, `-d`, and service name to match your Compose file.
 
 The bound **`line_user_id`** and demo **`case_number`** / **`birth_date`** are defined inside those files; change them there if you need a different tester account.
+
+## Database migrations (Alembic)
+
+Schema evolution is managed by Alembic under `migrations/versions`.
+
+- Upgrade to latest:
+
+```bash
+python3 -m alembic -c alembic.ini upgrade head
+```
+
+- Create a new migration revision:
+
+```bash
+python3 -m alembic -c alembic.ini revision -m "describe_change"
+```
+
+### Non-destructive migration policy
+
+- Default policy: no `DROP`, `TRUNCATE`, table recreation, or irreversible data-destructive operations.
+- If a destructive operation is unavoidable, it must be explicitly approved and annotated with `allow-destructive-migration`.
+- Validate migration files with:
+
+```bash
+python3 scripts/check_non_destructive_migrations.py
+```
 
 ## Tests
 

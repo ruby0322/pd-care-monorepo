@@ -29,7 +29,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from app.db.base import Base
+from app.db.migrations import upgrade_database
 from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, Upload
 from app.db.session import create_engine_from_url, create_session_factory
 
@@ -50,9 +50,8 @@ _UPLOAD_ROWS: list[tuple[str, str, str, str, float]] = [
 
 
 def _ensure_schema(engine: Engine) -> None:
-    """Create tables if missing (week-1 schema). No-op when tables already exist."""
-    _ = (Patient, LiffIdentity, PendingBinding, Upload, AIResult, Notification, Annotation)
-    Base.metadata.create_all(bind=engine)
+    """Ensure schema is current via Alembic migrations."""
+    upgrade_database(str(engine.url))
 
 
 def _parse_local_dt(value: str) -> datetime:

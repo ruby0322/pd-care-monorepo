@@ -12,6 +12,7 @@ from PIL import Image
 from app.config import Settings
 from app.main import create_app
 from app.model_loader import LoadedModel
+from tests.db_test_utils import migrated_sqlite_database_url
 
 
 class DummyModel(torch.nn.Module):
@@ -21,7 +22,7 @@ class DummyModel(torch.nn.Module):
         return logits.repeat(batch_size, 1)
 
 
-def make_settings() -> Settings:
+def make_settings(db_path: Path) -> Settings:
     return Settings(
         app_name="test-api",
         app_env="test",
@@ -48,7 +49,7 @@ def make_settings() -> Settings:
         ),
         workers=1,
         eval_hflip_tta=False,
-        database_url="sqlite+pysqlite:///:memory:",
+        database_url=migrated_sqlite_database_url(db_path),
         s3_endpoint_url="http://localhost:8333",
         s3_region="us-east-1",
         s3_access_key="seaweed-access",
@@ -94,8 +95,8 @@ def test_reference_style_backend_modules_exist() -> None:
     assert ServiceLoadedModel is LoadedModel
 
 
-def test_openapi_and_swagger_ui_available() -> None:
-    settings = make_settings()
+def test_openapi_and_swagger_ui_available(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "test-openapi.db")
     app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
     client = TestClient(app)
 
@@ -109,8 +110,8 @@ def test_openapi_and_swagger_ui_available() -> None:
     assert client.get("/redoc").status_code == 200
 
 
-def test_health_and_ready_endpoints() -> None:
-    settings = make_settings()
+def test_health_and_ready_endpoints(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "test-health.db")
     app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
     client = TestClient(app)
 
@@ -119,11 +120,13 @@ def test_health_and_ready_endpoints() -> None:
         "status": "ready",
         "model_loaded": True,
         "device": "cpu",
+        "prescreen_enabled": False,
+        "prescreen_model_loaded": False,
     }
 
 
-def test_predict_endpoint_returns_screening_payload() -> None:
-    settings = make_settings()
+def test_predict_endpoint_returns_screening_payload(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "test-predict.db")
     app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
     client = TestClient(app)
 
@@ -141,8 +144,8 @@ def test_predict_endpoint_returns_screening_payload() -> None:
     assert len(payload["class_probabilities"]) == 5
 
 
-def test_predict_rejects_unsupported_media_type() -> None:
-    settings = make_settings()
+def test_predict_rejects_unsupported_media_type(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "test-reject-content.db")
     app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
     client = TestClient(app)
 
@@ -154,8 +157,8 @@ def test_predict_rejects_unsupported_media_type() -> None:
     assert response.status_code == 415
 
 
-def test_cors_preflight_allows_localhost_nonstandard_port() -> None:
-    settings = make_settings()
+def test_cors_preflight_allows_localhost_nonstandard_port(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "test-cors-local.db")
     app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
     client = TestClient(app)
 
@@ -171,8 +174,8 @@ def test_cors_preflight_allows_localhost_nonstandard_port() -> None:
     assert response.headers["access-control-allow-origin"] == "http://localhost:49808"
 
 
-def test_cors_preflight_allows_mobile_lan_origin() -> None:
-    settings = make_settings()
+def test_cors_preflight_allows_mobile_lan_origin(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "test-cors-lan.db")
     app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
     client = TestClient(app)
 

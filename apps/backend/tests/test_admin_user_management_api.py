@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.db.models import LiffIdentity
 from app.main import create_app
+from tests.db_test_utils import migrated_sqlite_database_url
 
 
 def make_settings(db_path: Path) -> Settings:
@@ -35,7 +36,7 @@ def make_settings(db_path: Path) -> Settings:
         cors_allowed_origin_regex=r"^https?://(?:\d{1,3}\.){3}\d{1,3}:3000$",
         workers=1,
         eval_hflip_tta=False,
-        database_url=f"sqlite+pysqlite:///{db_path}",
+        database_url=migrated_sqlite_database_url(db_path),
         s3_endpoint_url="http://localhost:8333",
         s3_region="us-east-1",
         s3_access_key="seaweed-access",
@@ -49,12 +50,20 @@ def make_settings(db_path: Path) -> Settings:
     )
 
 
-def _seed_identity(client: TestClient, *, line_user_id: str, role: str, is_active: bool = True) -> int:
+def _seed_identity(
+    client: TestClient,
+    *,
+    line_user_id: str,
+    role: str,
+    is_active: bool = True,
+    real_name: str | None = None,
+) -> int:
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
         identity = LiffIdentity(
             line_user_id=line_user_id,
             display_name=line_user_id,
+            real_name=real_name,
             picture_url=None,
             patient_id=None,
             role=role,
@@ -231,6 +240,24 @@ def test_admin_user_list_supports_created_date_range_filters(tmp_path: Path) -> 
         assert "U_MID_USER" not in feb_ids
 
 
+def test_admin_user_list_includes_real_name_field_with_null_default(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-real-name-null.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_REALNAME", role="admin")
+        _seed_identity(client, line_user_id="U_STAFF_REALNAME", role="staff")
+
+        token = _login_token(client, "U_ADMIN_REALNAME")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/v1/staff/admin/users?exclude_patient=true", headers=headers)
+        assert response.status_code == 200
+        items = response.json()["items"]
+        staff_item = next(item for item in items if item["line_user_id"] == "U_STAFF_REALNAME")
+        assert "real_name" in staff_item
+        assert staff_item["real_name"] is None
+
+
 def test_admin_user_list_excludes_patient_when_requested(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "admin-user-management-exclude-patient.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
@@ -256,6 +283,88 @@ def test_admin_user_list_excludes_patient_when_requested(tmp_path: Path) -> None
         tampered = client.get("/v1/staff/admin/users?exclude_patient=true&role=patient", headers=headers)
         assert tampered.status_code == 200
         assert tampered.json()["items"] == []
+
+
+def test_admin_can_update_real_name_for_staff_or_admin(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-update-real-name.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_REAL_NAME_EDITOR", role="admin")
+        staff_id = _seed_identity(client, line_user_id="U_STAFF_REAL_NAME_TARGET", role="staff", real_name=None)
+
+        token = _login_token(client, "U_ADMIN_REAL_NAME_EDITOR")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        update_response = client.post(
+            f"/v1/staff/admin/users/{staff_id}/real-name",
+            headers=headers,
+            json={"real_name": "Dr. Wang"},
+        )
+        assert update_response.status_code == 200
+        assert update_response.json()["real_name"] == "Dr. Wang"
+
+
+def test_admin_cannot_update_real_name_for_patient_identity(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-update-real-name-patient.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_REAL_NAME_EDITOR", role="admin")
+        patient_id = _seed_identity(client, line_user_id="U_PATIENT_REAL_NAME_TARGET", role="patient")
+
+        token = _login_token(client, "U_ADMIN_REAL_NAME_EDITOR")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        update_response = client.post(
+            f"/v1/staff/admin/users/{patient_id}/real-name",
+            headers=headers,
+            json={"real_name": "Patient Name"},
+        )
+        assert update_response.status_code == 403
+
+
+def test_admin_update_real_name_rejects_whitespace_only_value(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-update-real-name-blank.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_REAL_NAME_EDITOR", role="admin")
+        staff_id = _seed_identity(client, line_user_id="U_STAFF_REAL_NAME_TARGET", role="staff")
+
+        token = _login_token(client, "U_ADMIN_REAL_NAME_EDITOR")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        update_response = client.post(
+            f"/v1/staff/admin/users/{staff_id}/real-name",
+            headers=headers,
+            json={"real_name": "   "},
+        )
+        assert update_response.status_code == 400
+
+
+def test_admin_real_name_update_is_reflected_in_list_query(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-real-name-query.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_REAL_NAME_EDITOR", role="admin")
+        staff_id = _seed_identity(client, line_user_id="U_STAFF_QUERY_TARGET", role="staff")
+
+        token = _login_token(client, "U_ADMIN_REAL_NAME_EDITOR")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        update_response = client.post(
+            f"/v1/staff/admin/users/{staff_id}/real-name",
+            headers=headers,
+            json={"real_name": "Dr. Query"},
+        )
+        assert update_response.status_code == 200
+
+        query_response = client.get(
+            "/v1/staff/admin/users?exclude_patient=true&query=Dr.%20Query",
+            headers=headers,
+        )
+        assert query_response.status_code == 200
+        ids = {item["line_user_id"] for item in query_response.json()["items"]}
+        assert "U_STAFF_QUERY_TARGET" in ids
+
 
 def test_admin_can_preview_and_delete_inactive_users_in_scope(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "admin-user-management-bulk-delete.db")
