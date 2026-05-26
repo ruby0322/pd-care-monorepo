@@ -1220,3 +1220,55 @@ def test_admin_bulk_assignment_returns_invalid_items(tmp_path: Path) -> None:
         statuses = [item["status"] for item in payload["results"]]
         assert statuses.count("updated") == 1
         assert statuses.count("invalid") == 2
+
+
+def test_admin_can_assign_patient_to_admin_assignee(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-admin-target.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_OPERATOR", role="admin")
+        admin_assignee_id = _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_TARGET", role="admin")
+        patient_id = _seed_patient_with_uploads(client)
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN_OPERATOR")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        assign_response = client.post(
+            "/v1/staff/admin/assignments",
+            headers=headers,
+            json={"patient_id": patient_id, "staff_identity_id": admin_assignee_id},
+        )
+        assert assign_response.status_code == 200
+        assert assign_response.json()["status"] == "updated"
+
+        list_response = client.get("/v1/staff/admin/assignments", headers=headers)
+        assert list_response.status_code == 200
+        assigned_item = next((item for item in list_response.json()["items"] if item["patient_id"] == patient_id), None)
+        assert assigned_item is not None
+        assert assigned_item["staff_identity_id"] == admin_assignee_id
+
+
+def test_admin_bulk_assignment_accepts_admin_assignee(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-admin-target-bulk.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_BULK_OPERATOR", role="admin")
+        admin_assignee_id = _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_BULK_TARGET", role="admin")
+        patient_id = _seed_patient_with_uploads(client)
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN_BULK_OPERATOR")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        response = client.post(
+            "/v1/staff/admin/assignments/bulk",
+            headers=headers,
+            json={"assignments": [{"patient_id": patient_id, "staff_identity_id": admin_assignee_id}]},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["results"] == [
+            {
+                "patient_id": patient_id,
+                "staff_identity_id": admin_assignee_id,
+                "status": "updated",
+                "detail": None,
+            }
+        ]
