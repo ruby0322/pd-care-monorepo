@@ -21,6 +21,10 @@ COPY requirements.txt ./requirements.txt
 RUN python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt
 
 COPY app ./app
+COPY migrations ./migrations
+COPY alembic.ini ./alembic.ini
+COPY scripts ./scripts
+RUN chmod +x ./scripts/start-backend.sh
 
 RUN mkdir -p /models && chown -R appuser:appuser ${APP_HOME} /models
 
@@ -31,5 +35,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl --fail http://127.0.0.1:8000/healthz || exit 1
 
-CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["./scripts/start-backend.sh"]
 

@@ -1,9 +1,10 @@
 import { apiClient } from "@/lib/api/client";
-import { fetchAdminUsers } from "@/lib/api/staff";
+import { fetchAdminUsers, updateAdminUserRealName } from "@/lib/api/staff";
 
 jest.mock("@/lib/api/client", () => ({
   apiClient: {
     get: jest.fn(),
+    post: jest.fn(),
   },
 }));
 
@@ -23,6 +24,43 @@ describe("fetchAdminUsers", () => {
         created_from: undefined,
         created_to: undefined,
       },
+    });
+  });
+
+  test("returns identity items with real_name values", async () => {
+    const getMock = apiClient.get as jest.Mock;
+    getMock.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            id: 1,
+            line_user_id: "U_STAFF_1",
+            display_name: "LINE Name",
+            real_name: "Dr. Lin",
+            role: "staff",
+            is_active: true,
+            patient_id: null,
+            created_at: "2026-05-01T00:00:00Z",
+          },
+        ],
+      },
+    });
+
+    const items = await fetchAdminUsers();
+
+    expect(items[0]?.real_name).toBe("Dr. Lin");
+  });
+});
+
+describe("updateAdminUserRealName", () => {
+  test("sends real-name update payload to admin endpoint", async () => {
+    const postMock = apiClient.post as jest.Mock;
+    postMock.mockResolvedValueOnce({ data: { id: 9, real_name: "Dr. Lin" } });
+
+    await updateAdminUserRealName(9, { real_name: "Dr. Lin" });
+
+    expect(postMock).toHaveBeenCalledWith("/v1/staff/admin/users/9/real-name", {
+      real_name: "Dr. Lin",
     });
   });
 });

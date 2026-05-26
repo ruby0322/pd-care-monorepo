@@ -1,92 +1,14 @@
 from __future__ import annotations
 
 from sqlalchemy.engine import Engine
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
-from app.db.base import Base
 from app.db.models import (
-    AIResult,
-    Annotation,
-    AuthorizationAuditEvent,
-    HealthcareAccessRequest,
     LiffIdentity,
-    Notification,
-    Patient,
-    PendingBinding,
-    StaffPatientAssignment,
-    Upload,
 )
 from app.db.session import create_engine_from_url, create_session_factory, ensure_postgres_database_exists, ping_database
-
-
-def _ensure_role_column(engine: Engine) -> None:
-    inspector = inspect(engine)
-    columns = {column["name"] for column in inspector.get_columns("liff_identities")}
-    if "role" in columns:
-        return
-
-    with engine.begin() as connection:
-        connection.execute(
-            text("ALTER TABLE liff_identities ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'patient'")
-        )
-
-
-def _ensure_annotation_reviewer_column(engine: Engine) -> None:
-    inspector = inspect(engine)
-    columns = {column["name"] for column in inspector.get_columns("annotations")}
-    if "reviewer_identity_id" in columns:
-        return
-    if "staff_user_id" in columns:
-        with engine.begin() as connection:
-            connection.execute(
-                text(
-                    "ALTER TABLE annotations "
-                    "ADD COLUMN reviewer_identity_id INTEGER REFERENCES liff_identities(id)"
-                )
-            )
-
-
-def _ensure_annotation_staff_user_nullable(engine: Engine) -> None:
-    inspector = inspect(engine)
-    columns = {column["name"] for column in inspector.get_columns("annotations")}
-    if "staff_user_id" not in columns:
-        return
-
-    with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE annotations ALTER COLUMN staff_user_id DROP NOT NULL"))
-
-
-def _ensure_annotation_patient_read_at_column(engine: Engine) -> None:
-    inspector = inspect(engine)
-    columns = {column["name"] for column in inspector.get_columns("annotations")}
-    if "patient_read_at" in columns:
-        return
-    with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE annotations ADD COLUMN patient_read_at TIMESTAMP"))
-
-
-def _ensure_identity_is_active_column(engine: Engine) -> None:
-    inspector = inspect(engine)
-    columns = {column["name"] for column in inspector.get_columns("liff_identities")}
-    if "is_active" in columns:
-        return
-    with engine.begin() as connection:
-        connection.execute(
-            text("ALTER TABLE liff_identities ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
-        )
-
-
-def _ensure_patient_gender_column(engine: Engine) -> None:
-    inspector = inspect(engine)
-    columns = {column["name"] for column in inspector.get_columns("patients")}
-    if "gender" in columns:
-        return
-    with engine.begin() as connection:
-        connection.execute(
-            text("ALTER TABLE patients ADD COLUMN gender VARCHAR(16) NOT NULL DEFAULT 'unknown'")
-        )
 
 
 def _seed_pilot_identities(session_factory: sessionmaker, settings: Settings) -> None:
@@ -152,29 +74,9 @@ def _promote_single_ruby_admin(session_factory: sessionmaker) -> None:
 
 
 def initialize_database(database_url: str, settings: Settings | None = None) -> tuple[Engine, sessionmaker]:
-    # Importing models above ensures metadata includes all week-1 tables.
-    _ = (
-        Patient,
-        LiffIdentity,
-        PendingBinding,
-        StaffPatientAssignment,
-        Upload,
-        AIResult,
-        Notification,
-        Annotation,
-        HealthcareAccessRequest,
-        AuthorizationAuditEvent,
-    )
     ensure_postgres_database_exists(database_url)
     engine = create_engine_from_url(database_url)
     ping_database(engine)
-    Base.metadata.create_all(bind=engine)
-    _ensure_role_column(engine)
-    _ensure_annotation_reviewer_column(engine)
-    _ensure_annotation_staff_user_nullable(engine)
-    _ensure_annotation_patient_read_at_column(engine)
-    _ensure_identity_is_active_column(engine)
-    _ensure_patient_gender_column(engine)
     session_factory = create_session_factory(engine)
     if settings is not None:
         _seed_pilot_identities(session_factory, settings)

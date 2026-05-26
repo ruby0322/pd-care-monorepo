@@ -16,6 +16,7 @@ from app.api.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging, get_logger
 from app.db.init_db import initialize_database
+from app.db.migrations import upgrade_database
 from app.services.model_loader import LoadedModel, load_model
 from app.services.prescreen import LoadedPrescreenModel, PrescreenLoadError, load_prescreen_model
 from app.services.storage import StorageService, build_storage_client
@@ -62,6 +63,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = settings
+        upgrade_database(settings.database_url)
         engine, session_factory = initialize_database(settings.database_url, settings=settings)
         app.state.db_engine = engine
         app.state.db_session_factory = session_factory

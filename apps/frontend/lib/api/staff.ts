@@ -190,6 +190,7 @@ export type AdminIdentityItem = {
   id: number;
   line_user_id: string;
   display_name: string | null;
+  real_name: string | null;
   role: "patient" | "staff" | "admin";
   is_active: boolean;
   patient_id: number | null;
@@ -534,6 +535,14 @@ export async function updateAdminUserStatus(
   payload: { is_active: boolean; reason?: string }
 ): Promise<AdminIdentityItem> {
   const { data } = await apiClient.post<AdminIdentityItem>(`/v1/staff/admin/users/${identityId}/status`, payload);
+  return data;
+}
+
+export async function updateAdminUserRealName(
+  identityId: number,
+  payload: { real_name: string; reason?: string }
+): Promise<AdminIdentityItem> {
+  const { data } = await apiClient.post<AdminIdentityItem>(`/v1/staff/admin/users/${identityId}/real-name`, payload);
   return data;
 }
 

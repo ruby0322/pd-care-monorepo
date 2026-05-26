@@ -67,6 +67,7 @@ from app.schemas.admin_user_management import (
     AdminIdentityItem,
     AdminIdentityListResponse,
     AdminRejectHealthcarePermissionRequest,
+    AdminUpdateIdentityRealNameRequest,
     AdminUpdateIdentityRoleRequest,
     AdminUpdateIdentityStatusRequest,
 )
@@ -78,6 +79,7 @@ from app.services.admin_user_management import (
     list_identities,
     preview_delete_inactive_identities,
     reject_healthcare_permission_request,
+    update_identity_real_name,
     update_identity_role,
     update_identity_status,
 )
@@ -198,6 +200,7 @@ async def list_admin_users(
                     id=row.id,
                     line_user_id=row.line_user_id,
                     display_name=row.display_name,
+                    real_name=row.real_name,
                     role=row.role,  # type: ignore[arg-type]
                     is_active=row.is_active,
                     patient_id=row.patient_id,
@@ -277,6 +280,7 @@ async def update_admin_user_role(
             id=identity.id,
             line_user_id=identity.line_user_id,
             display_name=identity.display_name,
+            real_name=identity.real_name,
             role=identity.role,  # type: ignore[arg-type]
             is_active=identity.is_active,
             patient_id=identity.patient_id,
@@ -313,6 +317,46 @@ async def update_admin_user_status(
             id=identity.id,
             line_user_id=identity.line_user_id,
             display_name=identity.display_name,
+            real_name=identity.real_name,
+            role=identity.role,  # type: ignore[arg-type]
+            is_active=identity.is_active,
+            patient_id=identity.patient_id,
+            created_at=identity.created_at,
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/admin/users/{identity_id}/real-name", response_model=AdminIdentityItem)
+async def update_admin_user_real_name(
+    request: Request,
+    identity_id: int,
+    payload: AdminUpdateIdentityRealNameRequest,
+    credentials=Depends(bearer_scheme),
+) -> AdminIdentityItem:
+    principal = require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            identity = update_identity_real_name(
+                session,
+                actor_identity_id=principal.identity_id,
+                actor_role=principal.role,
+                target_identity_id=identity_id,
+                real_name=payload.real_name,
+                reason=payload.reason,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return AdminIdentityItem(
+            id=identity.id,
+            line_user_id=identity.line_user_id,
+            display_name=identity.display_name,
+            real_name=identity.real_name,
             role=identity.role,  # type: ignore[arg-type]
             is_active=identity.is_active,
             patient_id=identity.patient_id,

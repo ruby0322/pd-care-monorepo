@@ -22,6 +22,7 @@ import {
   fetchStaffMe,
   previewDeleteInactiveAdminUsers,
   rejectAdminAccessRequest,
+  updateAdminUserRealName,
   updateAdminUserRole,
   updateAdminUserStatus,
 } from "@/lib/api/staff";
@@ -50,6 +51,8 @@ export default function AdminUsersPage() {
   const [deleteTargetIds, setDeleteTargetIds] = useState<number[]>([]);
   const [deletePreview, setDeletePreview] = useState<AdminInactiveIdentityDeletePreview | null>(null);
   const [deleteScopeLabel, setDeleteScopeLabel] = useState<string>("");
+  const [realNameDialogUser, setRealNameDialogUser] = useState<AdminIdentityItem | null>(null);
+  const [realNameDialogDraft, setRealNameDialogDraft] = useState("");
 
   const query = useMemo(
     () => ({
@@ -191,6 +194,42 @@ export default function AdminUsersPage() {
     }
   }
 
+  function openRealNameDialog(user: AdminIdentityItem) {
+    setRealNameDialogUser(user);
+    setRealNameDialogDraft(user.real_name ?? "");
+  }
+
+  function closeRealNameDialog(force = false) {
+    if (workingId !== null && !force) {
+      return;
+    }
+    setRealNameDialogUser(null);
+    setRealNameDialogDraft("");
+  }
+
+  async function saveRealNameFromDialog() {
+    if (!realNameDialogUser) {
+      return;
+    }
+    const normalized = realNameDialogDraft.trim();
+    if (!normalized) {
+      toast.error("真實姓名不可為空白");
+      return;
+    }
+    setWorkingId(realNameDialogUser.id);
+    setError(null);
+    try {
+      await updateAdminUserRealName(realNameDialogUser.id, { real_name: normalized });
+      await load();
+      toast.success("已更新真實姓名");
+      closeRealNameDialog(true);
+    } catch (requestError) {
+      toast.error(getReadableApiError(requestError));
+    } finally {
+      setWorkingId(null);
+    }
+  }
+
   const inactiveUserIds = useMemo(() => users.filter((user) => !user.is_active).map((user) => user.id), [users]);
 
   async function openDeleteDialog(identityIds: number[], scopeLabel: string) {
@@ -247,7 +286,7 @@ export default function AdminUsersPage() {
             className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            用戶
+            LINE 顯示名稱
             <ArrowUpDown className="h-3.5 w-3.5" />
           </button>
         ),
@@ -263,6 +302,25 @@ export default function AdminUsersPage() {
         sortingFn: (rowA, rowB) => {
           const a = rowA.original.display_name ?? rowA.original.line_user_id;
           const b = rowB.original.display_name ?? rowB.original.line_user_id;
+          return a.localeCompare(b);
+        },
+      },
+      {
+        accessorKey: "real_name",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            真實姓名
+            <ArrowUpDown className="h-3.5 w-3.5" />
+          </button>
+        ),
+        cell: ({ row }) => <span className="text-sm text-zinc-900">{row.original.real_name ?? "—"}</span>,
+        sortingFn: (rowA, rowB) => {
+          const a = rowA.original.real_name ?? "";
+          const b = rowB.original.real_name ?? "";
           return a.localeCompare(b);
         },
       },
@@ -325,6 +383,17 @@ export default function AdminUsersPage() {
           const user = row.original;
           return (
             <div className="flex items-center justify-end gap-2">
+              {user.role !== "patient" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="whitespace-nowrap"
+                  disabled={workingId === user.id}
+                  onClick={() => openRealNameDialog(user)}
+                >
+                  更新姓名
+                </Button>
+              ) : null}
               {user.role === "patient" ? (
                 <Button
                   size="sm"
@@ -501,7 +570,7 @@ export default function AdminUsersPage() {
           <TableBody>
             {usersTable.getRowModel().rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-sm text-zinc-500">
+                <TableCell colSpan={6} className="py-8 text-center text-sm text-zinc-500">
                   沒有符合條件的用戶
                 </TableCell>
               </TableRow>
@@ -547,6 +616,41 @@ export default function AdminUsersPage() {
                 disabled={deleting || deletePreview.deletable_count === 0}
               >
                 {deleting ? "刪除中..." : "確認刪除"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {realNameDialogUser ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5">
+            <h2 className="text-base font-semibold text-zinc-900">更新真實姓名</h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              用戶：{realNameDialogUser.display_name ?? realNameDialogUser.line_user_id}（{realNameDialogUser.line_user_id}）
+            </p>
+            <label htmlFor="real-name-modal-input" className="mt-4 block text-sm font-medium text-zinc-700">
+              真實姓名
+            </label>
+            <Input
+              id="real-name-modal-input"
+              value={realNameDialogDraft}
+              onChange={(event) => setRealNameDialogDraft(event.target.value)}
+              placeholder="請輸入真實姓名"
+              className="mt-2"
+              autoFocus
+            />
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => closeRealNameDialog()} disabled={workingId !== null}>
+                取消
+              </Button>
+              <Button
+                type="button"
+                className="whitespace-nowrap"
+                onClick={() => void saveRealNameFromDialog()}
+                disabled={workingId === realNameDialogUser.id}
+              >
+                {workingId === realNameDialogUser.id ? "儲存中..." : "儲存姓名"}
               </Button>
             </div>
           </div>

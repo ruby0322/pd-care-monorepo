@@ -28,6 +28,7 @@ class LiffIdentity(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     line_user_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    real_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     picture_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="patient")

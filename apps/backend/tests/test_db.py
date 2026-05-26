@@ -6,8 +6,8 @@ from pathlib import Path
 from sqlalchemy import inspect, text
 
 from app.config import Settings
-from app.db.base import Base
 from app.db.init_db import initialize_database
+from app.db.migrations import upgrade_database
 from app.db.models import (
     AIResult,
     Annotation,
@@ -18,6 +18,7 @@ from app.db.models import (
     Upload,
 )
 from app.db.session import create_engine_from_url, create_session_factory, ensure_postgres_database_exists, ping_database
+from tests.db_test_utils import migrated_sqlite_database_url
 
 
 def _make_settings(db_path: Path, *, pilot_admin_ids: tuple[str, ...] = (), pilot_staff_ids: tuple[str, ...] = ()) -> Settings:
@@ -43,7 +44,7 @@ def _make_settings(db_path: Path, *, pilot_admin_ids: tuple[str, ...] = (), pilo
         cors_allowed_origin_regex=r"^https?://(?:\d{1,3}\.){3}\d{1,3}:3000$",
         workers=1,
         eval_hflip_tta=False,
-        database_url=f"sqlite+pysqlite:///{db_path}",
+        database_url=migrated_sqlite_database_url(db_path),
         s3_endpoint_url="http://localhost:8333",
         s3_region="us-east-1",
         s3_access_key="seaweed-access",
@@ -59,9 +60,9 @@ def _make_settings(db_path: Path, *, pilot_admin_ids: tuple[str, ...] = (), pilo
     )
 
 
-def test_week1_schema_tables_can_be_created() -> None:
-    engine = create_engine_from_url("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(bind=engine)
+def test_week1_schema_tables_can_be_created(tmp_path: Path) -> None:
+    engine = create_engine_from_url(f"sqlite+pysqlite:///{tmp_path / 'test-week1-schema.db'}")
+    upgrade_database(str(engine.url))
     table_names = set(inspect(engine).get_table_names())
 
     assert "patients" in table_names

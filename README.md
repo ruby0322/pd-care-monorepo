@@ -193,6 +193,7 @@ cp .env.example .env
 set -a
 . ./.env
 set +a
+python3 -m alembic -c alembic.ini upgrade head
 python3 -m uvicorn app.main:app --reload
 ```
 

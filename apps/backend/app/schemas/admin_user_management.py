@@ -59,6 +59,7 @@ class AdminIdentityItem(BaseModel):
     id: int
     line_user_id: str
     display_name: str | None
+    real_name: str | None
     role: RoleType
     is_active: bool
     patient_id: int | None
@@ -76,6 +77,11 @@ class AdminUpdateIdentityRoleRequest(BaseModel):
 
 class AdminUpdateIdentityStatusRequest(BaseModel):
     is_active: bool
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class AdminUpdateIdentityRealNameRequest(BaseModel):
+    real_name: str = Field(min_length=1, max_length=255)
     reason: str | None = Field(default=None, max_length=500)
 
 

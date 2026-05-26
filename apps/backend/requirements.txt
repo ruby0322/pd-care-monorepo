@@ -5,6 +5,7 @@ python-multipart
 Pillow
 requests
 sqlalchemy
+alembic
 psycopg[binary]
 boto3
 numpy
