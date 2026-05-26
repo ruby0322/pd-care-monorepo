@@ -455,7 +455,6 @@ export default function AdminUsersPage() {
               className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
             >
               <option value="all">全部角色</option>
-              <option value="patient">patient</option>
               <option value="staff">staff</option>
               <option value="admin">admin</option>
             </select>
