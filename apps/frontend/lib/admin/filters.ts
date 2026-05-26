@@ -1,5 +1,5 @@
 export type AdminActiveFilter = "all" | "active" | "inactive";
-export type AdminRoleFilter = "all" | "patient" | "staff" | "admin";
+export type AdminRoleFilter = "all" | "staff" | "admin";
 export type AdminInfectionFilter = "all" | "suspected" | "normal";
 
 type SearchParamReader = {
@@ -53,7 +53,7 @@ function normalizeActive(value: string | null): AdminActiveFilter {
 }
 
 function normalizeRole(value: string | null): AdminRoleFilter {
-  return value === "patient" || value === "staff" || value === "admin" ? value : "all";
+  return value === "staff" || value === "admin" ? value : "all";
 }
 
 function normalizeInfection(value: string | null): AdminInfectionFilter {

@@ -179,6 +179,7 @@ def list_identities(
     *,
     query: str | None,
     role: str | None,
+    exclude_patient: bool,
     is_active: bool | None,
     created_from: date | None,
     created_to: date | None,
@@ -194,6 +195,8 @@ def list_identities(
         )
     if role:
         stmt = stmt.where(LiffIdentity.role == role)
+    if exclude_patient:
+        stmt = stmt.where(LiffIdentity.role != "patient")
     if is_active is not None:
         stmt = stmt.where(LiffIdentity.is_active.is_(is_active))
     if created_from is not None:

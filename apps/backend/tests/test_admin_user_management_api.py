@@ -231,6 +231,32 @@ def test_admin_user_list_supports_created_date_range_filters(tmp_path: Path) -> 
         assert "U_MID_USER" not in feb_ids
 
 
+def test_admin_user_list_excludes_patient_when_requested(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-exclude-patient.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_EXCLUDE", role="admin")
+        _seed_identity(client, line_user_id="U_PATIENT_EXCLUDE", role="patient")
+        _seed_identity(client, line_user_id="U_STAFF_EXCLUDE", role="staff")
+
+        token = _login_token(client, "U_ADMIN_EXCLUDE")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/v1/staff/admin/users?exclude_patient=true", headers=headers)
+        assert response.status_code == 200
+        items = response.json()["items"]
+        roles = {item["role"] for item in items}
+        ids = {item["line_user_id"] for item in items}
+
+        assert "patient" not in roles
+        assert "U_PATIENT_EXCLUDE" not in ids
+        assert "U_STAFF_EXCLUDE" in ids
+        assert "U_ADMIN_EXCLUDE" in ids
+
+        tampered = client.get("/v1/staff/admin/users?exclude_patient=true&role=patient", headers=headers)
+        assert tampered.status_code == 200
+        assert tampered.json()["items"] == []
+
 def test_admin_can_preview_and_delete_inactive_users_in_scope(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "admin-user-management-bulk-delete.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

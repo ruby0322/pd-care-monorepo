@@ -503,7 +503,7 @@ export async function fetchAdminDailySuspectedSeries(params?: {
 
 export async function fetchAdminUsers(params?: {
   query?: string;
-  role?: "patient" | "staff" | "admin";
+  role?: "staff" | "admin";
   isActive?: boolean;
   createdFrom?: string;
   createdTo?: string;
@@ -512,6 +512,7 @@ export async function fetchAdminUsers(params?: {
     params: {
       query: params?.query,
       role: params?.role,
+      exclude_patient: true,
       is_active: params?.isActive,
       created_from: params?.createdFrom,
       created_to: params?.createdTo,
