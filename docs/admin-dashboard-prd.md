@@ -25,6 +25,29 @@ Current gaps for operational use:
 - User management needs a complete admin-only authorization workflow, including healthcare privilege requests.
 - Role boundaries must be explicit and verifiable at backend level for all write operations.
 
+## Temporary Navigation Decision
+
+### Hide `/admin/review` From Sidebar (Temporary)
+
+- Date: 2026-05-26
+- Decision owner: Product/Frontend
+- Scope: Admin sidebar navigation in `apps/frontend/app/admin/layout.tsx` (desktop + mobile)
+
+Decision:
+
+- Keep the `/admin/review` page implementation and route available.
+- Temporarily remove `/admin/review` from sidebar navigation so staff flow centers on `/admin/review-fast`.
+
+Reason:
+
+- We want to reduce menu noise while the team validates the faster review workflow as the primary operational path.
+
+Rollback plan:
+
+1. Re-add the `/admin/review` navigation item in `apps/frontend/app/admin/layout.tsx` for both mobile and desktop sidebars.
+2. Keep existing route/page files as-is (no backend/API migration is required).
+3. Confirm route discoverability and role access behavior after re-enabling the link.
+
 ## Goals
 
 - Enable manual review for unmatched users who submit case number and birth date.
