@@ -24,7 +24,7 @@ export default function AdminPatientAssignmentPage() {
   const [error, setError] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [assignments, setAssignments] = useState<AdminPatientAssignmentItem[]>([]);
-  const [staffUsers, setStaffUsers] = useState<AdminIdentityItem[]>([]);
+  const [assigneeUsers, setAssigneeUsers] = useState<AdminIdentityItem[]>([]);
   const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
   const [keyword, setKeyword] = useState("");
   const [selectedPatientIds, setSelectedPatientIds] = useState<Set<number>>(new Set());
@@ -41,18 +41,18 @@ export default function AdminPatientAssignmentPage() {
       if (me.role !== "admin") {
         setIsAdmin(false);
         setAssignments([]);
-        setStaffUsers([]);
+        setAssigneeUsers([]);
         return;
       }
       setIsAdmin(true);
-      const [assignmentItems, staffItems] = await Promise.all([
+      const [assignmentItems, assigneeItems] = await Promise.all([
         fetchAdminAssignments(),
-        fetchAdminUsers({ role: "staff" }),
+        fetchAdminUsers(),
       ]);
       setAssignments(assignmentItems);
-      setStaffUsers(staffItems);
-      if (staffItems.length > 0 && selectedStaffId === null) {
-        setSelectedStaffId(staffItems[0].id);
+      setAssigneeUsers(assigneeItems);
+      if (assigneeItems.length > 0 && selectedStaffId === null) {
+        setSelectedStaffId(assigneeItems[0].id);
       }
     } catch (requestError) {
       setError(getReadableApiError(requestError));
@@ -96,7 +96,7 @@ export default function AdminPatientAssignmentPage() {
 
   const assignSingle = useCallback(async (patientId: number) => {
     if (!selectedStaffId) {
-      toast.error("請先選擇要指派的 staff。");
+      toast.error("請先選擇要指派的人員。");
       return;
     }
     setWorkingPatientId(patientId);
@@ -107,7 +107,7 @@ export default function AdminPatientAssignmentPage() {
         staff_identity_id: selectedStaffId,
       });
       await load();
-      toast.success(result.status === "unchanged" ? "病患已由此 staff 主責" : "已更新病患主責 staff");
+      toast.success(result.status === "unchanged" ? "病患已由此人員主責" : "已更新病患主責人員");
     } catch (requestError) {
       toast.error(getReadableApiError(requestError));
     } finally {
@@ -117,7 +117,7 @@ export default function AdminPatientAssignmentPage() {
 
   async function assignBulk() {
     if (!selectedStaffId) {
-      toast.error("請先選擇要指派的 staff。");
+      toast.error("請先選擇要指派的人員。");
       return;
     }
     if (selectedPatientIds.size === 0) {
@@ -156,7 +156,7 @@ export default function AdminPatientAssignmentPage() {
   };
 
   const staffPreviewRows = useMemo<StaffPreviewRow[]>(() => {
-    return staffUsers.map((staff) => {
+    return assigneeUsers.map((staff) => {
       const assignedPatients = assignments
         .filter((item) => item.staff_identity_id === staff.id)
         .map((item) => ({
@@ -167,13 +167,13 @@ export default function AdminPatientAssignmentPage() {
         .sort((a, b) => a.case_number.localeCompare(b.case_number));
       return {
         staff_id: staff.id,
-        staff_name: staff.display_name ?? "未命名 staff",
+        staff_name: staff.display_name ?? "未命名人員",
         is_active: staff.is_active,
         assigned_count: assignedPatients.length,
         assigned_patients: assignedPatients,
       };
     });
-  }, [assignments, staffUsers]);
+  }, [assignments, assigneeUsers]);
 
   function toggleSelectAllForRows(patientIds: number[], checked: boolean) {
     setSelectedPatientIds((current) => {
@@ -257,7 +257,7 @@ export default function AdminPatientAssignmentPage() {
             className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            目前主責 staff
+            目前主責人員
             <ArrowUpDown className="h-3.5 w-3.5" />
           </button>
         ),
@@ -387,7 +387,7 @@ export default function AdminPatientAssignmentPage() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-zinc-900">病患分配</h1>
-          <p className="text-xs text-zinc-500">單筆與批次分配，病患同時僅有一位主責 staff。</p>
+          <p className="text-xs text-zinc-500">單筆與批次分配，病患同時僅有一位主責人員。</p>
         </div>
         <Button type="button" variant="outline" onClick={() => void load()}>
           重新整理
@@ -399,16 +399,16 @@ export default function AdminPatientAssignmentPage() {
       <section className="rounded-2xl border border-zinc-200 bg-white p-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-xs text-zinc-600">
-            指派 staff
+            指派人員
             <select
               value={selectedStaffId ?? ""}
               onChange={(event) => setSelectedStaffId(event.target.value ? Number(event.target.value) : null)}
               className="min-w-64 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
             >
-              {staffUsers.length === 0 ? <option value="">目前沒有 staff</option> : null}
-              {staffUsers.map((staff) => (
+              {assigneeUsers.length === 0 ? <option value="">目前沒有可指派人員</option> : null}
+              {assigneeUsers.map((staff) => (
                 <option key={staff.id} value={staff.id}>
-                  {(staff.display_name ?? "未命名 staff") + (staff.is_active ? "" : " (inactive)")}
+                  {(staff.display_name ?? "未命名人員") + (staff.is_active ? "" : " (inactive)")}
                 </option>
               ))}
             </select>
@@ -424,7 +424,7 @@ export default function AdminPatientAssignmentPage() {
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
           className="w-72"
-          placeholder="搜尋病歷號 / 病患姓名 / staff"
+          placeholder="搜尋病歷號 / 病患姓名 / 人員"
         />
       </div>
 

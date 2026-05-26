@@ -117,8 +117,8 @@ def assign_patient_to_staff(
     staff_identity = session.get(LiffIdentity, staff_identity_id)
     if staff_identity is None:
         raise LookupError("Staff identity not found")
-    if staff_identity.role != "staff":
-        raise ValueError("Target identity must be staff")
+    if staff_identity.role not in {"staff", "admin"}:
+        raise ValueError("Target identity must be staff or admin")
 
     patient = session.get(Patient, patient_id)
     if patient is None:
