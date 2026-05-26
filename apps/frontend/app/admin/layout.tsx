@@ -6,7 +6,6 @@ import {
   ChartNoAxesCombined,
   ChevronLeft,
   ChevronRight,
-  ClipboardCheck,
   Hospital,
   LayoutDashboard,
   Link2,
@@ -152,18 +151,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <LayoutDashboard className="w-4 h-4" strokeWidth={1.5} />
               儀表板
             </Link>
-            <Link
-              href="/admin/review"
-              onClick={closeMobileSidebar}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
-                pathname === "/admin/review"
-                  ? "bg-zinc-900 text-white"
-                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-              }`}
-            >
-              <ClipboardCheck className="w-4 h-4" strokeWidth={1.5} />
-              快速審核
-            </Link>
+            {/* Temporary product decision: keep /admin/review implemented but hide it from sidebar navigation. */}
             <Link
               href="/admin/review-fast"
               onClick={closeMobileSidebar}
@@ -302,21 +290,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <LayoutDashboard className="w-4 h-4" strokeWidth={1.5} />
               {!isSidebarCollapsed ? "儀表板" : null}
             </Link>
-            <Link
-              href="/admin/review"
-              className={`flex items-center rounded-xl transition-colors text-sm ${
-                isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
-              } ${
-                pathname === "/admin/review"
-                  ? "bg-zinc-900 text-white"
-                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-              }`}
-              aria-label="快速審核"
-              title={isSidebarCollapsed ? "快速審核" : undefined}
-            >
-              <ClipboardCheck className="w-4 h-4" strokeWidth={1.5} />
-              {!isSidebarCollapsed ? "快速審核" : null}
-            </Link>
+            {/* Temporary product decision: keep /admin/review implemented but hide it from sidebar navigation. */}
             <Link
               href="/admin/review-fast"
               className={`flex items-center rounded-xl transition-colors text-sm ${
