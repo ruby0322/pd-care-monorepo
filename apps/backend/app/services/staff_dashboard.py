@@ -77,6 +77,24 @@ def ensure_staff_assignment(
     return assign_patient_to_staff(session, staff_identity_id=staff_identity_id, patient_id=patient_id)
 
 
+def unassign_patient(
+    session: Session,
+    *,
+    patient_id: int,
+) -> Literal["updated", "unchanged"]:
+    patient = session.get(Patient, patient_id)
+    if patient is None:
+        raise LookupError("Patient not found")
+
+    deleted_count = (
+        session.execute(delete(StaffPatientAssignment).where(StaffPatientAssignment.patient_id == patient_id))
+        .rowcount
+        or 0
+    )
+    session.commit()
+    return "updated" if deleted_count > 0 else "unchanged"
+
+
 def list_patient_assignments(session: Session) -> list[StaffAssignmentRow]:
     patients = session.execute(select(Patient).order_by(Patient.case_number.asc(), Patient.id.asc())).scalars().all()
     assignment_rows = session.execute(
@@ -437,6 +455,7 @@ def link_pending_binding(session: Session, *, pending_id: int, patient_id: int) 
         session.add(identity)
     else:
         identity.patient_id = patient_id
+        identity.is_active = True
 
     pending.status = "approved"
     session.commit()
