@@ -530,7 +530,8 @@ async def reject_admin_access_request(
 async def list_admin_assignments(
     request: Request,
     query: str | None = Query(default=None, min_length=1, max_length=128),
-    assignment_filter: str = Query(default="all", pattern="^(all|assigned|unassigned)$"),
+    binding_filter: str = Query(default="bound", pattern="^(bound|all|unbound_only)$"),
+    assignment_filter: str | None = Query(default=None, pattern="^(all|assigned|unassigned)$"),
     assignee_role: str = Query(default="all", pattern="^(all|staff|admin)$"),
     assignee_active: str = Query(default="all", pattern="^(all|active|inactive)$"),
     limit: int = Query(default=10, ge=1, le=100),
@@ -544,6 +545,7 @@ async def list_admin_assignments(
             session,
             query=query,
             assignment_filter=assignment_filter,
+            binding_filter=binding_filter,
             assignee_role=assignee_role,
             assignee_active=assignee_active,
             limit=limit,
