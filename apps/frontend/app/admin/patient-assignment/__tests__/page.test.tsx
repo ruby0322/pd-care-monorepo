@@ -95,6 +95,7 @@ describe("AdminPatientAssignmentPage", () => {
     const userSection = screen.getByRole("heading", { name: "可指派人員" }).closest("section");
     expect(userSection).not.toBeNull();
     const userScope = within(userSection as HTMLElement);
+    expect(userScope.queryByRole("columnheader", { name: "選擇" })).not.toBeInTheDocument();
     expect(
       userScope.getByText((content) => content.replace(/\s+/g, " ").includes("顯示 1-2 / 2 位人員"))
     ).toBeInTheDocument();

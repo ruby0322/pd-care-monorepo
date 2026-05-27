@@ -505,19 +505,18 @@ export default function AdminPatientAssignmentPage() {
               <TableHead>角色</TableHead>
               <TableHead>狀態</TableHead>
               <TableHead>主要負責病患</TableHead>
-              <TableHead className="text-right">選擇</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {usersLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-sm text-zinc-500">
+                <TableCell colSpan={4} className="py-8 text-center text-sm text-zinc-500">
                   載入中...
                 </TableCell>
               </TableRow>
             ) : assigneeUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-sm text-zinc-500">
+                <TableCell colSpan={4} className="py-8 text-center text-sm text-zinc-500">
                   目前沒有可指派人員
                 </TableCell>
               </TableRow>
@@ -558,16 +557,6 @@ export default function AdminPatientAssignmentPage() {
                         ))}
                       </div>
                     )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      type="button"
-                      variant={selectedStaffId === staff.id ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedStaffId(staff.id)}
-                    >
-                      {selectedStaffId === staff.id ? "已選擇" : "設為主責"}
-                    </Button>
                   </TableCell>
                 </TableRow>
               ))
