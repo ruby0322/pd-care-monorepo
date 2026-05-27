@@ -34,6 +34,9 @@ class PatientDayUploadItemResponse(BaseModel):
     threshold: float | None
     model_version: str | None
     error_reason: str | None
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
     annotation_label: str | None
     annotation_comment: str | None
 
@@ -52,6 +55,9 @@ class PatientUploadDetailResponse(BaseModel):
     threshold: float | None
     model_version: str | None
     error_reason: str | None
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
     annotation_label: str | None
     annotation_comment: str | None
     image_url: str

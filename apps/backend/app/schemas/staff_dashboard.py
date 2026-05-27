@@ -68,6 +68,9 @@ class StaffUploadQueueItem(BaseModel):
     screening_result: str
     probability: float | None
     has_annotation: bool
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
 
 
 class StaffUploadQueueResponse(BaseModel):

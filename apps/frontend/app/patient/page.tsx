@@ -503,7 +503,7 @@ export default function PatientPage() {
 
             <div className="pointer-events-none absolute inset-0 flex items-end justify-center">
               <Link
-                href="/patient/capture?pain=false&discharge=false&cloudyDialysate=false"
+                href="/patient/capture"
                 className="pointer-events-auto flex h-20 w-20 flex-col items-center justify-center rounded-full bg-zinc-900 text-white transition-colors hover:bg-zinc-800"
               >
                 <Camera className="h-6 w-6" strokeWidth={1.8} />

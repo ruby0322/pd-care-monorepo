@@ -29,6 +29,9 @@ export type PatientDayUploadItem = {
   threshold: number | null;
   model_version: string | null;
   error_reason: string | null;
+  symptom_pain: boolean;
+  symptom_discharge: boolean;
+  symptom_pus: boolean;
   annotation_label: string | null;
   annotation_comment: string | null;
 };
@@ -47,6 +50,9 @@ export type PatientUploadDetailResponse = {
   threshold: number | null;
   model_version: string | null;
   error_reason: string | null;
+  symptom_pain: boolean;
+  symptom_discharge: boolean;
+  symptom_pus: boolean;
   annotation_label: string | null;
   annotation_comment: string | null;
   image_url: string;
