@@ -100,6 +100,8 @@ def list_patient_assignments(
     *,
     query: str | None,
     assignment_filter: str,
+    assignee_role: str,
+    assignee_active: str,
     limit: int,
     offset: int,
 ) -> tuple[list[StaffAssignmentRow], int]:
@@ -126,6 +128,22 @@ def list_patient_assignments(
         stmt = stmt.where(StaffPatientAssignment.staff_identity_id.is_not(None))
     elif assignment_filter == "unassigned":
         stmt = stmt.where(StaffPatientAssignment.staff_identity_id.is_(None))
+    else:
+        if assignee_role in {"staff", "admin"}:
+            stmt = stmt.where(
+                StaffPatientAssignment.staff_identity_id.is_not(None),
+                LiffIdentity.role == assignee_role,
+            )
+        if assignee_active == "active":
+            stmt = stmt.where(
+                StaffPatientAssignment.staff_identity_id.is_not(None),
+                LiffIdentity.is_active.is_(True),
+            )
+        elif assignee_active == "inactive":
+            stmt = stmt.where(
+                StaffPatientAssignment.staff_identity_id.is_not(None),
+                LiffIdentity.is_active.is_(False),
+            )
 
     total = int(session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one() or 0)
     rows = session.execute(stmt.order_by(Patient.case_number.asc(), Patient.id.asc()).limit(limit).offset(offset)).all()

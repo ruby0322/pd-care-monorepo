@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -12,6 +13,11 @@ from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Pati
 from app.main import create_app
 from tests.db_test_utils import migrated_sqlite_database_url
 from app.services.auth.token_service import AuthTokenService
+
+
+@pytest.fixture(autouse=True)
+def _disable_storage_bucket_init(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.main.StorageService.ensure_bucket_exists", lambda _self: None)
 
 
 def make_settings(db_path: Path) -> Settings:
@@ -1495,3 +1501,153 @@ def test_admin_unassign_returns_404_for_missing_patient(tmp_path: Path) -> None:
 
         delete_response = client.delete("/v1/staff/admin/assignments/999999", headers=headers)
         assert delete_response.status_code == 404
+
+
+def test_admin_assignment_list_supports_assignee_role_and_status_filters(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-list-filters.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_LIST_FILTERS", role="admin")
+        active_staff_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_LIST_ACTIVE", role="staff")
+        inactive_staff_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_LIST_INACTIVE", role="staff")
+        admin_assignee_id = _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_LIST_TARGET", role="admin")
+        patient_assigned_active = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-ASN-FLT-001",
+            line_user_id="U_PATIENT_ASN_FLT_001",
+            uploads=[],
+        )
+        patient_assigned_inactive = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-ASN-FLT-002",
+            line_user_id="U_PATIENT_ASN_FLT_002",
+            uploads=[],
+        )
+        patient_assigned_admin = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-ASN-FLT-003",
+            line_user_id="U_PATIENT_ASN_FLT_003",
+            uploads=[],
+        )
+        patient_unassigned = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-ASN-FLT-004",
+            line_user_id="U_PATIENT_ASN_FLT_004",
+            uploads=[],
+        )
+        _assign_staff_patient(client, staff_identity_id=active_staff_id, patient_id=patient_assigned_active)
+        _assign_staff_patient(client, staff_identity_id=inactive_staff_id, patient_id=patient_assigned_inactive)
+        _assign_staff_patient(client, staff_identity_id=admin_assignee_id, patient_id=patient_assigned_admin)
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            inactive_identity = session.get(LiffIdentity, inactive_staff_id)
+            assert inactive_identity is not None
+            inactive_identity.is_active = False
+            session.commit()
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN_LIST_FILTERS")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        role_staff_response = client.get("/v1/staff/admin/assignments?assignee_role=staff", headers=headers)
+        assert role_staff_response.status_code == 200
+        role_staff_payload = role_staff_response.json()
+        assert role_staff_payload["total"] == 2
+        assert {item["patient_id"] for item in role_staff_payload["items"]} == {
+            patient_assigned_active,
+            patient_assigned_inactive,
+        }
+
+        active_only_response = client.get("/v1/staff/admin/assignments?assignee_active=active", headers=headers)
+        assert active_only_response.status_code == 200
+        active_only_payload = active_only_response.json()
+        assert active_only_payload["total"] == 2
+        assert {item["patient_id"] for item in active_only_payload["items"]} == {
+            patient_assigned_active,
+            patient_assigned_admin,
+        }
+
+        inactive_staff_response = client.get(
+            "/v1/staff/admin/assignments?assignee_role=staff&assignee_active=inactive",
+            headers=headers,
+        )
+        assert inactive_staff_response.status_code == 200
+        inactive_staff_payload = inactive_staff_response.json()
+        assert inactive_staff_payload["total"] == 1
+        assert [item["patient_id"] for item in inactive_staff_payload["items"]] == [patient_assigned_inactive]
+
+        unassigned_with_role_filter_response = client.get(
+            "/v1/staff/admin/assignments?assignment_filter=unassigned&assignee_role=staff",
+            headers=headers,
+        )
+        assert unassigned_with_role_filter_response.status_code == 200
+        unassigned_with_role_filter_payload = unassigned_with_role_filter_response.json()
+        assert unassigned_with_role_filter_payload["total"] == 1
+        assert [item["patient_id"] for item in unassigned_with_role_filter_payload["items"]] == [patient_unassigned]
+
+
+def test_admin_assignment_list_pagination_applies_after_assignee_filters(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-filter-pagination.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_FILTER_PAGINATION", role="admin")
+        staff_identity_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_FILTER_PAGINATION", role="staff")
+        patient_ids = [
+            _seed_patient_with_custom_uploads(
+                client,
+                case_number="P-ASN-PAGE-001",
+                line_user_id="U_PATIENT_ASN_PAGE_001",
+                uploads=[],
+            ),
+            _seed_patient_with_custom_uploads(
+                client,
+                case_number="P-ASN-PAGE-002",
+                line_user_id="U_PATIENT_ASN_PAGE_002",
+                uploads=[],
+            ),
+            _seed_patient_with_custom_uploads(
+                client,
+                case_number="P-ASN-PAGE-003",
+                line_user_id="U_PATIENT_ASN_PAGE_003",
+                uploads=[],
+            ),
+            _seed_patient_with_custom_uploads(
+                client,
+                case_number="P-ASN-PAGE-004",
+                line_user_id="U_PATIENT_ASN_PAGE_004",
+                uploads=[],
+            ),
+        ]
+        for patient_id in patient_ids:
+            _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN_FILTER_PAGINATION")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        first_page_response = client.get(
+            "/v1/staff/admin/assignments?assignee_role=staff&limit=2&offset=0",
+            headers=headers,
+        )
+        assert first_page_response.status_code == 200
+        first_page_payload = first_page_response.json()
+        assert first_page_payload["total"] == 4
+        assert first_page_payload["limit"] == 2
+        assert first_page_payload["offset"] == 0
+        assert [item["case_number"] for item in first_page_payload["items"]] == ["P-ASN-PAGE-001", "P-ASN-PAGE-002"]
+
+        second_page_response = client.get(
+            "/v1/staff/admin/assignments?assignee_role=staff&limit=2&offset=2",
+            headers=headers,
+        )
+        assert second_page_response.status_code == 200
+        second_page_payload = second_page_response.json()
+        assert second_page_payload["total"] == 4
+        assert second_page_payload["limit"] == 2
+        assert second_page_payload["offset"] == 2
+        assert [item["case_number"] for item in second_page_payload["items"]] == ["P-ASN-PAGE-003", "P-ASN-PAGE-004"]
+
+        out_of_range_response = client.get(
+            "/v1/staff/admin/assignments?assignee_role=staff&limit=2&offset=99",
+            headers=headers,
+        )
+        assert out_of_range_response.status_code == 200
+        out_of_range_payload = out_of_range_response.json()
+        assert out_of_range_payload["total"] == 4
+        assert out_of_range_payload["items"] == []
