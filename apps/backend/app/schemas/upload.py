@@ -16,6 +16,9 @@ class PatientUploadResponse(BaseModel):
     model_version: str | None
     threshold: float | None
     notification_id: int | None
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
     prediction: PredictionResponse | None
 
 
@@ -28,4 +31,7 @@ class PatientUploadResultResponse(BaseModel):
     threshold: float | None
     model_version: str | None
     error_reason: str | None
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
     created_at: datetime

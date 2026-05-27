@@ -67,6 +67,9 @@ class Upload(Base):
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
     object_key: Mapped[str] = mapped_column(String(512), nullable=False)
     content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    symptom_pain: Mapped[bool] = mapped_column(default=False, nullable=False)
+    symptom_discharge: Mapped[bool] = mapped_column(default=False, nullable=False)
+    symptom_pus: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

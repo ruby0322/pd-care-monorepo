@@ -357,6 +357,33 @@ def test_staff_patient_list_and_queue_are_accessible(tmp_path: Path) -> None:
         assert len(queue_response.json()["items"]) >= 1
 
 
+def test_staff_upload_queue_includes_symptom_flags(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-queue-symptoms.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            latest_upload = session.query(Upload).filter(Upload.patient_id == patient_id).order_by(Upload.created_at.desc()).first()
+            assert latest_upload is not None
+            latest_upload.symptom_pain = True
+            latest_upload.symptom_discharge = False
+            latest_upload.symptom_pus = True
+            session.commit()
+
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+        queue_response = client.get("/v1/staff/uploads/queue", headers=headers)
+        assert queue_response.status_code == 200
+        item = queue_response.json()["items"][0]
+        assert item["symptom_pain"] is True
+        assert item["symptom_discharge"] is False
+        assert item["symptom_pus"] is True
+
+
 def test_staff_patient_filters_use_latest_upload_status_and_created_range(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-latest-upload-filters.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

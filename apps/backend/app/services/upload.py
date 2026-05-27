@@ -61,6 +61,9 @@ def persist_patient_upload(
     content_type: str,
     filename: str | None,
     image_bytes: bytes,
+    symptom_pain: bool = False,
+    symptom_discharge: bool = False,
+    symptom_pus: bool = False,
 ) -> PersistedUploadResult:
     prediction: PredictionResponse | None = None
     error_reason: str | None = None
@@ -89,6 +92,9 @@ def persist_patient_upload(
             patient_id=patient_id,
             object_key="",
             content_type=content_type,
+            symptom_pain=symptom_pain,
+            symptom_discharge=symptom_discharge,
+            symptom_pus=symptom_pus,
         )
         session.add(upload)
         session.flush()

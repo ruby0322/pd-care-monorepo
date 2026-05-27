@@ -114,6 +114,8 @@ Acceptance criteria:
 
 The patient capture flow keeps the current guided-camera direction from the brief: simple instructions, circular alignment guidance, and image upload to the backend.
 
+Before image submission, the patient must complete a symptom modal in the capture page. The modal is required and allows structured symptom reporting using three booleans: `pain`, `discharge`, and `pus`. To reduce friction, the modal includes a quick action for "no symptoms" that sets all three values to `false`.
+
 Week-1 backend behavior:
 
 - Accept supported image uploads.
@@ -123,12 +125,16 @@ Week-1 backend behavior:
 - Persist AI result, probability/confidence, threshold, and model/version metadata when available.
 - Create a dashboard notification when the result is suspected risk.
 - Return a patient-facing result payload.
+- Persist patient symptom fields (`pain`, `discharge`, `pus`) with each upload record.
 
 Acceptance criteria:
 
 - Patient sees normal, suspected-risk, or rejected/error state after upload.
 - Suspected-risk copy says staff will review and that the system does not provide diagnosis.
 - Failed upload states distinguish technical failure from image rejection when the backend can provide a reason.
+- Upload payload accepts `pain`, `discharge`, `pus` as booleans.
+- Result, day list, and upload detail endpoints return persisted symptom fields for the same upload.
+- Historical uploads created before symptom rollout remain readable and resolve symptom fields to `false`.
 
 ### Staff Review And Notifications
 
@@ -159,6 +165,7 @@ Postgres stores:
 - LINE identity bindings.
 - Pending identity-link requests.
 - Upload records.
+- Upload-level symptom fields (`pain`, `discharge`, `pus`) stored with each upload record.
 - AI screening results.
 - Dashboard notifications.
 - Staff annotations.

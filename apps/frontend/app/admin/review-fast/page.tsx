@@ -49,6 +49,20 @@ function predictionBadgeClass(item: StaffRapidReviewQueueItem): string {
   return "bg-zinc-100 text-zinc-700";
 }
 
+function symptomLabels(item: StaffRapidReviewQueueItem): string[] {
+  const labels: string[] = [];
+  if (item.symptom_pain) {
+    labels.push("疼痛");
+  }
+  if (item.symptom_discharge) {
+    labels.push("分泌物");
+  }
+  if (item.symptom_pus) {
+    labels.push("膿液");
+  }
+  return labels;
+}
+
 export default function AdminFastReviewPage() {
   const {
     loading,
@@ -218,6 +232,23 @@ export default function AdminFastReviewPage() {
               </div>
 
               <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1 text-xs text-zinc-500">
+                  <span>症狀</span>
+                  <div className="flex flex-wrap gap-2">
+                    {symptomLabels(selectedItem).length > 0 ? (
+                      symptomLabels(selectedItem).map((label) => (
+                        <span
+                          key={label}
+                          className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800"
+                        >
+                          {label}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="inline-flex rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">無症狀</span>
+                    )}
+                  </div>
+                </div>
                 <label className="flex flex-col gap-1 text-xs text-zinc-500">
                   標註標籤
                   <select

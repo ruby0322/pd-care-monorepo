@@ -22,7 +22,7 @@ function ResultPageInner() {
   const queryResult = searchParams.get("result");
   const pain = searchParams.get("pain") === "true";
   const discharge = searchParams.get("discharge") === "true";
-  const cloudyDialysate = searchParams.get("cloudyDialysate") === "true";
+  const pus = searchParams.get("pus") === "true" || searchParams.get("cloudyDialysate") === "true";
   const rejectionReason = searchParams.get("reason")?.trim() || null;
   const uploadIdRaw = searchParams.get("uploadId");
   const aiResultIdRaw = searchParams.get("aiResultId");
@@ -37,6 +37,11 @@ function ResultPageInner() {
   const [hydratedResult, setHydratedResult] = useState<ResultState | null>(null);
   const [hydratedErrorReason, setHydratedErrorReason] = useState<string | null>(null);
   const [hydratedConfidence, setHydratedConfidence] = useState<number | null>(null);
+  const [hydratedSymptoms, setHydratedSymptoms] = useState<{
+    pain: boolean;
+    discharge: boolean;
+    pus: boolean;
+  } | null>(null);
   const [isHydrating, setIsHydrating] = useState(false);
   const [hydrateError, setHydrateError] = useState<string | null>(null);
 
@@ -89,6 +94,11 @@ function ResultPageInner() {
             ? null
             : Math.max(0, Math.min(100, Math.round(payload.probability * 100)))
         );
+        setHydratedSymptoms({
+          pain: payload.symptom_pain,
+          discharge: payload.symptom_discharge,
+          pus: payload.symptom_pus,
+        });
       } catch (error) {
         if (cancelled) {
           return;
@@ -180,9 +190,9 @@ function ResultPageInner() {
   const { icon: Icon } = currentConfig;
 
   const activeSymptoms = [
-    pain && "疼痛",
-    discharge && "分泌物",
-    cloudyDialysate && "透析液混濁",
+    (hydratedSymptoms?.pain ?? pain) && "疼痛",
+    (hydratedSymptoms?.discharge ?? discharge) && "分泌物",
+    (hydratedSymptoms?.pus ?? pus) && "流膿",
   ].filter(Boolean);
 
   return (
