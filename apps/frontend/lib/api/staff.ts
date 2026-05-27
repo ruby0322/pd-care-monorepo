@@ -714,6 +714,9 @@ export async function fetchAdminAssignmentsByStaff(params: {
     params: {
       staff_identity_ids: params.staffIdentityIds,
     },
+    paramsSerializer: {
+      indexes: null,
+    },
   });
   return data;
 }
