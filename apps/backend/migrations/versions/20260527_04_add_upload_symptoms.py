@@ -32,17 +32,17 @@ def upgrade() -> None:
     if _has_column("uploads", "symptom_pain") is False:
         op.add_column(
             "uploads",
-            sa.Column("symptom_pain", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("symptom_pain", sa.Boolean(), nullable=False, server_default=sa.false()),
         )
     if _has_column("uploads", "symptom_discharge") is False:
         op.add_column(
             "uploads",
-            sa.Column("symptom_discharge", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("symptom_discharge", sa.Boolean(), nullable=False, server_default=sa.false()),
         )
     if _has_column("uploads", "symptom_pus") is False:
         op.add_column(
             "uploads",
-            sa.Column("symptom_pus", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("symptom_pus", sa.Boolean(), nullable=False, server_default=sa.false()),
         )
 
 
