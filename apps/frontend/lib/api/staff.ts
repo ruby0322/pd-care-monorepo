@@ -239,6 +239,11 @@ export type AdminPatientAssignmentUpsertResponse = {
   status: "updated" | "unchanged";
 };
 
+export type AdminPatientAssignmentUnassignResponse = {
+  patient_id: number;
+  status: "updated" | "unchanged";
+};
+
 export type AdminPatientAssignmentBulkItemResult = {
   patient_id: number | null;
   staff_identity_id: number | null;
@@ -601,6 +606,13 @@ export async function upsertAdminAssignment(payload: {
   staff_identity_id: number;
 }): Promise<AdminPatientAssignmentUpsertResponse> {
   const { data } = await apiClient.post<AdminPatientAssignmentUpsertResponse>("/v1/staff/admin/assignments", payload);
+  return data;
+}
+
+export async function unassignAdminAssignment(patientId: number): Promise<AdminPatientAssignmentUnassignResponse> {
+  const { data } = await apiClient.delete<AdminPatientAssignmentUnassignResponse>(
+    `/v1/staff/admin/assignments/${patientId}`
+  );
   return data;
 }
 

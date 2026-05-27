@@ -198,6 +198,11 @@ class StaffAssignmentUpsertResult(BaseModel):
     status: Literal["updated", "unchanged"]
 
 
+class StaffAssignmentUnassignResult(BaseModel):
+    patient_id: int
+    status: Literal["updated", "unchanged"]
+
+
 class StaffAssignmentBulkRequest(BaseModel):
     assignments: list[StaffAssignmentUpsertRequest] = Field(min_length=1)
 

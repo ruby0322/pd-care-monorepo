@@ -36,6 +36,7 @@ from app.schemas.staff_dashboard import (
     StaffAssignmentListResponse,
     StaffAssignmentUpsertRequest,
     StaffAssignmentUpsertResult,
+    StaffAssignmentUnassignResult,
     StaffNotificationItem,
     StaffNotificationListResponse,
     StaffPatientDetailResponse,
@@ -110,6 +111,7 @@ from app.services.staff_dashboard import (
     list_staff_patients,
     list_upload_queue,
     preview_delete_inactive_patients,
+    unassign_patient,
     update_pending_binding_status,
     update_patient_active_status,
     upsert_annotation_for_upload,
@@ -532,6 +534,27 @@ async def upsert_admin_assignment(
         return StaffAssignmentUpsertResult(
             patient_id=payload.patient_id,
             staff_identity_id=payload.staff_identity_id,
+            status=status,
+        )
+    finally:
+        session.close()
+
+
+@router.delete("/v1/staff/admin/assignments/{patient_id}", response_model=StaffAssignmentUnassignResult)
+async def delete_admin_assignment(
+    request: Request,
+    patient_id: int,
+    credentials=Depends(bearer_scheme),
+) -> StaffAssignmentUnassignResult:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        try:
+            status = unassign_patient(session, patient_id=patient_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return StaffAssignmentUnassignResult(
+            patient_id=patient_id,
             status=status,
         )
     finally:

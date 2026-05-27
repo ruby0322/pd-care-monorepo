@@ -1273,3 +1273,52 @@ def test_admin_bulk_assignment_accepts_admin_assignee(tmp_path: Path) -> None:
                 "detail": None,
             }
         ]
+
+
+def test_admin_can_unassign_patient(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-unassign.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_UNASSIGN", role="admin")
+        staff_identity_id = _seed_staff(client, line_user_id="U_STAFF_UNASSIGN")
+        patient_id = _seed_patient_with_uploads(client)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+
+        admin_token = _login_staff_token(client, "U_ADMIN_UNASSIGN")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        delete_response = client.delete(f"/v1/staff/admin/assignments/{patient_id}", headers=headers)
+        assert delete_response.status_code == 200
+        assert delete_response.json() == {"patient_id": patient_id, "status": "updated"}
+
+        list_response = client.get("/v1/staff/admin/assignments", headers=headers)
+        assert list_response.status_code == 200
+        assigned_item = next((item for item in list_response.json()["items"] if item["patient_id"] == patient_id), None)
+        assert assigned_item is not None
+        assert assigned_item["staff_identity_id"] is None
+
+
+def test_admin_unassign_returns_unchanged_when_patient_has_no_assignment(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-unassign-unchanged.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_UNASSIGN_UNCHANGED", role="admin")
+        patient_id = _seed_patient_with_uploads(client)
+        admin_token = _login_staff_token(client, "U_ADMIN_UNASSIGN_UNCHANGED")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        delete_response = client.delete(f"/v1/staff/admin/assignments/{patient_id}", headers=headers)
+        assert delete_response.status_code == 200
+        assert delete_response.json() == {"patient_id": patient_id, "status": "unchanged"}
+
+
+def test_admin_unassign_returns_404_for_missing_patient(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-unassign-missing.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_UNASSIGN_MISSING", role="admin")
+        admin_token = _login_staff_token(client, "U_ADMIN_UNASSIGN_MISSING")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        delete_response = client.delete("/v1/staff/admin/assignments/999999", headers=headers)
+        assert delete_response.status_code == 404

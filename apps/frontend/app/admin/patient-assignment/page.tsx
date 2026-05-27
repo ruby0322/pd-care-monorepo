@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, X } from "lucide-react";
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
 import { toast } from "sonner";
 
@@ -16,6 +16,7 @@ import {
   fetchAdminAssignments,
   fetchAdminUsers,
   fetchStaffMe,
+  unassignAdminAssignment,
   upsertAdminAssignment,
 } from "@/lib/api/staff";
 
@@ -30,6 +31,10 @@ export default function AdminPatientAssignmentPage() {
   const [selectedPatientIds, setSelectedPatientIds] = useState<Set<number>>(new Set());
   const [workingPatientId, setWorkingPatientId] = useState<number | null>(null);
   const [isBulkAssigning, setIsBulkAssigning] = useState(false);
+  const [isUnassigning, setIsUnassigning] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<{ patientId: number; caseNumber: string; fullName: string | null } | null>(
+    null
+  );
   const [assignmentSorting, setAssignmentSorting] = useState<SortingState>([]);
   const [previewSorting, setPreviewSorting] = useState<SortingState>([{ id: "assigned_count", desc: true }]);
 
@@ -144,6 +149,39 @@ export default function AdminPatientAssignmentPage() {
       toast.error(getReadableApiError(requestError));
     } finally {
       setIsBulkAssigning(false);
+    }
+  }
+
+  function openRemoveModal(target: { patientId: number; caseNumber: string; fullName: string | null }) {
+    setRemoveTarget(target);
+  }
+
+  function closeRemoveModal() {
+    if (isUnassigning) {
+      return;
+    }
+    setRemoveTarget(null);
+  }
+
+  async function confirmRemoveAssignedPatient() {
+    if (!removeTarget) {
+      return;
+    }
+    setIsUnassigning(true);
+    setError(null);
+    try {
+      const response = await unassignAdminAssignment(removeTarget.patientId);
+      await load();
+      setRemoveTarget(null);
+      toast.success(
+        response.status === "updated"
+          ? "已移除病患指派"
+          : "病患目前無指派關係，無需移除"
+      );
+    } catch (requestError) {
+      toast.error(getReadableApiError(requestError));
+    } finally {
+      setIsUnassigning(false);
     }
   }
 
@@ -346,8 +384,27 @@ export default function AdminPatientAssignmentPage() {
           return (
             <div className="flex flex-wrap gap-1.5">
               {row.original.assigned_patients.map((patient) => (
-                <span key={patient.patient_id} className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
-                  {patient.case_number} {patient.patient_full_name ? `· ${patient.patient_full_name}` : ""}
+                <span
+                  key={patient.patient_id}
+                  className="inline-flex items-center gap-1 rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700"
+                >
+                  <button
+                    type="button"
+                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded text-zinc-600 hover:bg-zinc-200 hover:text-zinc-800"
+                    aria-label={`移除病患 ${patient.case_number} 指派`}
+                    onClick={() =>
+                      openRemoveModal({
+                        patientId: patient.patient_id,
+                        caseNumber: patient.case_number,
+                        fullName: patient.patient_full_name,
+                      })
+                    }
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                  <span>
+                    {patient.case_number} {patient.patient_full_name ? `· ${patient.patient_full_name}` : ""}
+                  </span>
                 </span>
               ))}
             </div>
@@ -499,6 +556,27 @@ export default function AdminPatientAssignmentPage() {
           </TableBody>
         </Table>
       </section>
+
+      {removeTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-5">
+            <h2 className="text-base font-semibold text-zinc-900">確認移除病患指派</h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              確定要移除病患 {removeTarget.caseNumber}
+              {removeTarget.fullName ? `（${removeTarget.fullName}）` : ""} 的主責指派嗎？
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">移除後可再重新指定新的主責人員。</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={closeRemoveModal} disabled={isUnassigning}>
+                取消
+              </Button>
+              <Button type="button" onClick={() => void confirmRemoveAssignedPatient()} disabled={isUnassigning}>
+                {isUnassigning ? "移除中..." : "確認移除"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
