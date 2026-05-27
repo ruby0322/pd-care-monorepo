@@ -105,18 +105,27 @@ def _seed_upload_history(client: TestClient, patient_id: int) -> None:
             patient_id=patient_id,
             object_key="patients/1/uploads/u1.jpg",
             content_type="image/jpeg",
+            symptom_pain=False,
+            symptom_discharge=True,
+            symptom_pus=False,
             created_at=first_day,
         )
         upload_2 = Upload(
             patient_id=patient_id,
             object_key="patients/1/uploads/u2.jpg",
             content_type="image/jpeg",
+            symptom_pain=True,
+            symptom_discharge=True,
+            symptom_pus=True,
             created_at=first_day + timedelta(hours=2),
         )
         upload_3 = Upload(
             patient_id=patient_id,
             object_key="patients/1/uploads/u3.jpg",
             content_type="image/jpeg",
+            symptom_pain=False,
+            symptom_discharge=False,
+            symptom_pus=False,
             created_at=base,
         )
         session.add_all([upload_1, upload_2, upload_3])
@@ -401,6 +410,12 @@ def test_patient_uploads_by_day_returns_day_scoped_records(tmp_path: Path) -> No
         assert payload["date"] == "2026-05-08"
         assert len(payload["items"]) == 2
         assert payload["items"][0]["upload_id"] < payload["items"][1]["upload_id"]
+        assert payload["items"][0]["symptom_pain"] is False
+        assert payload["items"][0]["symptom_discharge"] is True
+        assert payload["items"][0]["symptom_pus"] is False
+        assert payload["items"][1]["symptom_pain"] is True
+        assert payload["items"][1]["symptom_discharge"] is True
+        assert payload["items"][1]["symptom_pus"] is True
 
 
 def test_patient_upload_detail_returns_prev_next_and_latest_annotation(tmp_path: Path) -> None:
@@ -446,6 +461,9 @@ def test_patient_upload_detail_returns_prev_next_and_latest_annotation(tmp_path:
         assert payload["upload_id"] == target_upload_id
         assert payload["annotation_label"] == "suspected"
         assert payload["annotation_comment"] == "needs follow-up"
+        assert payload["symptom_pain"] is True
+        assert payload["symptom_discharge"] is True
+        assert payload["symptom_pus"] is True
         assert payload["prev_upload_id"] is not None
         assert payload["next_upload_id"] is None
         assert payload["image_url"].startswith(f"/api/v1/patient/uploads/{target_upload_id}/image-public?token=")

@@ -28,6 +28,9 @@ export type PatientUploadResponse = {
   model_version: string | null;
   threshold: number | null;
   notification_id: number | null;
+  symptom_pain: boolean;
+  symptom_discharge: boolean;
+  symptom_pus: boolean;
   prediction:
     | (PredictResponse & {
         screening: PredictResponse["screening"] & {
@@ -39,10 +42,18 @@ export type PatientUploadResponse = {
 };
 
 export async function uploadPatientExitSiteImage(
-  file: File
+  file: File,
+  symptoms: {
+    pain: boolean;
+    discharge: boolean;
+    pus: boolean;
+  }
 ): Promise<PatientUploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("pain", String(symptoms.pain));
+  formData.append("discharge", String(symptoms.discharge));
+  formData.append("pus", String(symptoms.pus));
 
   const { data } = await apiClient.post<PatientUploadResponse>("/v1/patient/uploads", formData, {
     headers: {
@@ -62,6 +73,9 @@ export type PatientUploadResultResponse = {
   threshold: number | null;
   model_version: string | null;
   error_reason: string | null;
+  symptom_pain: boolean;
+  symptom_discharge: boolean;
+  symptom_pus: boolean;
   created_at: string;
 };
 

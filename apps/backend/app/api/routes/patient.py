@@ -244,6 +244,9 @@ async def patient_uploads_by_day(
                     threshold=item.threshold,
                     model_version=item.model_version,
                     error_reason=item.error_reason,
+                    symptom_pain=item.symptom_pain,
+                    symptom_discharge=item.symptom_discharge,
+                    symptom_pus=item.symptom_pus,
                     annotation_label=item.annotation_label,
                     annotation_comment=item.annotation_comment,
                 )
@@ -288,6 +291,9 @@ async def patient_upload_detail(
             threshold=detail.threshold,
             model_version=detail.model_version,
             error_reason=detail.error_reason,
+            symptom_pain=detail.symptom_pain,
+            symptom_discharge=detail.symptom_discharge,
+            symptom_pus=detail.symptom_pus,
             annotation_label=detail.annotation_label,
             annotation_comment=detail.annotation_comment,
             image_url=image_url,
@@ -460,6 +466,9 @@ async def mark_patient_message_read(
 async def upload_patient_image(
     request: Request,
     line_user_id: str | None = Form(default=None, min_length=1, max_length=128),
+    pain: bool = Form(default=False),
+    discharge: bool = Form(default=False),
+    pus: bool = Form(default=False),
     file: UploadFile = File(...),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientUploadResponse:
@@ -509,6 +518,9 @@ async def upload_patient_image(
             content_type=content_type,
             filename=file.filename,
             image_bytes=payload,
+            symptom_pain=pain,
+            symptom_discharge=discharge,
+            symptom_pus=pus,
         )
         return PatientUploadResponse(
             upload_id=persisted.upload.id,
@@ -518,6 +530,9 @@ async def upload_patient_image(
             model_version=persisted.ai_result.model_version,
             threshold=persisted.ai_result.threshold,
             notification_id=persisted.notification.id if persisted.notification else None,
+            symptom_pain=persisted.upload.symptom_pain,
+            symptom_discharge=persisted.upload.symptom_discharge,
+            symptom_pus=persisted.upload.symptom_pus,
             prediction=persisted.prediction,
         )
     finally:
@@ -565,6 +580,9 @@ async def get_patient_upload_result(
             threshold=persisted.ai_result.threshold,
             model_version=persisted.ai_result.model_version,
             error_reason=persisted.ai_result.error_reason,
+            symptom_pain=persisted.upload.symptom_pain,
+            symptom_discharge=persisted.upload.symptom_discharge,
+            symptom_pus=persisted.upload.symptom_pus,
             created_at=persisted.ai_result.created_at,
         )
     finally:
