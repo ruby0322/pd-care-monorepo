@@ -25,6 +25,11 @@ export type AdminPatientsFilters = CommonFilters & {
   pageSize: 20 | 50 | 100;
 };
 
+export type AdminAssignmentFilters = {
+  q: string;
+  binding: AdminBindingFilter;
+};
+
 const EMPTY_USERS_FILTERS: AdminUsersFilters = {
   q: "",
   role: "all",
@@ -42,6 +47,11 @@ const EMPTY_PATIENT_FILTERS: AdminPatientsFilters = {
   active: "all",
   createdFrom: "",
   createdTo: "",
+};
+
+const EMPTY_ASSIGNMENT_FILTERS: AdminAssignmentFilters = {
+  q: "",
+  binding: "bound",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -130,6 +140,13 @@ export function parsePatientsFilters(searchParams: SearchParamReader): AdminPati
   };
 }
 
+export function parseAssignmentFilters(searchParams: SearchParamReader): AdminAssignmentFilters {
+  return {
+    q: normalizeText(searchParams.get("q")),
+    binding: normalizeBinding(searchParams.get("binding")),
+  };
+}
+
 export function usersFiltersToSearchParams(filters: AdminUsersFilters): URLSearchParams {
   const params = new URLSearchParams();
   setParam(params, "q", filters.q.trim());
@@ -150,5 +167,12 @@ export function patientsFiltersToSearchParams(filters: AdminPatientsFilters): UR
   setEnumParam(params, "active", filters.active, EMPTY_PATIENT_FILTERS.active);
   setParam(params, "createdFrom", normalizeDate(filters.createdFrom));
   setParam(params, "createdTo", normalizeDate(filters.createdTo));
+  return params;
+}
+
+export function assignmentFiltersToSearchParams(filters: AdminAssignmentFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  setParam(params, "q", filters.q.trim());
+  setEnumParam(params, "binding", filters.binding, EMPTY_ASSIGNMENT_FILTERS.binding);
   return params;
 }

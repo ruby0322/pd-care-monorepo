@@ -1335,6 +1335,47 @@ def test_admin_can_assign_patient_to_staff_and_list_assignments(tmp_path: Path) 
         assert assigned_item["staff_identity_id"] == staff_identity_id
 
 
+def test_admin_list_assignments_respects_binding_filter(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-binding-filter.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_BINDING", role="admin")
+        staff_identity_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_BINDING")
+        assigned_patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-ASSIGNED-BINDING",
+            line_user_id="U_PATIENT_ASSIGNED_BINDING",
+            uploads=[(datetime(2026, 5, 10, 8, 0, tzinfo=timezone.utc), "normal")],
+        )
+        unbound_patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-UNBOUND-BINDING",
+            line_user_id="U_PATIENT_UNBOUND_BINDING",
+            uploads=[(datetime(2026, 5, 10, 9, 0, tzinfo=timezone.utc), "normal")],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=assigned_patient_id)
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN_BINDING")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        bound_response = client.get("/v1/staff/admin/assignments", headers=headers)
+        assert bound_response.status_code == 200
+        bound_patient_ids = {item["patient_id"] for item in bound_response.json()["items"]}
+        assert assigned_patient_id in bound_patient_ids
+        assert unbound_patient_id not in bound_patient_ids
+
+        all_response = client.get("/v1/staff/admin/assignments?binding_filter=all", headers=headers)
+        assert all_response.status_code == 200
+        all_patient_ids = {item["patient_id"] for item in all_response.json()["items"]}
+        assert assigned_patient_id in all_patient_ids
+        assert unbound_patient_id in all_patient_ids
+
+        unbound_response = client.get("/v1/staff/admin/assignments?binding_filter=unbound_only", headers=headers)
+        assert unbound_response.status_code == 200
+        unbound_patient_ids = {item["patient_id"] for item in unbound_response.json()["items"]}
+        assert assigned_patient_id not in unbound_patient_ids
+        assert unbound_patient_id in unbound_patient_ids
+
+
 def test_admin_assignment_replaces_previous_owner(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-transfer.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

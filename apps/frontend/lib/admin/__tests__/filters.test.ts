@@ -1,4 +1,10 @@
-import { parsePatientsFilters, parseUsersFilters, patientsFiltersToSearchParams } from "@/lib/admin/filters";
+import {
+  assignmentFiltersToSearchParams,
+  parseAssignmentFilters,
+  parsePatientsFilters,
+  parseUsersFilters,
+  patientsFiltersToSearchParams,
+} from "@/lib/admin/filters";
 
 describe("admin users filters", () => {
   test("coerces patient role query to all", () => {
@@ -48,5 +54,35 @@ describe("admin patients filters", () => {
     expect(params.get("binding")).toBe("unbound_only");
     expect(params.get("page")).toBe("2");
     expect(params.get("pageSize")).toBe("50");
+  });
+});
+
+describe("admin assignment filters", () => {
+  test("defaults binding to bound", () => {
+    const params = new URLSearchParams();
+
+    const filters = parseAssignmentFilters(params);
+
+    expect(filters.q).toBe("");
+    expect(filters.binding).toBe("bound");
+  });
+
+  test("coerces invalid binding to bound", () => {
+    const params = new URLSearchParams("q=abc&binding=invalid");
+
+    const filters = parseAssignmentFilters(params);
+
+    expect(filters.q).toBe("abc");
+    expect(filters.binding).toBe("bound");
+  });
+
+  test("serializes q and non-default binding", () => {
+    const params = assignmentFiltersToSearchParams({
+      q: "foo",
+      binding: "unbound_only",
+    });
+
+    expect(params.get("q")).toBe("foo");
+    expect(params.get("binding")).toBe("unbound_only");
   });
 });
