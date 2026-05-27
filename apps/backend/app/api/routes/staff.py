@@ -573,16 +573,18 @@ async def list_admin_assignments(
 async def list_admin_assignments_by_staff(
     request: Request,
     staff_identity_ids: list[int] = Query(default=[]),
+    staff_identity_ids_bracket: list[int] = Query(default=[], alias="staff_identity_ids[]"),
     credentials=Depends(bearer_scheme),
 ) -> StaffAssignmentByStaffListResponse:
     require_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
+        merged_staff_ids = [*staff_identity_ids, *staff_identity_ids_bracket]
         grouped_rows = list_patient_assignments_by_staff(
             session,
-            staff_identity_ids=staff_identity_ids,
+            staff_identity_ids=merged_staff_ids,
         )
-        requested_staff_ids = sorted({staff_id for staff_id in staff_identity_ids if staff_id > 0})
+        requested_staff_ids = sorted({staff_id for staff_id in merged_staff_ids if staff_id > 0})
         return StaffAssignmentByStaffListResponse(
             items=[
                 StaffAssignmentByStaffItem(
