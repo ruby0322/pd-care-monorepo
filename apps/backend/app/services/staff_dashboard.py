@@ -95,35 +95,75 @@ def unassign_patient(
     return "updated" if deleted_count > 0 else "unchanged"
 
 
-def list_patient_assignments(session: Session) -> list[StaffAssignmentRow]:
-    patients = session.execute(select(Patient).order_by(Patient.case_number.asc(), Patient.id.asc())).scalars().all()
-    assignment_rows = session.execute(
+def list_patient_assignments(
+    session: Session,
+    *,
+    query: str | None,
+    assignment_filter: str,
+    limit: int,
+    offset: int,
+) -> tuple[list[StaffAssignmentRow], int]:
+    stmt: Select = (
         select(
-            StaffPatientAssignment.patient_id,
+            Patient,
             StaffPatientAssignment.staff_identity_id,
             LiffIdentity.line_user_id,
             LiffIdentity.display_name,
         )
-        .join(LiffIdentity, LiffIdentity.id == StaffPatientAssignment.staff_identity_id)
-        .order_by(StaffPatientAssignment.created_at.asc(), StaffPatientAssignment.id.asc())
-    ).all()
-    assignment_by_patient: dict[int, tuple[int, str | None, str | None]] = {}
-    for patient_id, staff_identity_id, line_user_id, display_name in assignment_rows:
-        assignment_by_patient[int(patient_id)] = (
-            int(staff_identity_id),
-            line_user_id,
-            display_name,
+        .outerjoin(StaffPatientAssignment, StaffPatientAssignment.patient_id == Patient.id)
+        .outerjoin(LiffIdentity, LiffIdentity.id == StaffPatientAssignment.staff_identity_id)
+    )
+
+    if query:
+        q = f"%{query.strip()}%"
+        stmt = stmt.where(
+            Patient.case_number.ilike(q)
+            | Patient.full_name.ilike(q)
+            | LiffIdentity.display_name.ilike(q)
+            | LiffIdentity.line_user_id.ilike(q)
         )
+    if assignment_filter == "assigned":
+        stmt = stmt.where(StaffPatientAssignment.staff_identity_id.is_not(None))
+    elif assignment_filter == "unassigned":
+        stmt = stmt.where(StaffPatientAssignment.staff_identity_id.is_(None))
+
+    total = int(session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one() or 0)
+    rows = session.execute(stmt.order_by(Patient.case_number.asc(), Patient.id.asc()).limit(limit).offset(offset)).all()
 
     return [
         StaffAssignmentRow(
             patient=patient,
-            staff_identity_id=assignment_by_patient.get(patient.id, (None, None, None))[0],
-            staff_line_user_id=assignment_by_patient.get(patient.id, (None, None, None))[1],
-            staff_display_name=assignment_by_patient.get(patient.id, (None, None, None))[2],
+            staff_identity_id=staff_identity_id,
+            staff_line_user_id=line_user_id,
+            staff_display_name=display_name,
         )
-        for patient in patients
-    ]
+        for patient, staff_identity_id, line_user_id, display_name in rows
+    ], total
+
+
+def list_patient_assignments_by_staff(
+    session: Session,
+    *,
+    staff_identity_ids: list[int],
+) -> dict[int, list[tuple[int, str, str | None]]]:
+    normalized_staff_ids = sorted({staff_id for staff_id in staff_identity_ids if staff_id > 0})
+    if not normalized_staff_ids:
+        return {}
+    rows = session.execute(
+        select(
+            StaffPatientAssignment.staff_identity_id,
+            Patient.id,
+            Patient.case_number,
+            Patient.full_name,
+        )
+        .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+        .where(StaffPatientAssignment.staff_identity_id.in_(normalized_staff_ids))
+        .order_by(StaffPatientAssignment.staff_identity_id.asc(), Patient.case_number.asc(), Patient.id.asc())
+    ).all()
+    grouped: dict[int, list[tuple[int, str, str | None]]] = defaultdict(list)
+    for staff_identity_id, patient_id, case_number, patient_full_name in rows:
+        grouped[int(staff_identity_id)].append((int(patient_id), case_number, patient_full_name))
+    return grouped
 
 
 def assign_patient_to_staff(

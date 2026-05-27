@@ -211,6 +211,13 @@ export type AdminIdentityItem = {
   created_at: string;
 };
 
+export type AdminIdentityListResponse = {
+  items: AdminIdentityItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type AdminInactiveIdentityDeletePreview = {
   requested_count: number;
   deletable_count: number;
@@ -245,6 +252,29 @@ export type AdminPatientAssignmentItem = {
   staff_identity_id: number | null;
   staff_line_user_id: string | null;
   staff_display_name: string | null;
+};
+
+export type AdminPatientAssignmentListResponse = {
+  items: AdminPatientAssignmentItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type AdminPatientAssignmentByStaffPatientItem = {
+  patient_id: number;
+  case_number: string;
+  patient_full_name: string | null;
+};
+
+export type AdminPatientAssignmentByStaffItem = {
+  staff_identity_id: number;
+  assigned_count: number;
+  assigned_patients: AdminPatientAssignmentByStaffPatientItem[];
+};
+
+export type AdminPatientAssignmentByStaffListResponse = {
+  items: AdminPatientAssignmentByStaffItem[];
 };
 
 export type AdminPatientAssignmentUpsertResponse = {
@@ -550,14 +580,16 @@ export async function fetchAdminDailySuspectedSeries(params?: {
   return data;
 }
 
-export async function fetchAdminUsers(params?: {
+export async function fetchAdminUsersPage(params?: {
   query?: string;
   role?: "staff" | "admin";
   isActive?: boolean;
   createdFrom?: string;
   createdTo?: string;
-}): Promise<AdminIdentityItem[]> {
-  const { data } = await apiClient.get<{ items: AdminIdentityItem[] }>("/v1/staff/admin/users", {
+  limit?: number;
+  offset?: number;
+}): Promise<AdminIdentityListResponse> {
+  const { data } = await apiClient.get<AdminIdentityListResponse>("/v1/staff/admin/users", {
     params: {
       query: params?.query,
       role: params?.role,
@@ -565,8 +597,23 @@ export async function fetchAdminUsers(params?: {
       is_active: params?.isActive,
       created_from: params?.createdFrom,
       created_to: params?.createdTo,
+      limit: params?.limit ?? 10,
+      offset: params?.offset ?? 0,
     },
   });
+  return data;
+}
+
+export async function fetchAdminUsers(params?: {
+  query?: string;
+  role?: "staff" | "admin";
+  isActive?: boolean;
+  createdFrom?: string;
+  createdTo?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<AdminIdentityItem[]> {
+  const data = await fetchAdminUsersPage(params);
   return data.items;
 }
 
@@ -639,9 +686,32 @@ export async function rejectAdminAccessRequest(
   return data;
 }
 
-export async function fetchAdminAssignments(): Promise<AdminPatientAssignmentItem[]> {
-  const { data } = await apiClient.get<{ items: AdminPatientAssignmentItem[] }>("/v1/staff/admin/assignments");
-  return data.items;
+export async function fetchAdminAssignments(params?: {
+  query?: string;
+  assignmentFilter?: "all" | "assigned" | "unassigned";
+  limit?: number;
+  offset?: number;
+}): Promise<AdminPatientAssignmentListResponse> {
+  const { data } = await apiClient.get<AdminPatientAssignmentListResponse>("/v1/staff/admin/assignments", {
+    params: {
+      query: params?.query,
+      assignment_filter: params?.assignmentFilter ?? "all",
+      limit: params?.limit ?? 10,
+      offset: params?.offset ?? 0,
+    },
+  });
+  return data;
+}
+
+export async function fetchAdminAssignmentsByStaff(params: {
+  staffIdentityIds: number[];
+}): Promise<AdminPatientAssignmentByStaffListResponse> {
+  const { data } = await apiClient.get<AdminPatientAssignmentByStaffListResponse>("/v1/staff/admin/assignments/by-staff", {
+    params: {
+      staff_identity_ids: params.staffIdentityIds,
+    },
+  });
+  return data;
 }
 
 export async function upsertAdminAssignment(payload: {

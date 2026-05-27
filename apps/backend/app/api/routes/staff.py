@@ -34,6 +34,9 @@ from app.schemas.staff_dashboard import (
     StaffAssignmentBulkItemResult,
     StaffAssignmentItem,
     StaffAssignmentListResponse,
+    StaffAssignmentByStaffItem,
+    StaffAssignmentByStaffListResponse,
+    StaffAssignmentByStaffPatientItem,
     StaffAssignmentUpsertRequest,
     StaffAssignmentUpsertResult,
     StaffAssignmentUnassignResult,
@@ -104,6 +107,7 @@ from app.services.staff_dashboard import (
     link_pending_binding,
     list_assigned_patient_ids,
     list_annotations_for_patient,
+    list_patient_assignments_by_staff,
     list_patient_assignments,
     list_gender_distribution,
     list_patient_upload_records,
@@ -211,12 +215,14 @@ async def list_admin_users(
     is_active: bool | None = Query(default=None),
     created_from: date | None = Query(default=None),
     created_to: date | None = Query(default=None),
+    limit: int = Query(default=10, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     credentials=Depends(bearer_scheme),
 ) -> AdminIdentityListResponse:
     require_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
-        rows = list_identities(
+        rows, total = list_identities(
             session,
             query=query,
             role=role,
@@ -224,6 +230,8 @@ async def list_admin_users(
             is_active=is_active,
             created_from=created_from,
             created_to=created_to,
+            limit=limit,
+            offset=offset,
         )
         return AdminIdentityListResponse(
             items=[
@@ -238,7 +246,10 @@ async def list_admin_users(
                     created_at=row.created_at,
                 )
                 for row in rows
-            ]
+            ],
+            total=total,
+            limit=limit,
+            offset=offset,
         )
     finally:
         session.close()
@@ -518,12 +529,22 @@ async def reject_admin_access_request(
 @router.get("/v1/staff/admin/assignments", response_model=StaffAssignmentListResponse)
 async def list_admin_assignments(
     request: Request,
+    query: str | None = Query(default=None, min_length=1, max_length=128),
+    assignment_filter: str = Query(default="all", pattern="^(all|assigned|unassigned)$"),
+    limit: int = Query(default=10, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     credentials=Depends(bearer_scheme),
 ) -> StaffAssignmentListResponse:
     require_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
-        rows = list_patient_assignments(session)
+        rows, total = list_patient_assignments(
+            session,
+            query=query,
+            assignment_filter=assignment_filter,
+            limit=limit,
+            offset=offset,
+        )
         return StaffAssignmentListResponse(
             items=[
                 StaffAssignmentItem(
@@ -535,6 +556,44 @@ async def list_admin_assignments(
                     staff_display_name=row.staff_display_name,
                 )
                 for row in rows
+            ],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/admin/assignments/by-staff", response_model=StaffAssignmentByStaffListResponse)
+async def list_admin_assignments_by_staff(
+    request: Request,
+    staff_identity_ids: list[int] = Query(default=[]),
+    credentials=Depends(bearer_scheme),
+) -> StaffAssignmentByStaffListResponse:
+    require_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        grouped_rows = list_patient_assignments_by_staff(
+            session,
+            staff_identity_ids=staff_identity_ids,
+        )
+        requested_staff_ids = sorted({staff_id for staff_id in staff_identity_ids if staff_id > 0})
+        return StaffAssignmentByStaffListResponse(
+            items=[
+                StaffAssignmentByStaffItem(
+                    staff_identity_id=staff_id,
+                    assigned_count=len(grouped_rows.get(staff_id, [])),
+                    assigned_patients=[
+                        StaffAssignmentByStaffPatientItem(
+                            patient_id=patient_id,
+                            case_number=case_number,
+                            patient_full_name=patient_full_name,
+                        )
+                        for patient_id, case_number, patient_full_name in grouped_rows.get(staff_id, [])
+                    ],
+                )
+                for staff_id in requested_staff_ids
             ]
         )
     finally:

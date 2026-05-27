@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import Select, delete, or_, select
+from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AuthorizationAuditEvent, HealthcareAccessRequest, LiffIdentity
@@ -174,8 +174,7 @@ def reject_healthcare_permission_request(
     return request
 
 
-def list_identities(
-    session: Session,
+def _build_list_identities_stmt(
     *,
     query: str | None,
     role: str | None,
@@ -183,7 +182,7 @@ def list_identities(
     is_active: bool | None,
     created_from: date | None,
     created_to: date | None,
-) -> list[LiffIdentity]:
+) -> Select:
     stmt: Select = select(LiffIdentity).order_by(LiffIdentity.created_at.desc())
     if query:
         q = f"%{query}%"
@@ -206,7 +205,32 @@ def list_identities(
     if created_to is not None:
         to_dt = datetime.combine(created_to, time.min, tzinfo=timezone.utc) + timedelta(days=1)
         stmt = stmt.where(LiffIdentity.created_at < to_dt)
-    return session.execute(stmt).scalars().all()
+    return stmt
+
+
+def list_identities(
+    session: Session,
+    *,
+    query: str | None,
+    role: str | None,
+    exclude_patient: bool,
+    is_active: bool | None,
+    created_from: date | None,
+    created_to: date | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[LiffIdentity], int]:
+    stmt = _build_list_identities_stmt(
+        query=query,
+        role=role,
+        exclude_patient=exclude_patient,
+        is_active=is_active,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    total = int(session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one() or 0)
+    rows = session.execute(stmt.limit(limit).offset(offset)).scalars().all()
+    return rows, total
 
 
 def preview_delete_inactive_identities(
