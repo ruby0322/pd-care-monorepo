@@ -13,7 +13,13 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getReadableApiError } from "@/lib/api/client";
-import { AdminActiveFilter, AdminInfectionFilter, parsePatientsFilters, patientsFiltersToSearchParams } from "@/lib/admin/filters";
+import {
+  AdminActiveFilter,
+  AdminBindingFilter,
+  AdminInfectionFilter,
+  parsePatientsFilters,
+  patientsFiltersToSearchParams,
+} from "@/lib/admin/filters";
 import {
   createStaffPatient,
   deleteInactivePatients,
@@ -54,11 +60,15 @@ export default function AdminPatientsPage() {
   const [genderDistribution, setGenderDistribution] = useState<{ gender: string; count: number }[]>([]);
   const [ageHistogram, setAgeHistogram] = useState<{ label: string; count: number }[]>([]);
   const [patients, setPatients] = useState<StaffPatientSummary[]>([]);
+  const [totalPatients, setTotalPatients] = useState(0);
   const [queryDraft, setQueryDraft] = useState(parsedFilters.q);
   const [debouncedQuery, setDebouncedQuery] = useState(parsedFilters.q);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [activeFilter, setActiveFilter] = useState<AdminActiveFilter>(parsedFilters.active);
   const [infectionFilter, setInfectionFilter] = useState<AdminInfectionFilter>(parsedFilters.infection);
+  const [bindingFilter, setBindingFilter] = useState<AdminBindingFilter>(parsedFilters.binding);
+  const [page, setPage] = useState(parsedFilters.page);
+  const [pageSize, setPageSize] = useState(parsedFilters.pageSize);
   const [createdFrom, setCreatedFrom] = useState(parsedFilters.createdFrom);
   const [createdTo, setCreatedTo] = useState(parsedFilters.createdTo);
   const [workingPatientId, setWorkingPatientId] = useState<number | null>(null);
@@ -79,10 +89,13 @@ export default function AdminPatientsPage() {
       q: debouncedQuery.trim(),
       active: activeFilter,
       infection: infectionFilter,
+      binding: bindingFilter,
+      page,
+      pageSize,
       createdFrom,
       createdTo,
     }),
-    [activeFilter, createdFrom, createdTo, debouncedQuery, infectionFilter]
+    [activeFilter, bindingFilter, createdFrom, createdTo, debouncedQuery, infectionFilter, page, pageSize]
   );
   const queryString = useMemo(() => patientsFiltersToSearchParams(query).toString(), [query]);
 
@@ -93,7 +106,10 @@ export default function AdminPatientsPage() {
       const response = await fetchStaffPatients({
         query: query.q || undefined,
         months: 12,
+        limit: query.pageSize,
+        offset: (query.page - 1) * query.pageSize,
         infectionStatus: query.infection,
+        bindingFilter: query.binding,
         isActiveFilter: query.active,
         createdFrom: query.createdFrom || undefined,
         createdTo: query.createdTo || undefined,
@@ -101,8 +117,17 @@ export default function AdminPatientsPage() {
         sortDir: "desc",
       });
       setPatients(response.items);
+      setTotalPatients(response.total_patients);
+      const currentOffset = (query.page - 1) * query.pageSize;
+      if (response.total_patients > 0 && currentOffset >= response.total_patients) {
+        const fallbackPage = Math.max(1, Math.ceil(response.total_patients / query.pageSize));
+        if (fallbackPage !== query.page) {
+          setPage(fallbackPage);
+        }
+      }
     } catch (requestError) {
       setError(getReadableApiError(requestError));
+      setTotalPatients(0);
     } finally {
       setLoading(false);
     }
@@ -114,6 +139,9 @@ export default function AdminPatientsPage() {
       setDebouncedQuery(parsedFilters.q);
       setActiveFilter(parsedFilters.active);
       setInfectionFilter(parsedFilters.infection);
+      setBindingFilter(parsedFilters.binding);
+      setPage(parsedFilters.page);
+      setPageSize(parsedFilters.pageSize);
       setCreatedFrom(parsedFilters.createdFrom);
       setCreatedTo(parsedFilters.createdTo);
     }, 0);
@@ -123,6 +151,7 @@ export default function AdminPatientsPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedQuery(queryDraft);
+      setPage(1);
     }, 250);
     return () => window.clearTimeout(timer);
   }, [queryDraft]);
@@ -155,8 +184,26 @@ export default function AdminPatientsPage() {
       }
       setIsAdmin(true);
       const [genderData, ageData] = await Promise.all([
-        fetchAdminGenderDistribution(),
-        fetchAdminAgeHistogram({ bucketSize: 10 }),
+        fetchAdminGenderDistribution({
+          query: query.q || undefined,
+          months: 12,
+          infectionStatus: query.infection,
+          bindingFilter: query.binding,
+          isActiveFilter: query.active,
+          createdFrom: query.createdFrom || undefined,
+          createdTo: query.createdTo || undefined,
+        }),
+        fetchAdminAgeHistogram({
+          query: query.q || undefined,
+          months: 12,
+          infectionStatus: query.infection,
+          bindingFilter: query.binding,
+          isActiveFilter: query.active,
+          createdFrom: query.createdFrom || undefined,
+          createdTo: query.createdTo || undefined,
+          bucketSize: 10,
+          includeInactive: true,
+        }),
       ]);
       setGenderDistribution(genderData.items);
       setAgeHistogram(ageData.items.map((item) => ({ label: item.label, count: item.count })));
@@ -164,7 +211,7 @@ export default function AdminPatientsPage() {
       setIsAdmin(false);
       setAnalyticsError(getReadableApiError(requestError));
     }
-  }, []);
+  }, [query]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -445,6 +492,12 @@ export default function AdminPatientsPage() {
     getSortedRowModel: getSortedRowModel(),
   });
 
+  const totalPages = Math.max(1, Math.ceil(totalPatients / pageSize));
+  const hasPreviousPage = page > 1;
+  const hasNextPage = page < totalPages;
+  const rangeStart = totalPatients === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = totalPatients === 0 ? 0 : Math.min(page * pageSize, totalPatients);
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -539,7 +592,10 @@ export default function AdminPatientsPage() {
         />
         <select
           value={infectionFilter}
-          onChange={(event) => setInfectionFilter(event.target.value as AdminInfectionFilter)}
+          onChange={(event) => {
+            setInfectionFilter(event.target.value as AdminInfectionFilter);
+            setPage(1);
+          }}
           className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
         >
           <option value="all">全部感染狀態</option>
@@ -547,8 +603,23 @@ export default function AdminPatientsPage() {
           <option value="normal">latest: normal</option>
         </select>
         <select
+          value={bindingFilter}
+          onChange={(event) => {
+            setBindingFilter(event.target.value as AdminBindingFilter);
+            setPage(1);
+          }}
+          className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+        >
+          <option value="bound">僅已綁定</option>
+          <option value="all">全部病患</option>
+          <option value="unbound_only">僅未綁定</option>
+        </select>
+        <select
           value={activeFilter}
-          onChange={(event) => setActiveFilter(event.target.value as AdminActiveFilter)}
+          onChange={(event) => {
+            setActiveFilter(event.target.value as AdminActiveFilter);
+            setPage(1);
+          }}
           className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
         >
           <option value="all">全部狀態</option>
@@ -557,11 +628,27 @@ export default function AdminPatientsPage() {
         </select>
         <label className="inline-flex items-center gap-2 text-xs text-zinc-500">
           最新上傳起
-          <Input type="date" value={createdFrom} onChange={(event) => setCreatedFrom(event.target.value)} className="w-44" />
+          <Input
+            type="date"
+            value={createdFrom}
+            onChange={(event) => {
+              setCreatedFrom(event.target.value);
+              setPage(1);
+            }}
+            className="w-44"
+          />
         </label>
         <label className="inline-flex items-center gap-2 text-xs text-zinc-500">
           最新上傳迄
-          <Input type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} className="w-44" />
+          <Input
+            type="date"
+            value={createdTo}
+            onChange={(event) => {
+              setCreatedTo(event.target.value);
+              setPage(1);
+            }}
+            className="w-44"
+          />
         </label>
         <Button
           type="button"
@@ -613,8 +700,42 @@ export default function AdminPatientsPage() {
             )}
           </TableBody>
         </Table>
-        <div className="border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
-          顯示 {table.getRowModel().rows.length} 位病患
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
+          <span>
+            顯示 {rangeStart}-{rangeEnd} / {totalPatients} 位病患
+          </span>
+          <div className="flex items-center gap-2">
+            <label className="inline-flex items-center gap-1">
+              每頁
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value) as 20 | 50 | 100);
+                  setPage(1);
+                }}
+                className="rounded border border-zinc-200 px-2 py-1 text-xs"
+              >
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </label>
+            <Button type="button" variant="outline" size="sm" disabled={!hasPreviousPage} onClick={() => setPage((prev) => Math.max(prev - 1, 1))}>
+              上一頁
+            </Button>
+            <span>
+              第 {Math.min(page, totalPages)} / {totalPages} 頁
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!hasNextPage}
+              onClick={() => setPage((prev) => (hasNextPage ? prev + 1 : prev))}
+            >
+              下一頁
+            </Button>
+          </div>
         </div>
       </div>
 

@@ -205,6 +205,7 @@ def list_staff_patients(
     age_min: int | None,
     age_max: int | None,
     infection_status: str,
+    binding_filter: str,
     is_active_filter: str,
     created_from: date | None,
     created_to: date | None,
@@ -285,6 +286,10 @@ def list_staff_patients(
             continue
 
         identity_info = line_identity_by_patient.get(patient.id)
+        if binding_filter == "bound" and identity_info is None:
+            continue
+        if binding_filter == "unbound_only" and identity_info is not None:
+            continue
         if normalized_query is not None:
             full_name = (patient.full_name or "").lower()
             line_display_name = (identity_info[0] or "").lower() if identity_info else ""

@@ -25,6 +25,8 @@ class StaffPatientListResponse(BaseModel):
     total_patients: int
     total_uploads: int
     suspected_patients: int
+    limit: int
+    offset: int
     items: list[StaffPatientSummary]
 
 

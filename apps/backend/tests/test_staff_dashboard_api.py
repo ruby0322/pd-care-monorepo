@@ -441,6 +441,60 @@ def test_staff_patient_list_suspected_patients_uses_latest_status(tmp_path: Path
         assert payload["total_patients"] == 2
         assert payload["suspected_patients"] == 1
 
+
+def test_staff_patient_list_supports_limit_offset_pagination(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-pagination.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_a_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-PAGE-001",
+            line_user_id="U_PATIENT_PAGE_001",
+            uploads=[],
+        )
+        patient_b_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-PAGE-002",
+            line_user_id="U_PATIENT_PAGE_002",
+            uploads=[],
+        )
+        patient_c_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-PAGE-003",
+            line_user_id="U_PATIENT_PAGE_003",
+            uploads=[],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_a_id)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_b_id)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_c_id)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        first_page = client.get("/v1/staff/patients?sort_key=case_number&sort_dir=asc&limit=2&offset=0", headers=headers)
+        assert first_page.status_code == 200
+        first_payload = first_page.json()
+        assert first_payload["limit"] == 2
+        assert first_payload["offset"] == 0
+        assert first_payload["total_patients"] == 3
+        assert [item["case_number"] for item in first_payload["items"]] == ["P-PAGE-001", "P-PAGE-002"]
+
+        second_page = client.get("/v1/staff/patients?sort_key=case_number&sort_dir=asc&limit=2&offset=2", headers=headers)
+        assert second_page.status_code == 200
+        second_payload = second_page.json()
+        assert second_payload["limit"] == 2
+        assert second_payload["offset"] == 2
+        assert second_payload["total_patients"] == 3
+        assert [item["case_number"] for item in second_payload["items"]] == ["P-PAGE-003"]
+
+        out_of_range = client.get("/v1/staff/patients?sort_key=case_number&sort_dir=asc&limit=2&offset=99", headers=headers)
+        assert out_of_range.status_code == 200
+        out_of_range_payload = out_of_range.json()
+        assert out_of_range_payload["limit"] == 2
+        assert out_of_range_payload["offset"] == 99
+        assert out_of_range_payload["total_patients"] == 3
+        assert out_of_range_payload["items"] == []
+
 def test_patient_token_is_denied_for_staff_dashboard_endpoints(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-denied.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
@@ -1086,6 +1140,125 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         assert today_item["suspected_uploads"] == 1
         assert today_item["suspected_ratio"] == 0.5
         assert any(item["total_uploads"] == 0 and item["suspected_ratio"] == 0 for item in daily_payload["items"])
+
+
+def test_admin_analytics_endpoints_apply_patient_filters(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-analytics-filters.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ANALYTICS_FILTERS", role="admin")
+        now = datetime.now(tz=timezone.utc)
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            bound_suspected = Patient(
+                case_number="FILT-B-001",
+                birth_date="1988-01-01",
+                full_name="Bound Suspected Patient",
+                gender="male",
+                is_active=True,
+            )
+            unbound_normal = Patient(
+                case_number="FILT-U-001",
+                birth_date="1977-06-15",
+                full_name="Unbound Normal Patient",
+                gender="female",
+                is_active=True,
+            )
+            bound_inactive = Patient(
+                case_number="FILT-B-002",
+                birth_date="1995-09-20",
+                full_name="Bound Inactive Patient",
+                gender="other",
+                is_active=False,
+            )
+            session.add_all([bound_suspected, unbound_normal, bound_inactive])
+            session.flush()
+
+            session.add_all(
+                [
+                    LiffIdentity(
+                        line_user_id="U_FILTER_BOUND_1",
+                        display_name="Bound Suspected",
+                        picture_url=None,
+                        patient_id=bound_suspected.id,
+                        role="patient",
+                    ),
+                    LiffIdentity(
+                        line_user_id="U_FILTER_BOUND_2",
+                        display_name="Bound Inactive",
+                        picture_url=None,
+                        patient_id=bound_inactive.id,
+                        role="patient",
+                    ),
+                ]
+            )
+
+            uploads = [
+                Upload(
+                    patient_id=bound_suspected.id,
+                    object_key="patients/filter/uploads/bound-suspected.jpg",
+                    content_type="image/jpeg",
+                    created_at=now - timedelta(hours=1),
+                ),
+                Upload(
+                    patient_id=unbound_normal.id,
+                    object_key="patients/filter/uploads/unbound-normal.jpg",
+                    content_type="image/jpeg",
+                    created_at=now - timedelta(hours=2),
+                ),
+                Upload(
+                    patient_id=bound_inactive.id,
+                    object_key="patients/filter/uploads/bound-inactive.jpg",
+                    content_type="image/jpeg",
+                    created_at=now - timedelta(hours=3),
+                ),
+            ]
+            session.add_all(uploads)
+            session.flush()
+            session.add_all(
+                [
+                    AIResult(upload_id=uploads[0].id, screening_result="suspected", probability=0.91, threshold=0.5),
+                    AIResult(upload_id=uploads[1].id, screening_result="normal", probability=0.19, threshold=0.5),
+                    AIResult(upload_id=uploads[2].id, screening_result="normal", probability=0.21, threshold=0.5),
+                ]
+            )
+            session.commit()
+
+        token = _login_staff_token(client, "U_ADMIN_ANALYTICS_FILTERS")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        bound_suspected_response = client.get(
+            "/v1/staff/admin/analytics/gender-distribution?binding_filter=bound&infection_status=suspected",
+            headers=headers,
+        )
+        assert bound_suspected_response.status_code == 200
+        bound_suspected_payload = bound_suspected_response.json()
+        assert bound_suspected_payload["total_patients"] == 1
+        gender_counts = {item["gender"]: item["count"] for item in bound_suspected_payload["items"]}
+        assert gender_counts["male"] == 1
+        assert gender_counts["female"] == 0
+        assert gender_counts["other"] == 0
+        assert gender_counts["unknown"] == 0
+
+        unbound_query_response = client.get(
+            "/v1/staff/admin/analytics/gender-distribution?binding_filter=unbound_only&query=Unbound",
+            headers=headers,
+        )
+        assert unbound_query_response.status_code == 200
+        unbound_query_payload = unbound_query_response.json()
+        assert unbound_query_payload["total_patients"] == 1
+        unbound_gender_counts = {item["gender"]: item["count"] for item in unbound_query_payload["items"]}
+        assert unbound_gender_counts["female"] == 1
+
+        inactive_histogram_response = client.get(
+            "/v1/staff/admin/analytics/age-histogram?binding_filter=bound&is_active_filter=inactive&include_inactive=true",
+            headers=headers,
+        )
+        assert inactive_histogram_response.status_code == 200
+        inactive_histogram_payload = inactive_histogram_response.json()
+        assert inactive_histogram_payload["total_patients"] == 1
+        assert sum(item["count"] for item in inactive_histogram_payload["items"]) == 1
 
 
 def test_staff_is_denied_for_admin_analytics_endpoints(tmp_path: Path) -> None:

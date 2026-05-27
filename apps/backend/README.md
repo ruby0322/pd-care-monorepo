@@ -202,6 +202,62 @@ Adjust `-U`, `-d`, and service name to match your Compose file.
 
 The bound **`line_user_id`** and demo **`case_number`** / **`birth_date`** are defined inside those files; change them there if you need a different tester account.
 
+## Manual patient preload import (no LIFF binding)
+
+Use this when you already have patient master data and want to create
+`patients` rows in advance (so users can bind later without waiting for review).
+
+Path:
+
+- `sql/manual/import_patients_preload.py`
+
+Supported input columns (required):
+
+- `姓名`
+- `病歷號`
+- `出生日期`
+
+Behavior:
+
+- Inserts only into `patients` (does not create `liff_identities` / `pending_bindings`)
+- Duplicate `(case_number, birth_date)` rows are skipped
+- `gender` is set to `unknown`
+- Script prints target DB identity and post-run patient binding metrics (`patients_total`, `patients_bound`, `patients_unbound`)
+
+Examples from `apps/backend`:
+
+```bash
+set -a && . ./.env && set +a
+python sql/manual/import_patients_preload.py --xlsx /path/to/20260511_2277.xlsx --dry-run
+python sql/manual/import_patients_preload.py --xlsx /path/to/20260511_2277.xlsx --yes
+```
+
+TSV fallback (header: `姓名<TAB>病歷號<TAB>出生日期`):
+
+```bash
+python sql/manual/import_patients_preload.py --tsv /path/to/patients.tsv --dry-run
+python sql/manual/import_patients_preload.py --tsv /path/to/patients.tsv --yes
+```
+
+Optional flags:
+
+- `--sheet <name>`: pick a specific XLSX sheet (default: first sheet)
+- `--password <value>`: password for encrypted XLSX
+- `--yes`: skip interactive confirmation for real import
+- `--limit <N>`: process first N data rows only
+- `--database-url <url>`: override env-provided DB URL
+
+### Environment safety runbook
+
+Use this sequence every time to avoid importing into the wrong environment:
+
+1. Run `--dry-run` first and confirm the printed target DB identity (`database_url`, `type=...` line).
+2. Re-run real import with `--yes` only after DB identity matches your intended environment.
+3. Check printed `patients_total`, `patients_bound`, `patients_unbound` metrics.
+4. Verify backend list API in the same environment:
+   - `GET /v1/staff/patients?binding_filter=unbound_only`
+5. Finally verify `/admin/patients` with filter set to `僅未綁定`.
+
 ## Database migrations (Alembic)
 
 Schema evolution is managed by Alembic under `migrations/versions`.
