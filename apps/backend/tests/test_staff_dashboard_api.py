@@ -1651,3 +1651,65 @@ def test_admin_assignment_list_pagination_applies_after_assignee_filters(tmp_pat
         out_of_range_payload = out_of_range_response.json()
         assert out_of_range_payload["total"] == 4
         assert out_of_range_payload["items"] == []
+
+
+def test_admin_assignment_by_staff_accepts_repeated_query_keys(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-by-staff-repeated.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_BY_STAFF_REPEATED", role="admin")
+        staff_a_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_BY_STAFF_A", role="staff")
+        staff_b_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_BY_STAFF_B", role="staff")
+        patient_a_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-ASN-BY-STAFF-001",
+            line_user_id="U_PATIENT_ASN_BY_STAFF_001",
+            uploads=[],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_a_id, patient_id=patient_a_id)
+
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN_BY_STAFF_REPEATED")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        response = client.get(
+            f"/v1/staff/admin/assignments/by-staff?staff_identity_ids={staff_a_id}&staff_identity_ids={staff_b_id}",
+            headers=headers,
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert [item["staff_identity_id"] for item in payload["items"]] == [staff_a_id, staff_b_id]
+        assert payload["items"][0]["assigned_count"] == 1
+        assert payload["items"][0]["assigned_patients"][0]["patient_id"] == patient_a_id
+        assert payload["items"][1]["assigned_count"] == 0
+        assert payload["items"][1]["assigned_patients"] == []
+
+
+def test_admin_assignment_by_staff_accepts_bracket_query_keys(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-by-staff-bracket.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGN_BY_STAFF_BRACKET", role="admin")
+        staff_a_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_BY_STAFF_BRACKET_A", role="staff")
+        staff_b_id = _seed_staff(client, line_user_id="U_STAFF_ASSIGN_BY_STAFF_BRACKET_B", role="staff")
+        patient_a_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-ASN-BY-BRACKET-001",
+            line_user_id="U_PATIENT_ASN_BY_BRACKET_001",
+            uploads=[],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_a_id, patient_id=patient_a_id)
+
+        admin_token = _login_staff_token(client, "U_ADMIN_ASSIGN_BY_STAFF_BRACKET")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        response = client.get(
+            f"/v1/staff/admin/assignments/by-staff?staff_identity_ids[]={staff_a_id}&staff_identity_ids[]={staff_b_id}",
+            headers=headers,
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert [item["staff_identity_id"] for item in payload["items"]] == [staff_a_id, staff_b_id]
+        assert payload["items"][0]["assigned_count"] == 1
+        assert payload["items"][0]["assigned_patients"][0]["patient_id"] == patient_a_id
+        assert payload["items"][1]["assigned_count"] == 0
+        assert payload["items"][1]["assigned_patients"] == []
