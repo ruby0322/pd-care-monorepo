@@ -33,6 +33,9 @@ class PatientDayUpload:
     threshold: float | None
     model_version: str | None
     error_reason: str | None
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
     annotation_label: str | None
     annotation_comment: str | None
 
@@ -48,6 +51,9 @@ class PatientUploadDetail:
     threshold: float | None
     model_version: str | None
     error_reason: str | None
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
     annotation_label: str | None
     annotation_comment: str | None
     local_date: date
@@ -226,6 +232,9 @@ def list_patient_uploads_by_local_day(
                 threshold=ai_result.threshold,
                 model_version=ai_result.model_version,
                 error_reason=ai_result.error_reason,
+                symptom_pain=upload.symptom_pain,
+                symptom_discharge=upload.symptom_discharge,
+                symptom_pus=upload.symptom_pus,
                 annotation_label=latest_annotation.label if latest_annotation else None,
                 annotation_comment=latest_annotation.comment if latest_annotation else None,
             )
@@ -289,6 +298,9 @@ def get_patient_upload_detail(
         threshold=selected_ai_result.threshold,
         model_version=selected_ai_result.model_version,
         error_reason=selected_ai_result.error_reason,
+        symptom_pain=selected_upload.symptom_pain,
+        symptom_discharge=selected_upload.symptom_discharge,
+        symptom_pus=selected_upload.symptom_pus,
         annotation_label=latest_annotation.label if latest_annotation else None,
         annotation_comment=latest_annotation.comment if latest_annotation else None,
         local_date=selected_local_date,

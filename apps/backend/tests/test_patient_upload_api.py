@@ -179,7 +179,12 @@ def test_patient_upload_persists_upload_and_ai_result(tmp_path: Path) -> None:
 
         response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_BOUND"},
+            data={
+                "line_user_id": "U_LINE_BOUND",
+                "pain": "true",
+                "discharge": "true",
+                "pus": "false",
+            },
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -191,6 +196,9 @@ def test_patient_upload_persists_upload_and_ai_result(tmp_path: Path) -> None:
         assert payload["upload_id"] > 0
         assert payload["ai_result_id"] > 0
         assert payload["notification_id"] is None
+        assert payload["symptom_pain"] is True
+        assert payload["symptom_discharge"] is True
+        assert payload["symptom_pus"] is False
         assert payload["prediction"]["screening"]["is_infection_positive"] is False
 
         assert len(fake_storage.stored) == 1
@@ -203,6 +211,9 @@ def test_patient_upload_persists_upload_and_ai_result(tmp_path: Path) -> None:
             notifications = session.query(Notification).all()
             assert len(uploads) == 1
             assert uploads[0].object_key == f"patients/{patient_id}/uploads/{payload['upload_id']}.jpg"
+            assert uploads[0].symptom_pain is True
+            assert uploads[0].symptom_discharge is True
+            assert uploads[0].symptom_pus is False
             assert len(ai_results) == 1
             assert ai_results[0].upload_id == uploads[0].id
             assert len(notifications) == 0
@@ -218,7 +229,12 @@ def test_patient_upload_creates_notification_for_suspected_risk(tmp_path: Path) 
 
         response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_BOUND_2"},
+            data={
+                "line_user_id": "U_LINE_BOUND_2",
+                "pain": "false",
+                "discharge": "true",
+                "pus": "true",
+            },
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -228,6 +244,9 @@ def test_patient_upload_creates_notification_for_suspected_risk(tmp_path: Path) 
         assert payload["patient_id"] == patient_id
         assert payload["screening_result"] == "suspected"
         assert payload["notification_id"] is not None
+        assert payload["symptom_pain"] is False
+        assert payload["symptom_discharge"] is True
+        assert payload["symptom_pus"] is True
         assert payload["prediction"]["screening"]["is_infection_positive"] is True
 
         session_factory = client.app.state.db_session_factory
@@ -272,6 +291,9 @@ def test_patient_upload_rejected_when_prescreen_detects_non_exit_site(
         assert payload["screening_result"] == "rejected"
         assert payload["prediction"] is None
         assert payload["notification_id"] is None
+        assert payload["symptom_pain"] is False
+        assert payload["symptom_discharge"] is False
+        assert payload["symptom_pus"] is False
 
         session_factory = client.app.state.db_session_factory
         with session_factory() as session:
@@ -324,6 +346,9 @@ def test_patient_upload_fails_open_when_prescreen_inference_errors(
         assert payload["prediction"] is not None
         assert payload["prediction"]["screening"]["is_infection_positive"] is False
         assert payload["notification_id"] is None
+        assert payload["symptom_pain"] is False
+        assert payload["symptom_discharge"] is False
+        assert payload["symptom_pus"] is False
 
         session_factory = client.app.state.db_session_factory
         with session_factory() as session:
@@ -424,6 +449,9 @@ def test_get_patient_result_by_upload_id_returns_persisted_record(tmp_path: Path
         assert payload["ai_result_id"] == upload_payload["ai_result_id"]
         assert payload["screening_result"] == "normal"
         assert payload["probability"] is not None
+        assert payload["symptom_pain"] is False
+        assert payload["symptom_discharge"] is False
+        assert payload["symptom_pus"] is False
 
 
 def test_get_patient_result_by_ai_result_id_returns_persisted_record(tmp_path: Path) -> None:
@@ -459,6 +487,31 @@ def test_get_patient_result_by_ai_result_id_returns_persisted_record(tmp_path: P
         assert payload["ai_result_id"] == upload_payload["ai_result_id"]
         assert payload["screening_result"] == "suspected"
         assert payload["probability"] is not None
+        assert payload["symptom_pain"] is False
+        assert payload["symptom_discharge"] is False
+        assert payload["symptom_pus"] is False
+
+
+def test_patient_upload_defaults_symptoms_to_false_when_omitted(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path / "upload-default-symptoms.db")
+    app = create_app(settings=settings, loaded_model=_make_loaded_model(_NormalModel(), settings))
+    with TestClient(app) as client:
+        _seed_bound_identity(client, line_user_id="U_LINE_DEFAULT_SYMPTOMS")
+        client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_DEFAULT_SYMPTOMS")
+
+        response = client.post(
+            "/v1/patient/uploads",
+            data={"line_user_id": "U_LINE_DEFAULT_SYMPTOMS"},
+            files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["symptom_pain"] is False
+        assert payload["symptom_discharge"] is False
+        assert payload["symptom_pus"] is False
 
 
 def test_get_patient_result_rejects_other_patient_access(tmp_path: Path) -> None:

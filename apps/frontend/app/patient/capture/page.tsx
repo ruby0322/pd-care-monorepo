@@ -7,10 +7,15 @@ import { getLiffLoginProof } from "@/lib/auth/liff";
 import { getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
 import { AlignCenter, Camera, ChevronLeft, Eye, Sun } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 type CameraFacingMode = "environment" | "user";
+type SymptomFormState = {
+  pain: boolean;
+  discharge: boolean;
+  pus: boolean;
+};
 
 function CameraView({
   onCapture,
@@ -133,7 +138,6 @@ function CameraView({
 
 function CapturePageInner() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [cameraKey, setCameraKey] = useState(0);
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
@@ -144,6 +148,13 @@ function CapturePageInner() {
   const [cameraNoticeMessage, setCameraNoticeMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [showSymptomModal, setShowSymptomModal] = useState(true);
+  const [symptomConfirmed, setSymptomConfirmed] = useState(false);
+  const [symptoms, setSymptoms] = useState<SymptomFormState>({
+    pain: false,
+    discharge: false,
+    pus: false,
+  });
 
   const ensurePatientToken = async () => {
     const existingSession = getPatientSession();
@@ -264,20 +275,20 @@ function CapturePageInner() {
   };
 
   const handleSubmit = async () => {
-    if (!capturedImage) return;
+    if (!capturedImage || !symptomConfirmed) return;
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
       await ensurePatientToken();
       const file = await dataUrlToJpegFile(capturedImage);
-      const payload = await uploadPatientExitSiteImage(file);
+      const payload = await uploadPatientExitSiteImage(file, symptoms);
       const result = payload.screening_result;
 
       const params = new URLSearchParams({
-        pain: searchParams.get("pain") ?? "false",
-        discharge: searchParams.get("discharge") ?? "false",
-        cloudyDialysate: searchParams.get("cloudyDialysate") ?? "false",
+        pain: String(payload.symptom_pain),
+        discharge: String(payload.symptom_discharge),
+        pus: String(payload.symptom_pus),
         result,
         uploadId: String(payload.upload_id),
         aiResultId: String(payload.ai_result_id),
@@ -291,9 +302,9 @@ function CapturePageInner() {
       const detail = getApiErrorDetail(error);
       if (detail) {
         const params = new URLSearchParams({
-          pain: searchParams.get("pain") ?? "false",
-          discharge: searchParams.get("discharge") ?? "false",
-          cloudyDialysate: searchParams.get("cloudyDialysate") ?? "false",
+          pain: String(symptoms.pain),
+          discharge: String(symptoms.discharge),
+          pus: String(symptoms.pus),
           result: "rejected",
           reason: detail,
         });
@@ -407,6 +418,7 @@ function CapturePageInner() {
           {capturedImage && !showSubmitModal && (
             <button
               onClick={handleReopenSubmitModal}
+              disabled={!symptomConfirmed}
               className="w-full py-3.5 rounded-2xl border border-white/30 text-white text-sm font-medium hover:bg-white/10 transition-colors"
             >
               送出分析
@@ -414,6 +426,69 @@ function CapturePageInner() {
           )}
         </div>
       </div>
+
+      {showSymptomModal && (
+        <div className="fixed inset-0 z-30 flex items-end bg-black/70">
+          <div className="w-full rounded-t-3xl bg-white px-6 pb-10 pt-6">
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-zinc-200" />
+            <p className="text-xs text-zinc-500">症狀回報</p>
+            <h2 className="mt-1 text-lg font-semibold text-zinc-900">請先填寫本次症狀</h2>
+            <p className="mt-2 text-sm text-zinc-600">此步驟不可跳過，可直接選擇「皆無症狀」。</p>
+
+            <div className="mt-5 space-y-3">
+              {([
+                { key: "pain", label: "疼痛" },
+                { key: "discharge", label: "分泌物" },
+                { key: "pus", label: "流膿" },
+              ] as const).map(({ key, label }) => (
+                <label
+                  key={key}
+                  className="flex items-center justify-between rounded-2xl border border-zinc-200 px-4 py-3 text-sm text-zinc-700"
+                >
+                  <span>{label}</span>
+                  <input
+                    type="checkbox"
+                    checked={symptoms[key]}
+                    onChange={(event) => {
+                      setSymptoms((current) => ({
+                        ...current,
+                        [key]: event.target.checked,
+                      }));
+                    }}
+                    className="h-5 w-5 rounded border-zinc-300"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSymptoms({
+                    pain: false,
+                    discharge: false,
+                    pus: false,
+                  });
+                }}
+                className="flex-1 rounded-2xl border border-zinc-200 py-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+              >
+                皆無症狀
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSymptomConfirmed(true);
+                  setShowSymptomModal(false);
+                }}
+                className="flex-1 rounded-2xl bg-zinc-900 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
+              >
+                確認並開始拍攝
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSubmitModal && (
         <div className="fixed inset-0 bg-black/70 flex items-end z-20">
