@@ -1,6 +1,7 @@
 export type AdminActiveFilter = "all" | "active" | "inactive";
 export type AdminRoleFilter = "all" | "staff" | "admin";
 export type AdminInfectionFilter = "all" | "suspected" | "normal";
+export type AdminBindingFilter = "bound" | "all" | "unbound_only";
 
 type SearchParamReader = {
   get(name: string): string | null;
@@ -19,6 +20,9 @@ export type AdminUsersFilters = CommonFilters & {
 
 export type AdminPatientsFilters = CommonFilters & {
   infection: AdminInfectionFilter;
+  binding: AdminBindingFilter;
+  page: number;
+  pageSize: 20 | 50 | 100;
 };
 
 const EMPTY_USERS_FILTERS: AdminUsersFilters = {
@@ -32,12 +36,16 @@ const EMPTY_USERS_FILTERS: AdminUsersFilters = {
 const EMPTY_PATIENT_FILTERS: AdminPatientsFilters = {
   q: "",
   infection: "all",
+  binding: "bound",
+  page: 1,
+  pageSize: 20,
   active: "all",
   createdFrom: "",
   createdTo: "",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ALLOWED_PAGE_SIZES = new Set<number>([20, 50, 100]);
 
 function normalizeText(value: string | null): string {
   return (value ?? "").trim();
@@ -58,6 +66,29 @@ function normalizeRole(value: string | null): AdminRoleFilter {
 
 function normalizeInfection(value: string | null): AdminInfectionFilter {
   return value === "suspected" || value === "normal" ? value : "all";
+}
+
+function normalizeBinding(value: string | null): AdminBindingFilter {
+  if (value === "all" || value === "unbound_only") {
+    return value;
+  }
+  return "bound";
+}
+
+function normalizePage(value: string | null): number {
+  const parsed = Number.parseInt((value ?? "").trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 1;
+  }
+  return parsed;
+}
+
+function normalizePageSize(value: string | null): 20 | 50 | 100 {
+  const parsed = Number.parseInt((value ?? "").trim(), 10);
+  if (ALLOWED_PAGE_SIZES.has(parsed)) {
+    return parsed as 20 | 50 | 100;
+  }
+  return 20;
 }
 
 function setParam(params: URLSearchParams, key: string, value: string): void {
@@ -90,6 +121,9 @@ export function parsePatientsFilters(searchParams: SearchParamReader): AdminPati
   return {
     q: normalizeText(searchParams.get("q")),
     infection: normalizeInfection(searchParams.get("infection")),
+    binding: normalizeBinding(searchParams.get("binding")),
+    page: normalizePage(searchParams.get("page")),
+    pageSize: normalizePageSize(searchParams.get("pageSize")),
     active: normalizeActive(searchParams.get("active")),
     createdFrom: normalizeDate(searchParams.get("createdFrom")),
     createdTo: normalizeDate(searchParams.get("createdTo")),
@@ -110,6 +144,9 @@ export function patientsFiltersToSearchParams(filters: AdminPatientsFilters): UR
   const params = new URLSearchParams();
   setParam(params, "q", filters.q.trim());
   setEnumParam(params, "infection", filters.infection, EMPTY_PATIENT_FILTERS.infection);
+  setEnumParam(params, "binding", filters.binding, EMPTY_PATIENT_FILTERS.binding);
+  setEnumParam(params, "pageSize", String(filters.pageSize), String(EMPTY_PATIENT_FILTERS.pageSize));
+  setEnumParam(params, "page", String(filters.page), String(EMPTY_PATIENT_FILTERS.page));
   setEnumParam(params, "active", filters.active, EMPTY_PATIENT_FILTERS.active);
   setParam(params, "createdFrom", normalizeDate(filters.createdFrom));
   setParam(params, "createdTo", normalizeDate(filters.createdTo));

@@ -24,6 +24,8 @@ export type StaffPatientListResponse = {
   total_patients: number;
   total_uploads: number;
   suspected_patients: number;
+  limit: number;
+  offset: number;
   items: StaffPatientSummary[];
 };
 
@@ -162,6 +164,18 @@ export type AdminAgeHistogramResponse = {
   items: AdminAgeHistogramBucket[];
 };
 
+export type AdminPatientAnalyticsFilters = {
+  months?: number;
+  ageMin?: number;
+  ageMax?: number;
+  query?: string;
+  infectionStatus?: "all" | "suspected" | "normal";
+  bindingFilter?: "bound" | "all" | "unbound_only";
+  isActiveFilter?: "all" | "active" | "inactive";
+  createdFrom?: string;
+  createdTo?: string;
+};
+
 export type AdminActiveUsersSeriesPoint = {
   date: string;
   active_users: number;
@@ -289,10 +303,13 @@ export async function fetchStaffMe(): Promise<StaffMeResponse> {
 
 export async function fetchStaffPatients(params: {
   months: number;
+  limit?: number;
+  offset?: number;
   ageMin?: number;
   ageMax?: number;
   query?: string;
   infectionStatus: "all" | "suspected" | "normal";
+  bindingFilter?: "bound" | "all" | "unbound_only";
   isActiveFilter?: "all" | "active" | "inactive";
   createdFrom?: string;
   createdTo?: string;
@@ -302,10 +319,13 @@ export async function fetchStaffPatients(params: {
   const { data } = await apiClient.get<StaffPatientListResponse>("/v1/staff/patients", {
     params: {
       months: params.months,
+      limit: params.limit ?? 20,
+      offset: params.offset ?? 0,
       age_min: params.ageMin,
       age_max: params.ageMax,
       query: params.query,
       infection_status: params.infectionStatus,
+      binding_filter: params.bindingFilter ?? "bound",
       is_active_filter: params.isActiveFilter ?? "all",
       created_from: params.createdFrom,
       created_to: params.createdTo,
@@ -455,8 +475,22 @@ export async function markStaffNotificationRead(notificationId: number): Promise
   return data;
 }
 
-export async function fetchAdminGenderDistribution(): Promise<AdminGenderDistributionResponse> {
-  const { data } = await apiClient.get<AdminGenderDistributionResponse>("/v1/staff/admin/analytics/gender-distribution");
+export async function fetchAdminGenderDistribution(
+  params?: AdminPatientAnalyticsFilters
+): Promise<AdminGenderDistributionResponse> {
+  const { data } = await apiClient.get<AdminGenderDistributionResponse>("/v1/staff/admin/analytics/gender-distribution", {
+    params: {
+      months: params?.months ?? 12,
+      age_min: params?.ageMin,
+      age_max: params?.ageMax,
+      query: params?.query,
+      infection_status: params?.infectionStatus ?? "all",
+      binding_filter: params?.bindingFilter ?? "all",
+      is_active_filter: params?.isActiveFilter ?? "all",
+      created_from: params?.createdFrom,
+      created_to: params?.createdTo,
+    },
+  });
   return data;
 }
 
@@ -465,12 +499,21 @@ export async function fetchAdminTodaySuspectedSummary(): Promise<AdminTodaySuspe
   return data;
 }
 
-export async function fetchAdminAgeHistogram(params?: {
+export async function fetchAdminAgeHistogram(params?: AdminPatientAnalyticsFilters & {
   bucketSize?: number;
   includeInactive?: boolean;
 }): Promise<AdminAgeHistogramResponse> {
   const { data } = await apiClient.get<AdminAgeHistogramResponse>("/v1/staff/admin/analytics/age-histogram", {
     params: {
+      months: params?.months ?? 12,
+      age_min: params?.ageMin,
+      age_max: params?.ageMax,
+      query: params?.query,
+      infection_status: params?.infectionStatus ?? "all",
+      binding_filter: params?.bindingFilter ?? "all",
+      is_active_filter: params?.isActiveFilter ?? "all",
+      created_from: params?.createdFrom,
+      created_to: params?.createdTo,
       bucket_size: params?.bucketSize ?? 10,
       include_inactive: params?.includeInactive ?? false,
     },

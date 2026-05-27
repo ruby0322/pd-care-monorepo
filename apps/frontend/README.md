@@ -89,6 +89,19 @@ npm run docker:up:frontend
 
 For client-side API calls, the app reserves `NEXT_PUBLIC_API_BASE_URL`. The example value for local development lives in `.env.example`.
 
+## API target and environment alignment
+
+When troubleshooting "imported data is not visible in `/admin/patients`", first confirm frontend API target:
+
+- In development, client requests use `NEXT_PUBLIC_API_BASE_URL` (for example `http://127.0.0.1:8000`).
+- In production, if `NEXT_PUBLIC_API_BASE_URL` is empty or relative, frontend uses `/api` and Next.js rewrites it to backend (`next.config.mjs`).
+
+Before checking patient filters:
+
+1. Confirm the backend import script output shows the same target DB environment.
+2. Confirm this frontend is calling that same backend origin/rewrite target.
+3. Then verify `/admin/patients` with binding filters (`bound`, `all`, `unbound_only`).
+
 ## Learn More
 
 - [Next.js Documentation](https://nextjs.org/docs)

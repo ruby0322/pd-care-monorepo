@@ -152,6 +152,35 @@ def _assert_upload_access(session, *, role: str, identity_id: int, upload_id: in
     return upload
 
 
+def _list_filtered_patient_ids_for_admin_analytics(
+    session,
+    *,
+    query: str | None,
+    months: int,
+    age_min: int | None,
+    age_max: int | None,
+    infection_status: str,
+    binding_filter: str,
+    is_active_filter: str,
+    created_from: date | None,
+    created_to: date | None,
+) -> set[int]:
+    rows = list_staff_patients(
+        session,
+        query=query,
+        months=months,
+        age_min=age_min,
+        age_max=age_max,
+        infection_status=infection_status,
+        binding_filter=binding_filter,
+        is_active_filter=is_active_filter,
+        created_from=created_from,
+        created_to=created_to,
+        accessible_patient_ids=None,
+    )
+    return {row.patient.id for row in rows}
+
+
 @router.get("/v1/staff/me")
 async def get_staff_profile(
     request: Request,
@@ -592,12 +621,33 @@ async def bulk_upsert_admin_assignment(
 @router.get("/v1/staff/admin/analytics/gender-distribution", response_model=StaffGenderDistributionResponse)
 async def get_admin_gender_distribution(
     request: Request,
+    query: str | None = Query(default=None, min_length=1, max_length=128),
+    months: int = Query(default=12, ge=1, le=60),
+    age_min: int | None = Query(default=None, ge=0),
+    age_max: int | None = Query(default=None, ge=0),
+    infection_status: str = Query(default="all", pattern="^(all|suspected|normal)$"),
+    binding_filter: str = Query(default="all", pattern="^(bound|all|unbound_only)$"),
+    is_active_filter: str = Query(default="all", pattern="^(all|active|inactive)$"),
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
     credentials=Depends(bearer_scheme),
 ) -> StaffGenderDistributionResponse:
     require_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
-        rows = list_gender_distribution(session, accessible_patient_ids=None)
+        filtered_patient_ids = _list_filtered_patient_ids_for_admin_analytics(
+            session,
+            query=query,
+            months=months,
+            age_min=age_min,
+            age_max=age_max,
+            infection_status=infection_status,
+            binding_filter=binding_filter,
+            is_active_filter=is_active_filter,
+            created_from=created_from,
+            created_to=created_to,
+        )
+        rows = list_gender_distribution(session, accessible_patient_ids=filtered_patient_ids)
         items = [StaffGenderDistributionItem(gender=gender, count=count) for gender, count in rows]
         return StaffGenderDistributionResponse(
             total_patients=sum(item.count for item in items),
@@ -634,6 +684,15 @@ async def get_admin_today_suspected_summary(
 @router.get("/v1/staff/admin/analytics/age-histogram", response_model=StaffAgeHistogramResponse)
 async def get_admin_age_histogram(
     request: Request,
+    query: str | None = Query(default=None, min_length=1, max_length=128),
+    months: int = Query(default=12, ge=1, le=60),
+    age_min: int | None = Query(default=None, ge=0),
+    age_max: int | None = Query(default=None, ge=0),
+    infection_status: str = Query(default="all", pattern="^(all|suspected|normal)$"),
+    binding_filter: str = Query(default="all", pattern="^(bound|all|unbound_only)$"),
+    is_active_filter: str = Query(default="all", pattern="^(all|active|inactive)$"),
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
     bucket_size: int = Query(default=10, ge=1, le=30),
     include_inactive: bool = Query(default=False),
     credentials=Depends(bearer_scheme),
@@ -641,11 +700,23 @@ async def get_admin_age_histogram(
     require_admin(get_current_principal(request, credentials))
     session = get_session(request)
     try:
+        filtered_patient_ids = _list_filtered_patient_ids_for_admin_analytics(
+            session,
+            query=query,
+            months=months,
+            age_min=age_min,
+            age_max=age_max,
+            infection_status=infection_status,
+            binding_filter=binding_filter,
+            is_active_filter=is_active_filter,
+            created_from=created_from,
+            created_to=created_to,
+        )
         rows = get_age_histogram(
             session,
             bucket_size=bucket_size,
             include_inactive=include_inactive,
-            accessible_patient_ids=None,
+            accessible_patient_ids=filtered_patient_ids,
         )
         items = [
             StaffAgeHistogramBucket(
@@ -861,9 +932,12 @@ async def get_staff_patients(
     age_min: int | None = Query(default=None, ge=0),
     age_max: int | None = Query(default=None, ge=0),
     infection_status: str = Query(default="all", pattern="^(all|suspected|normal)$"),
+    binding_filter: str = Query(default="bound", pattern="^(bound|all|unbound_only)$"),
     is_active_filter: str = Query(default="all", pattern="^(all|active|inactive)$"),
     created_from: date | None = Query(default=None),
     created_to: date | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     sort_key: str = Query(default="latest_upload", pattern="^(latest_upload|case_number|upload_count|suspected_count|age)$"),
     sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     credentials=Depends(bearer_scheme),
@@ -883,6 +957,7 @@ async def get_staff_patients(
             age_min=age_min,
             age_max=age_max,
             infection_status=infection_status,
+            binding_filter=binding_filter,
             is_active_filter=is_active_filter,
             created_from=created_from,
             created_to=created_to,
@@ -900,6 +975,11 @@ async def get_staff_patients(
         else:
             rows.sort(key=lambda row: row.latest_upload_at or row.patient.created_at, reverse=reverse)
 
+        total_patients = len(rows)
+        total_uploads = sum(row.upload_count for row in rows)
+        suspected_patients = sum(1 for row in rows if row.latest_upload_status == "suspected")
+        paged_rows = rows[offset : offset + limit]
+
         items = [
             StaffPatientSummary(
                 patient_id=row.patient.id,
@@ -914,14 +994,15 @@ async def get_staff_patients(
                 latest_upload_at=row.latest_upload_at,
                 is_active=row.patient.is_active,
             )
-            for row in rows
+            for row in paged_rows
         ]
-        suspected_patients = sum(1 for row in rows if row.latest_upload_status == "suspected")
         return StaffPatientListResponse(
             months=months,
-            total_patients=len(items),
-            total_uploads=sum(item.upload_count for item in items),
+            total_patients=total_patients,
+            total_uploads=total_uploads,
             suspected_patients=suspected_patients,
+            limit=limit,
+            offset=offset,
             items=items,
         )
     finally:
@@ -1474,6 +1555,7 @@ async def update_staff_patient_status(
             age_min=None,
             age_max=None,
             infection_status="all",
+            binding_filter="all",
             is_active_filter="all",
             created_from=None,
             created_to=None,
