@@ -689,6 +689,8 @@ export async function rejectAdminAccessRequest(
 export async function fetchAdminAssignments(params?: {
   query?: string;
   assignmentFilter?: "all" | "assigned" | "unassigned";
+  assigneeRole?: "all" | "staff" | "admin";
+  assigneeActive?: "all" | "active" | "inactive";
   limit?: number;
   offset?: number;
 }): Promise<AdminPatientAssignmentListResponse> {
@@ -696,6 +698,8 @@ export async function fetchAdminAssignments(params?: {
     params: {
       query: params?.query,
       assignment_filter: params?.assignmentFilter ?? "all",
+      assignee_role: params?.assigneeRole ?? "all",
+      assignee_active: params?.assigneeActive ?? "all",
       limit: params?.limit ?? 10,
       offset: params?.offset ?? 0,
     },
