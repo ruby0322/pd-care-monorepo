@@ -83,6 +83,9 @@ export type StaffUploadQueueItem = {
   screening_result: "normal" | "suspected" | "rejected" | "technical_error";
   probability: number | null;
   has_annotation: boolean;
+  symptom_pain: boolean;
+  symptom_discharge: boolean;
+  symptom_pus: boolean;
 };
 
 export type StaffUploadQueueResponse = { items: StaffUploadQueueItem[] };

@@ -1244,6 +1244,9 @@ async def get_staff_upload_queue(
                     screening_result=ai_result.screening_result,
                     probability=ai_result.probability,
                     has_annotation=has_annotation,
+                    symptom_pain=upload.symptom_pain,
+                    symptom_discharge=upload.symptom_discharge,
+                    symptom_pus=upload.symptom_pus,
                 )
                 for upload, ai_result, patient, line_user_id, has_annotation in rows
             ]
