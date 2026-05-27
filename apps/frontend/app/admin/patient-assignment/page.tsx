@@ -44,6 +44,8 @@ export default function AdminPatientAssignmentPage() {
   const [patientPage, setPatientPage] = useState(1);
   const patientPageSize = DEFAULT_PAGE_SIZE;
   const [assignmentFilter, setAssignmentFilter] = useState<"all" | "assigned" | "unassigned">("all");
+  const [assigneeRoleFilter, setAssigneeRoleFilter] = useState<"all" | "staff" | "admin">("all");
+  const [assigneeActiveFilter, setAssigneeActiveFilter] = useState<"all" | "active" | "inactive">("all");
   const [keywordDraft, setKeywordDraft] = useState("");
   const [keyword, setKeyword] = useState("");
 
@@ -122,6 +124,8 @@ export default function AdminPatientAssignmentPage() {
       const response = await fetchAdminAssignments({
         query: keyword.trim() || undefined,
         assignmentFilter,
+        assigneeRole: assigneeRoleFilter,
+        assigneeActive: assigneeActiveFilter,
         limit: patientPageSize,
         offset: (patientPage - 1) * patientPageSize,
       });
@@ -148,7 +152,7 @@ export default function AdminPatientAssignmentPage() {
     } finally {
       setAssignmentsLoading(false);
     }
-  }, [assignmentFilter, isAdmin, keyword, patientPage, patientPageSize]);
+  }, [assignmentFilter, assigneeActiveFilter, assigneeRoleFilter, isAdmin, keyword, patientPage, patientPageSize]);
 
   const loadAssignmentsByStaff = useCallback(
     async (staffIds: number[]) => {
@@ -611,26 +615,68 @@ export default function AdminPatientAssignmentPage() {
         </div>
       </section>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={keywordDraft}
-          onChange={(event) => setKeywordDraft(event.target.value)}
-          className="w-72"
-          placeholder="搜尋病歷號 / 病患姓名 / 人員"
-        />
-        <select
-          value={assignmentFilter}
-          onChange={(event) => {
-            setAssignmentFilter(event.target.value as "all" | "assigned" | "unassigned");
-            setPatientPage(1);
-          }}
-          className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-        >
-          <option value="all">全部分配狀態</option>
-          <option value="assigned">僅已分配</option>
-          <option value="unassigned">僅未分配</option>
-        </select>
-      </div>
+      <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+        <h2 className="text-sm font-medium text-zinc-900">病患篩選</h2>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-zinc-600">
+            關鍵字
+            <Input
+              value={keywordDraft}
+              onChange={(event) => setKeywordDraft(event.target.value)}
+              className="w-72"
+              placeholder="搜尋病歷號 / 病患姓名 / 人員"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-zinc-600">
+            分配狀態
+            <select
+              aria-label="分配狀態"
+              value={assignmentFilter}
+              onChange={(event) => {
+                setAssignmentFilter(event.target.value as "all" | "assigned" | "unassigned");
+                setPatientPage(1);
+              }}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <option value="all">全部分配狀態</option>
+              <option value="assigned">僅已分配</option>
+              <option value="unassigned">僅未分配</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-zinc-600">
+            人員角色
+            <select
+              aria-label="人員角色"
+              value={assigneeRoleFilter}
+              onChange={(event) => {
+                setAssigneeRoleFilter(event.target.value as "all" | "staff" | "admin");
+                setPatientPage(1);
+              }}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <option value="all">全部角色</option>
+              <option value="staff">僅 staff</option>
+              <option value="admin">僅 admin</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-zinc-600">
+            人員狀態
+            <select
+              aria-label="人員狀態"
+              value={assigneeActiveFilter}
+              onChange={(event) => {
+                setAssigneeActiveFilter(event.target.value as "all" | "active" | "inactive");
+                setPatientPage(1);
+              }}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <option value="all">全部狀態</option>
+              <option value="active">僅 active</option>
+              <option value="inactive">僅 inactive</option>
+            </select>
+          </label>
+        </div>
+      </section>
 
       <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
         <Table>
