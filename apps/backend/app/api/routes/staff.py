@@ -531,6 +531,8 @@ async def list_admin_assignments(
     request: Request,
     query: str | None = Query(default=None, min_length=1, max_length=128),
     assignment_filter: str = Query(default="all", pattern="^(all|assigned|unassigned)$"),
+    assignee_role: str = Query(default="all", pattern="^(all|staff|admin)$"),
+    assignee_active: str = Query(default="all", pattern="^(all|active|inactive)$"),
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     credentials=Depends(bearer_scheme),
@@ -542,6 +544,8 @@ async def list_admin_assignments(
             session,
             query=query,
             assignment_filter=assignment_filter,
+            assignee_role=assignee_role,
+            assignee_active=assignee_active,
             limit=limit,
             offset=offset,
         )
