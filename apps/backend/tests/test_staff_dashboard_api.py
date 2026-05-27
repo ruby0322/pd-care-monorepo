@@ -1328,7 +1328,7 @@ def test_admin_can_assign_patient_to_staff_and_list_assignments(tmp_path: Path) 
         assert assign_response.status_code == 200
         assert assign_response.json()["status"] == "updated"
 
-        list_response = client.get("/v1/staff/admin/assignments", headers=headers)
+        list_response = client.get("/v1/staff/admin/assignments?binding_filter=all", headers=headers)
         assert list_response.status_code == 200
         assigned_item = next((item for item in list_response.json()["items"] if item["patient_id"] == patient_id), None)
         assert assigned_item is not None

@@ -99,7 +99,8 @@ def list_patient_assignments(
     session: Session,
     *,
     query: str | None,
-    assignment_filter: str,
+    assignment_filter: str | None,
+    binding_filter: str,
     assignee_role: str,
     assignee_active: str,
     limit: int,
@@ -124,11 +125,21 @@ def list_patient_assignments(
             | LiffIdentity.display_name.ilike(q)
             | LiffIdentity.line_user_id.ilike(q)
         )
-    if assignment_filter == "assigned":
+    resolved_assignment_filter = assignment_filter
+    if resolved_assignment_filter is None:
+        if binding_filter == "bound":
+            resolved_assignment_filter = "assigned"
+        elif binding_filter == "unbound_only":
+            resolved_assignment_filter = "unassigned"
+        else:
+            resolved_assignment_filter = "all"
+
+    if resolved_assignment_filter == "assigned":
         stmt = stmt.where(StaffPatientAssignment.staff_identity_id.is_not(None))
-    elif assignment_filter == "unassigned":
+    elif resolved_assignment_filter == "unassigned":
         stmt = stmt.where(StaffPatientAssignment.staff_identity_id.is_(None))
-    else:
+
+    if resolved_assignment_filter != "unassigned":
         if assignee_role in {"staff", "admin"}:
             stmt = stmt.where(
                 StaffPatientAssignment.staff_identity_id.is_not(None),

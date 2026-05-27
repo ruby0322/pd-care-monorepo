@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, X } from "lucide-react";
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { type AdminBindingFilter, assignmentFiltersToSearchParams, parseAssignmentFilters } from "@/lib/admin/filters";
 import { getReadableApiError } from "@/lib/api/client";
 import {
   AdminIdentityItem,
@@ -24,7 +26,32 @@ import {
 
 const DEFAULT_PAGE_SIZE = 10;
 
+function mapBindingToAssignmentFilter(binding: AdminBindingFilter): "all" | "assigned" | "unassigned" {
+  if (binding === "bound") {
+    return "assigned";
+  }
+  if (binding === "unbound_only") {
+    return "unassigned";
+  }
+  return "all";
+}
+
+function mapAssignmentFilterToBinding(filter: "all" | "assigned" | "unassigned"): AdminBindingFilter {
+  if (filter === "assigned") {
+    return "bound";
+  }
+  if (filter === "unassigned") {
+    return "unbound_only";
+  }
+  return "all";
+}
+
 export default function AdminPatientAssignmentPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const parsedFilters = useMemo(() => parseAssignmentFilters(searchParams), [searchParams]);
+
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -43,11 +70,12 @@ export default function AdminPatientAssignmentPage() {
   >({});
   const [patientPage, setPatientPage] = useState(1);
   const patientPageSize = DEFAULT_PAGE_SIZE;
-  const [assignmentFilter, setAssignmentFilter] = useState<"all" | "assigned" | "unassigned">("all");
-  const [assigneeRoleFilter, setAssigneeRoleFilter] = useState<"all" | "staff" | "admin">("all");
+  const [assignmentFilter, setAssignmentFilter] = useState<"all" | "assigned" | "unassigned">(
+    mapBindingToAssignmentFilter(parsedFilters.binding)
+  );
   const [assigneeActiveFilter, setAssigneeActiveFilter] = useState<"all" | "active" | "inactive">("all");
-  const [keywordDraft, setKeywordDraft] = useState("");
-  const [keyword, setKeyword] = useState("");
+  const [keywordDraft, setKeywordDraft] = useState(parsedFilters.q);
+  const [keyword, setKeyword] = useState(parsedFilters.q);
 
   const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
   const [selectedPatientIds, setSelectedPatientIds] = useState<Set<number>>(new Set());
@@ -58,6 +86,14 @@ export default function AdminPatientAssignmentPage() {
     null
   );
   const [assignmentSorting, setAssignmentSorting] = useState<SortingState>([]);
+  const queryString = useMemo(
+    () =>
+      assignmentFiltersToSearchParams({
+        q: keyword.trim(),
+        binding: mapAssignmentFilterToBinding(assignmentFilter),
+      }).toString(),
+    [assignmentFilter, keyword]
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -123,8 +159,7 @@ export default function AdminPatientAssignmentPage() {
     try {
       const response = await fetchAdminAssignments({
         query: keyword.trim() || undefined,
-        assignmentFilter,
-        assigneeRole: assigneeRoleFilter,
+        bindingFilter: mapAssignmentFilterToBinding(assignmentFilter),
         assigneeActive: assigneeActiveFilter,
         limit: patientPageSize,
         offset: (patientPage - 1) * patientPageSize,
@@ -152,7 +187,7 @@ export default function AdminPatientAssignmentPage() {
     } finally {
       setAssignmentsLoading(false);
     }
-  }, [assignmentFilter, assigneeActiveFilter, assigneeRoleFilter, isAdmin, keyword, patientPage, patientPageSize]);
+  }, [assignmentFilter, assigneeActiveFilter, isAdmin, keyword, patientPage, patientPageSize]);
 
   const loadAssignmentsByStaff = useCallback(
     async (staffIds: number[]) => {
@@ -182,6 +217,25 @@ export default function AdminPatientAssignmentPage() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [keywordDraft]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setKeywordDraft(parsedFilters.q);
+      setKeyword(parsedFilters.q);
+      setAssignmentFilter(mapBindingToAssignmentFilter(parsedFilters.binding));
+      setPatientPage(1);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [parsedFilters]);
+
+  useEffect(() => {
+    const current = searchParams.toString();
+    if (current === queryString) {
+      return;
+    }
+    const href = queryString ? `${pathname}?${queryString}` : pathname;
+    router.replace(href);
+  }, [pathname, queryString, router, searchParams]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -627,25 +681,9 @@ export default function AdminPatientAssignmentPage() {
               }}
               className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
             >
-              <option value="all">全部分配狀態</option>
-              <option value="assigned">僅已分配</option>
-              <option value="unassigned">僅未分配</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-zinc-600">
-            人員角色
-            <select
-              aria-label="人員角色"
-              value={assigneeRoleFilter}
-              onChange={(event) => {
-                setAssigneeRoleFilter(event.target.value as "all" | "staff" | "admin");
-                setPatientPage(1);
-              }}
-              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-            >
-              <option value="all">全部角色</option>
-              <option value="staff">僅 staff</option>
-              <option value="admin">僅 admin</option>
+              <option value="assigned">僅已綁定</option>
+              <option value="all">全部病患</option>
+              <option value="unassigned">僅未綁定</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs text-zinc-600">

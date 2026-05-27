@@ -688,6 +688,7 @@ export async function rejectAdminAccessRequest(
 
 export async function fetchAdminAssignments(params?: {
   query?: string;
+  bindingFilter?: "bound" | "all" | "unbound_only";
   assignmentFilter?: "all" | "assigned" | "unassigned";
   assigneeRole?: "all" | "staff" | "admin";
   assigneeActive?: "all" | "active" | "inactive";
@@ -697,7 +698,8 @@ export async function fetchAdminAssignments(params?: {
   const { data } = await apiClient.get<AdminPatientAssignmentListResponse>("/v1/staff/admin/assignments", {
     params: {
       query: params?.query,
-      assignment_filter: params?.assignmentFilter ?? "all",
+      binding_filter: params?.bindingFilter ?? "bound",
+      assignment_filter: params?.assignmentFilter,
       assignee_role: params?.assigneeRole ?? "all",
       assignee_active: params?.assigneeActive ?? "all",
       limit: params?.limit ?? 10,
