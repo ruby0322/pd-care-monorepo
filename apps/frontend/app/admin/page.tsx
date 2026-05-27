@@ -27,6 +27,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { getReadableApiError } from "@/lib/api/client";
+import { getSuspectedKpi } from "@/lib/admin/dashboard-kpi";
 import {
   fetchAdminActiveUsersSeries,
   fetchAdminDailySuspectedSeries,
@@ -236,6 +237,7 @@ export default function AdminDashboard() {
     suspected_uploads: { label: "疑似數量", color: "#dc2626" },
     ratio_pct: { label: "疑似比例(%)", color: "#2563eb" },
   };
+  const suspectedKpi = getSuspectedKpi(months, stats.suspectedPatients, todaySummary?.suspected_uploads);
 
   async function refreshPending() {
     const items = await fetchPendingBindings();
@@ -451,7 +453,7 @@ export default function AdminDashboard() {
             value: months === "today" ? (todaySummary?.total_uploads ?? stats.totalUploads) : stats.totalUploads,
             color: "zinc",
           },
-          { icon: AlertTriangle, label: "疑似感染人數", value: stats.suspectedPatients, color: "red" },
+          { icon: AlertTriangle, label: suspectedKpi.label, value: suspectedKpi.value, color: "red" },
         ].map(({ icon: Icon, label, value, color }) => (
           <div key={label} className="bg-white border border-zinc-100 rounded-2xl p-5 flex flex-col gap-3">
             <div className={clsx("w-8 h-8 rounded-xl flex items-center justify-center", color === "red" ? "bg-red-50" : "bg-zinc-50")}>
