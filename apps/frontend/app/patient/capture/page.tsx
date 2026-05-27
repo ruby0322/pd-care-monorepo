@@ -8,14 +8,20 @@ import { getPatientSession, setPatientSession } from "@/lib/auth/patient-session
 import { AlignCenter, Camera, ChevronLeft, Eye, Sun } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+
+type CameraFacingMode = "environment" | "user";
 
 function CameraView({
   onCapture,
   onError,
+  facingMode,
+  onFallbackToEnvironment,
 }: {
   onCapture: (dataUrl: string) => void;
   onError: (message?: string) => void;
+  facingMode: CameraFacingMode;
+  onFallbackToEnvironment: (message: string) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -46,32 +52,52 @@ function CameraView({
       };
     }
 
-    mediaDevices
-      .getUserMedia({ video: { facingMode: "environment" } })
-      .then((stream) => {
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+
+    const attachStream = (stream: MediaStream) => {
+      if (cancelled) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setReady(true);
+        void videoRef.current.play().catch(() => {
+          // Some browsers block autoplay without a user gesture even when camera permission is granted.
+          // Keep camera view active instead of treating it as a hard camera access error.
+        });
+      }
+    };
+
+    const startCamera = async () => {
+      try {
+        const preferredStream = await mediaDevices.getUserMedia({ video: { facingMode } });
+        attachStream(preferredStream);
+      } catch {
+        if (facingMode === "user") {
+          try {
+            const fallbackStream = await mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            onFallbackToEnvironment("前鏡頭無法開啟，已自動切回後鏡頭。");
+            attachStream(fallbackStream);
+            return;
+          } catch {
+            // Ignore fallback error and continue to user-facing error.
+          }
         }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          setReady(true);
-          void videoRef.current.play().catch(() => {
-            // Some browsers block autoplay without a user gesture even when camera permission is granted.
-            // Keep camera view active instead of treating it as a hard camera access error.
-          });
+        if (!cancelled) {
+          onError("無法開啟即時相機，請確認權限或改用下方拍照上傳。");
         }
-      })
-      .catch(() => {
-        if (!cancelled) onError("無法開啟即時相機，請確認權限或改用下方拍照上傳。");
-      });
+      }
+    };
+
+    void startCamera();
     return () => {
       cancelled = true;
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [facingMode, onError, onFallbackToEnvironment]);
 
   const handleCapture = () => {
     const video = videoRef.current;
@@ -110,10 +136,12 @@ function CapturePageInner() {
   const searchParams = useSearchParams();
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [cameraKey, setCameraKey] = useState(0);
+  const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [cameraErrorMessage, setCameraErrorMessage] = useState("無法存取相機，請確認相機權限");
+  const [cameraNoticeMessage, setCameraNoticeMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -147,6 +175,7 @@ function CapturePageInner() {
   const handleCapture = (dataUrl: string) => {
     setCapturedImage(dataUrl);
     setShowSubmitModal(true);
+    setCameraNoticeMessage(null);
     setSubmitError(null);
   };
 
@@ -155,6 +184,7 @@ function CapturePageInner() {
     setShowSubmitModal(false);
     setCameraError(false);
     setCameraErrorMessage("無法存取相機，請確認相機權限");
+    setCameraNoticeMessage(null);
     setSubmitError(null);
     setIsSubmitting(false);
     if (uploadInputRef.current) {
@@ -162,6 +192,25 @@ function CapturePageInner() {
     }
     setCameraKey((k) => k + 1);
   };
+
+  const handleSwitchCamera = () => {
+    setCameraNoticeMessage(null);
+    setCameraError(false);
+    setCameraErrorMessage("無法存取相機，請確認相機權限");
+    setFacingMode((current) => (current === "environment" ? "user" : "environment"));
+  };
+
+  const handleCameraError = useCallback((message?: string) => {
+    setCameraNoticeMessage(null);
+    setCameraErrorMessage(message ?? "無法存取相機，請確認相機權限");
+    setCameraError(true);
+  }, []);
+
+  const handleFallbackToEnvironment = useCallback((message: string) => {
+    setFacingMode("environment");
+    setCameraError(false);
+    setCameraNoticeMessage(message);
+  }, []);
 
   const handleSelectPhoto = () => {
     uploadInputRef.current?.click();
@@ -302,22 +351,34 @@ function CapturePageInner() {
           </div>
         ) : (
           <CameraView
-            key={cameraKey}
+            key={`${cameraKey}-${facingMode}`}
             onCapture={handleCapture}
-            onError={(message) => {
-              setCameraErrorMessage(message ?? "無法存取相機，請確認相機權限");
-              setCameraError(true);
-            }}
+            onError={handleCameraError}
+            facingMode={facingMode}
+            onFallbackToEnvironment={handleFallbackToEnvironment}
           />
         )}
         <input
           ref={uploadInputRef}
           type="file"
           accept="image/*"
-          capture="environment"
+          capture={facingMode}
           className="hidden"
           onChange={handleFileChange}
         />
+        {!capturedImage && !cameraError && (
+          <button
+            onClick={handleSwitchCamera}
+            className="absolute right-5 bottom-28 z-20 rounded-xl border border-white/30 bg-black/45 px-3 py-2 text-xs font-medium text-white hover:bg-black/60 transition-colors"
+          >
+            切換至{facingMode === "environment" ? "前鏡頭" : "後鏡頭"}
+          </button>
+        )}
+        {!capturedImage && !cameraError && cameraNoticeMessage && (
+          <div className="absolute left-5 right-5 bottom-48 z-20 rounded-xl border border-white/30 bg-black/55 px-3 py-2 text-center text-xs text-white">
+            {cameraNoticeMessage}
+          </div>
+        )}
 
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="relative w-72 h-72">
