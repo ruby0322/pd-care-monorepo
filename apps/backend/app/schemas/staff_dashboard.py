@@ -187,6 +187,25 @@ class StaffAssignmentItem(BaseModel):
 
 class StaffAssignmentListResponse(BaseModel):
     items: list[StaffAssignmentItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class StaffAssignmentByStaffPatientItem(BaseModel):
+    patient_id: int
+    case_number: str
+    patient_full_name: str | None
+
+
+class StaffAssignmentByStaffItem(BaseModel):
+    staff_identity_id: int
+    assigned_count: int
+    assigned_patients: list[StaffAssignmentByStaffPatientItem]
+
+
+class StaffAssignmentByStaffListResponse(BaseModel):
+    items: list[StaffAssignmentByStaffItem]
 
 
 class StaffAssignmentUpsertRequest(BaseModel):

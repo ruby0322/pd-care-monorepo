@@ -12,22 +12,42 @@ import { getReadableApiError } from "@/lib/api/client";
 import {
   AdminIdentityItem,
   AdminPatientAssignmentItem,
+  AdminPatientAssignmentByStaffPatientItem,
   bulkUpsertAdminAssignments,
   fetchAdminAssignments,
-  fetchAdminUsers,
+  fetchAdminAssignmentsByStaff,
+  fetchAdminUsersPage,
   fetchStaffMe,
   unassignAdminAssignment,
   upsertAdminAssignment,
 } from "@/lib/api/staff";
 
+const DEFAULT_PAGE_SIZE = 10;
+
 export default function AdminPatientAssignmentPage() {
-  const [loading, setLoading] = useState(true);
+  const [checkingAccess, setCheckingAccess] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [assignments, setAssignments] = useState<AdminPatientAssignmentItem[]>([]);
+
   const [assigneeUsers, setAssigneeUsers] = useState<AdminIdentityItem[]>([]);
-  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userPage, setUserPage] = useState(1);
+  const userPageSize = DEFAULT_PAGE_SIZE;
+
+  const [assignments, setAssignments] = useState<AdminPatientAssignmentItem[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+  const [assignmentTotal, setAssignmentTotal] = useState(0);
+  const [assignedPatientsByStaffId, setAssignedPatientsByStaffId] = useState<
+    Record<number, AdminPatientAssignmentByStaffPatientItem[]>
+  >({});
+  const [patientPage, setPatientPage] = useState(1);
+  const patientPageSize = DEFAULT_PAGE_SIZE;
+  const [assignmentFilter, setAssignmentFilter] = useState<"all" | "assigned" | "unassigned">("all");
+  const [keywordDraft, setKeywordDraft] = useState("");
   const [keyword, setKeyword] = useState("");
+
+  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
   const [selectedPatientIds, setSelectedPatientIds] = useState<Set<number>>(new Set());
   const [workingPatientId, setWorkingPatientId] = useState<number | null>(null);
   const [isBulkAssigning, setIsBulkAssigning] = useState(false);
@@ -36,56 +56,149 @@ export default function AdminPatientAssignmentPage() {
     null
   );
   const [assignmentSorting, setAssignmentSorting] = useState<SortingState>([]);
-  const [previewSorting, setPreviewSorting] = useState<SortingState>([{ id: "assigned_count", desc: true }]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const me = await fetchStaffMe();
-      if (me.role !== "admin") {
-        setIsAdmin(false);
-        setAssignments([]);
-        setAssigneeUsers([]);
-        return;
-      }
-      setIsAdmin(true);
-      const [assignmentItems, assigneeItems] = await Promise.all([
-        fetchAdminAssignments(),
-        fetchAdminUsers(),
-      ]);
-      setAssignments(assignmentItems);
-      setAssigneeUsers(assigneeItems);
-      if (assigneeItems.length > 0 && selectedStaffId === null) {
-        setSelectedStaffId(assigneeItems[0].id);
-      }
-    } catch (requestError) {
-      setError(getReadableApiError(requestError));
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedStaffId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void load();
+      const run = async () => {
+        setCheckingAccess(true);
+        setError(null);
+        try {
+          const me = await fetchStaffMe();
+          if (me.role !== "admin") {
+            setIsAdmin(false);
+            setAssigneeUsers([]);
+            setAssignments([]);
+            return;
+          }
+          setIsAdmin(true);
+        } catch (requestError) {
+          setError(getReadableApiError(requestError));
+          setIsAdmin(false);
+        } finally {
+          setCheckingAccess(false);
+        }
+      };
+      void run();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [load]);
+  }, []);
 
-  const filteredAssignments = useMemo(() => {
-    const normalized = keyword.trim().toLowerCase();
-    if (!normalized) {
-      return assignments;
+  const loadAssignees = useCallback(async () => {
+    if (!isAdmin) {
+      return;
     }
-    return assignments.filter((item) => {
-      return (
-        item.case_number.toLowerCase().includes(normalized) ||
-        (item.patient_full_name ?? "").toLowerCase().includes(normalized) ||
-        (item.staff_display_name ?? "").toLowerCase().includes(normalized)
-      );
-    });
-  }, [assignments, keyword]);
+    setUsersLoading(true);
+    setError(null);
+    try {
+      const response = await fetchAdminUsersPage({
+        limit: userPageSize,
+        offset: (userPage - 1) * userPageSize,
+      });
+      setAssigneeUsers(response.items);
+      setUserTotal(response.total);
+      if (response.items.length > 0 && (selectedStaffId === null || !response.items.some((item) => item.id === selectedStaffId))) {
+        setSelectedStaffId(response.items[0].id);
+      }
+      const currentOffset = (userPage - 1) * userPageSize;
+      if (response.total > 0 && currentOffset >= response.total) {
+        setUserPage(Math.max(1, Math.ceil(response.total / userPageSize)));
+      }
+    } catch (requestError) {
+      setError(getReadableApiError(requestError));
+      setAssigneeUsers([]);
+      setUserTotal(0);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [isAdmin, selectedStaffId, userPage, userPageSize]);
+
+  const loadAssignments = useCallback(async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setAssignmentsLoading(true);
+    setError(null);
+    try {
+      const response = await fetchAdminAssignments({
+        query: keyword.trim() || undefined,
+        assignmentFilter,
+        limit: patientPageSize,
+        offset: (patientPage - 1) * patientPageSize,
+      });
+      setAssignments(response.items);
+      setAssignmentTotal(response.total);
+      setSelectedPatientIds((current) => {
+        const visibleIds = new Set(response.items.map((item) => item.patient_id));
+        const next = new Set<number>();
+        for (const id of current) {
+          if (visibleIds.has(id)) {
+            next.add(id);
+          }
+        }
+        return next;
+      });
+      const currentOffset = (patientPage - 1) * patientPageSize;
+      if (response.total > 0 && currentOffset >= response.total) {
+        setPatientPage(Math.max(1, Math.ceil(response.total / patientPageSize)));
+      }
+    } catch (requestError) {
+      setError(getReadableApiError(requestError));
+      setAssignments([]);
+      setAssignmentTotal(0);
+    } finally {
+      setAssignmentsLoading(false);
+    }
+  }, [assignmentFilter, isAdmin, keyword, patientPage, patientPageSize]);
+
+  const loadAssignmentsByStaff = useCallback(
+    async (staffIds: number[]) => {
+      const normalizedStaffIds = Array.from(new Set(staffIds.filter((staffId) => staffId > 0)));
+      if (!isAdmin || normalizedStaffIds.length === 0) {
+        setAssignedPatientsByStaffId({});
+        return;
+      }
+      try {
+        const response = await fetchAdminAssignmentsByStaff({ staffIdentityIds: normalizedStaffIds });
+        const next: Record<number, AdminPatientAssignmentByStaffPatientItem[]> = {};
+        for (const item of response.items) {
+          next[item.staff_identity_id] = item.assigned_patients;
+        }
+        setAssignedPatientsByStaffId(next);
+      } catch (requestError) {
+        setError(getReadableApiError(requestError));
+      }
+    },
+    [isAdmin]
+  );
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setKeyword(keywordDraft);
+      setPatientPage(1);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [keywordDraft]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadAssignees();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadAssignees]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadAssignments();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadAssignments]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadAssignmentsByStaff(assigneeUsers.map((staff) => staff.id));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [assigneeUsers, loadAssignmentsByStaff]);
 
   function toggleSelectPatient(patientId: number, checked: boolean) {
     setSelectedPatientIds((current) => {
@@ -111,14 +224,17 @@ export default function AdminPatientAssignmentPage() {
         patient_id: patientId,
         staff_identity_id: selectedStaffId,
       });
-      await load();
+      await Promise.all([
+        loadAssignments(),
+        loadAssignmentsByStaff(assigneeUsers.map((staff) => staff.id)),
+      ]);
       toast.success(result.status === "unchanged" ? "病患已由此人員主責" : "已更新病患主責人員");
     } catch (requestError) {
       toast.error(getReadableApiError(requestError));
     } finally {
       setWorkingPatientId(null);
     }
-  }, [load, selectedStaffId]);
+  }, [assigneeUsers, loadAssignments, loadAssignmentsByStaff, selectedStaffId]);
 
   async function assignBulk() {
     if (!selectedStaffId) {
@@ -142,7 +258,10 @@ export default function AdminPatientAssignmentPage() {
       const updated = response.results.filter((item) => item.status === "updated").length;
       const unchanged = response.results.filter((item) => item.status === "unchanged").length;
       const invalid = response.results.filter((item) => item.status === "invalid").length;
-      await load();
+      await Promise.all([
+        loadAssignments(),
+        loadAssignmentsByStaff(assigneeUsers.map((staff) => staff.id)),
+      ]);
       setSelectedPatientIds(new Set());
       toast.success(`批次完成：更新 ${updated} 筆、未變更 ${unchanged} 筆、失敗 ${invalid} 筆`);
     } catch (requestError) {
@@ -171,47 +290,18 @@ export default function AdminPatientAssignmentPage() {
     setError(null);
     try {
       const response = await unassignAdminAssignment(removeTarget.patientId);
-      await load();
+      await Promise.all([
+        loadAssignments(),
+        loadAssignmentsByStaff(assigneeUsers.map((staff) => staff.id)),
+      ]);
       setRemoveTarget(null);
-      toast.success(
-        response.status === "updated"
-          ? "已移除病患指派"
-          : "病患目前無指派關係，無需移除"
-      );
+      toast.success(response.status === "updated" ? "已移除病患指派" : "病患目前無指派關係，無需移除");
     } catch (requestError) {
       toast.error(getReadableApiError(requestError));
     } finally {
       setIsUnassigning(false);
     }
   }
-
-  type StaffPreviewRow = {
-    staff_id: number;
-    staff_name: string;
-    is_active: boolean;
-    assigned_count: number;
-    assigned_patients: Array<{ patient_id: number; case_number: string; patient_full_name: string | null }>;
-  };
-
-  const staffPreviewRows = useMemo<StaffPreviewRow[]>(() => {
-    return assigneeUsers.map((staff) => {
-      const assignedPatients = assignments
-        .filter((item) => item.staff_identity_id === staff.id)
-        .map((item) => ({
-          patient_id: item.patient_id,
-          case_number: item.case_number,
-          patient_full_name: item.patient_full_name,
-        }))
-        .sort((a, b) => a.case_number.localeCompare(b.case_number));
-      return {
-        staff_id: staff.id,
-        staff_name: staff.display_name ?? "未命名人員",
-        is_active: staff.is_active,
-        assigned_count: assignedPatients.length,
-        assigned_patients: assignedPatients,
-      };
-    });
-  }, [assignments, assigneeUsers]);
 
   function toggleSelectAllForRows(patientIds: number[], checked: boolean) {
     setSelectedPatientIds((current) => {
@@ -310,7 +400,7 @@ export default function AdminPatientAssignmentPage() {
         id: "actions",
         header: () => <span className="text-xs font-medium text-zinc-500">操作</span>,
         cell: ({ row }) => (
-          <div className="text-right">
+          <div className="flex justify-end gap-2">
             <Button
               type="button"
               variant="outline"
@@ -319,6 +409,21 @@ export default function AdminPatientAssignmentPage() {
               disabled={workingPatientId === row.original.patient_id || selectedStaffId === null}
             >
               {workingPatientId === row.original.patient_id ? "分配中..." : "指派"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={workingPatientId === row.original.patient_id || !row.original.staff_identity_id}
+              onClick={() =>
+                openRemoveModal({
+                  patientId: row.original.patient_id,
+                  caseNumber: row.original.case_number,
+                  fullName: row.original.patient_full_name,
+                })
+              }
+            >
+              移除
             </Button>
           </div>
         ),
@@ -330,7 +435,7 @@ export default function AdminPatientAssignmentPage() {
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const assignmentTable = useReactTable({
-    data: filteredAssignments,
+    data: assignments,
     columns: assignmentColumns,
     state: { sorting: assignmentSorting },
     onSortingChange: setAssignmentSorting,
@@ -338,94 +443,19 @@ export default function AdminPatientAssignmentPage() {
     getSortedRowModel: getSortedRowModel(),
   });
 
-  const previewColumns = useMemo<ColumnDef<StaffPreviewRow>[]>(
-    () => [
-      {
-        accessorKey: "staff_name",
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            醫護人員
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
-        ),
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2">
-            <span>{row.original.staff_name}</span>
-            {!row.original.is_active ? (
-              <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600">inactive</span>
-            ) : null}
-          </div>
-        ),
-      },
-      {
-        accessorKey: "assigned_count",
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            負責病患數
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
-        ),
-      },
-      {
-        id: "assigned_patients",
-        header: () => <span className="text-xs font-medium text-zinc-500">病患清單</span>,
-        cell: ({ row }) => {
-          if (row.original.assigned_patients.length === 0) {
-            return <span className="text-zinc-400">目前無指派病患</span>;
-          }
-          return (
-            <div className="flex flex-wrap gap-1.5">
-              {row.original.assigned_patients.map((patient) => (
-                <span
-                  key={patient.patient_id}
-                  className="inline-flex items-center gap-1 rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700"
-                >
-                  <button
-                    type="button"
-                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded text-zinc-600 hover:bg-zinc-200 hover:text-zinc-800"
-                    aria-label={`移除病患 ${patient.case_number} 指派`}
-                    onClick={() =>
-                      openRemoveModal({
-                        patientId: patient.patient_id,
-                        caseNumber: patient.case_number,
-                        fullName: patient.patient_full_name,
-                      })
-                    }
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                  <span>
-                    {patient.case_number} {patient.patient_full_name ? `· ${patient.patient_full_name}` : ""}
-                  </span>
-                </span>
-              ))}
-            </div>
-          );
-        },
-        enableSorting: false,
-      },
-    ],
-    []
-  );
+  const userTotalPages = Math.max(1, Math.ceil(userTotal / userPageSize));
+  const userHasPreviousPage = userPage > 1;
+  const userHasNextPage = userPage < userTotalPages;
+  const userRangeStart = userTotal === 0 ? 0 : (userPage - 1) * userPageSize + 1;
+  const userRangeEnd = userTotal === 0 ? 0 : Math.min(userPage * userPageSize, userTotal);
 
-  const previewTable = useReactTable({
-    data: staffPreviewRows,
-    columns: previewColumns,
-    state: { sorting: previewSorting },
-    onSortingChange: setPreviewSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  });
+  const patientTotalPages = Math.max(1, Math.ceil(assignmentTotal / patientPageSize));
+  const patientHasPreviousPage = patientPage > 1;
+  const patientHasNextPage = patientPage < patientTotalPages;
+  const patientRangeStart = assignmentTotal === 0 ? 0 : (patientPage - 1) * patientPageSize + 1;
+  const patientRangeEnd = assignmentTotal === 0 ? 0 : Math.min(patientPage * patientPageSize, assignmentTotal);
 
-  if (loading) {
+  if (checkingAccess) {
     return <div className="mx-auto max-w-6xl py-12 text-sm text-zinc-500">載入中...</div>;
   }
 
@@ -446,17 +476,122 @@ export default function AdminPatientAssignmentPage() {
           <h1 className="text-lg font-semibold text-zinc-900">病患分配</h1>
           <p className="text-xs text-zinc-500">單筆與批次分配，病患同時僅有一位主責人員。</p>
         </div>
-        <Button type="button" variant="outline" onClick={() => void load()}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            void Promise.all([loadAssignees(), loadAssignments()]);
+          }}
+        >
           重新整理
         </Button>
       </header>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
+      <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+        <div className="border-b border-zinc-100 px-4 py-3">
+          <h2 className="text-sm font-medium text-zinc-900">可指派人員</h2>
+          <p className="mt-1 text-xs text-zinc-500">先選擇主責人員，再於下方病患列表進行單筆或批次分配。</p>
+        </div>
+        <Table>
+          <TableHeader className="bg-zinc-50">
+            <TableRow>
+              <TableHead>名稱</TableHead>
+              <TableHead>角色</TableHead>
+              <TableHead>狀態</TableHead>
+              <TableHead>主要負責病患</TableHead>
+              <TableHead className="text-right">選擇</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {usersLoading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-8 text-center text-sm text-zinc-500">
+                  載入中...
+                </TableCell>
+              </TableRow>
+            ) : assigneeUsers.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-8 text-center text-sm text-zinc-500">
+                  目前沒有可指派人員
+                </TableCell>
+              </TableRow>
+            ) : (
+              assigneeUsers.map((staff) => (
+                <TableRow key={staff.id}>
+                  <TableCell>{staff.display_name ?? "未命名人員"}</TableCell>
+                  <TableCell>{staff.role}</TableCell>
+                  <TableCell>{staff.is_active ? "active" : "inactive"}</TableCell>
+                  <TableCell>
+                    {(assignedPatientsByStaffId[staff.id] ?? []).length === 0 ? (
+                      <span className="text-xs text-zinc-400">目前無指派病患</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(assignedPatientsByStaffId[staff.id] ?? []).map((patient) => (
+                          <span
+                            key={patient.patient_id}
+                            className="inline-flex items-center gap-1 rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700"
+                          >
+                            <button
+                              type="button"
+                              className="inline-flex h-3.5 w-3.5 items-center justify-center rounded text-zinc-600 hover:bg-zinc-200 hover:text-zinc-800"
+                              aria-label={`移除病患 ${patient.case_number} 指派`}
+                              onClick={() =>
+                                openRemoveModal({
+                                  patientId: patient.patient_id,
+                                  caseNumber: patient.case_number,
+                                  fullName: patient.patient_full_name,
+                                })
+                              }
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                            <span>
+                              {patient.case_number} {patient.patient_full_name ? `· ${patient.patient_full_name}` : ""}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      type="button"
+                      variant={selectedStaffId === staff.id ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedStaffId(staff.id)}
+                    >
+                      {selectedStaffId === staff.id ? "已選擇" : "設為主責"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
+          <span>
+            顯示 {userRangeStart}-{userRangeEnd} / {userTotal} 位人員
+          </span>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={!userHasPreviousPage} onClick={() => setUserPage((prev) => Math.max(prev - 1, 1))}>
+              上一頁
+            </Button>
+            <span>
+              第 {Math.min(userPage, userTotalPages)} / {userTotalPages} 頁
+            </span>
+            <Button type="button" variant="outline" size="sm" disabled={!userHasNextPage} onClick={() => setUserPage((prev) => (userHasNextPage ? prev + 1 : prev))}>
+              下一頁
+            </Button>
+          </div>
+        </div>
+      </section>
+
       <section className="rounded-2xl border border-zinc-200 bg-white p-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-xs text-zinc-600">
-            指派人員
+            目前指派人員
             <select
               value={selectedStaffId ?? ""}
               onChange={(event) => setSelectedStaffId(event.target.value ? Number(event.target.value) : null)}
@@ -476,13 +611,25 @@ export default function AdminPatientAssignmentPage() {
         </div>
       </section>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
+          value={keywordDraft}
+          onChange={(event) => setKeywordDraft(event.target.value)}
           className="w-72"
           placeholder="搜尋病歷號 / 病患姓名 / 人員"
         />
+        <select
+          value={assignmentFilter}
+          onChange={(event) => {
+            setAssignmentFilter(event.target.value as "all" | "assigned" | "unassigned");
+            setPatientPage(1);
+          }}
+          className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+        >
+          <option value="all">全部分配狀態</option>
+          <option value="assigned">僅已分配</option>
+          <option value="unassigned">僅未分配</option>
+        </select>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
@@ -499,7 +646,13 @@ export default function AdminPatientAssignmentPage() {
             ))}
           </TableHeader>
           <TableBody>
-            {assignmentTable.getRowModel().rows.length === 0 ? (
+            {assignmentsLoading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-8 text-center text-sm text-zinc-500">
+                  載入中...
+                </TableCell>
+              </TableRow>
+            ) : assignmentTable.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="py-8 text-center text-sm text-zinc-500">
                   找不到符合條件的病患
@@ -518,44 +671,29 @@ export default function AdminPatientAssignmentPage() {
             )}
           </TableBody>
         </Table>
-      </div>
-
-      <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-        <div className="border-b border-zinc-100 px-4 py-3">
-          <h2 className="text-sm font-medium text-zinc-900">醫護人員預覽</h2>
-          <p className="mt-1 text-xs text-zinc-500">直接查看每位醫護人員目前負責的病人，不需要逐筆對照。</p>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
+          <span>
+            顯示 {patientRangeStart}-{patientRangeEnd} / {assignmentTotal} 位病患
+          </span>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={!patientHasPreviousPage} onClick={() => setPatientPage((prev) => Math.max(prev - 1, 1))}>
+              上一頁
+            </Button>
+            <span>
+              第 {Math.min(patientPage, patientTotalPages)} / {patientTotalPages} 頁
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!patientHasNextPage}
+              onClick={() => setPatientPage((prev) => (patientHasNextPage ? prev + 1 : prev))}
+            >
+              下一頁
+            </Button>
+          </div>
         </div>
-        <Table>
-          <TableHeader className="bg-zinc-50">
-            {previewTable.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {previewTable.getRowModel().rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={3} className="py-8 text-center text-sm text-zinc-500">
-                  目前沒有可預覽的醫護人員
-                </TableCell>
-              </TableRow>
-            ) : (
-              previewTable.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
-                  ))}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </section>
+      </div>
 
       {removeTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4">

@@ -11,7 +11,7 @@ jest.mock("@/lib/api/client", () => ({
 describe("fetchAdminUsers", () => {
   test("always requests backend exclusion of patient users", async () => {
     const getMock = apiClient.get as jest.Mock;
-    getMock.mockResolvedValueOnce({ data: { items: [] } });
+    getMock.mockResolvedValueOnce({ data: { items: [], total: 0, limit: 10, offset: 0 } });
 
     await fetchAdminUsers({ query: "demo" });
 
@@ -23,6 +23,8 @@ describe("fetchAdminUsers", () => {
         is_active: undefined,
         created_from: undefined,
         created_to: undefined,
+        limit: 10,
+        offset: 0,
       },
     });
   });
@@ -43,6 +45,9 @@ describe("fetchAdminUsers", () => {
             created_at: "2026-05-01T00:00:00Z",
           },
         ],
+        total: 1,
+        limit: 10,
+        offset: 0,
       },
     });
 

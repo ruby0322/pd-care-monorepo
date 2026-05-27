@@ -68,6 +68,9 @@ class AdminIdentityItem(BaseModel):
 
 class AdminIdentityListResponse(BaseModel):
     items: list[AdminIdentityItem]
+    total: int
+    limit: int
+    offset: int
 
 
 class AdminUpdateIdentityRoleRequest(BaseModel):
