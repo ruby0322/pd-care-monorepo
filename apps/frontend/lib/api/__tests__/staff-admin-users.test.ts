@@ -1,5 +1,5 @@
 import { apiClient } from "@/lib/api/client";
-import { fetchAdminUsers, updateAdminUserRealName } from "@/lib/api/staff";
+import { fetchAdminUsers, fetchAdminUsersPage, updateAdminUserRealName } from "@/lib/api/staff";
 
 jest.mock("@/lib/api/client", () => ({
   apiClient: {
@@ -54,6 +54,35 @@ describe("fetchAdminUsers", () => {
     const items = await fetchAdminUsers();
 
     expect(items[0]?.real_name).toBe("Dr. Lin");
+  });
+});
+
+describe("fetchAdminUsersPage", () => {
+  test("forwards explicit pagination parameters", async () => {
+    const getMock = apiClient.get as jest.Mock;
+    getMock.mockResolvedValueOnce({
+      data: {
+        items: [],
+        total: 12,
+        limit: 10,
+        offset: 10,
+      },
+    });
+
+    await fetchAdminUsersPage({ query: "staff", limit: 10, offset: 10 });
+
+    expect(getMock).toHaveBeenCalledWith("/v1/staff/admin/users", {
+      params: {
+        query: "staff",
+        role: undefined,
+        exclude_patient: true,
+        is_active: undefined,
+        created_from: undefined,
+        created_to: undefined,
+        limit: 10,
+        offset: 10,
+      },
+    });
   });
 });
 

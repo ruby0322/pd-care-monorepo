@@ -240,6 +240,34 @@ def test_admin_user_list_supports_created_date_range_filters(tmp_path: Path) -> 
         assert "U_MID_USER" not in feb_ids
 
 
+def test_admin_user_list_returns_total_with_limit_offset_pagination(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-pagination.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_PAGINATION", role="admin")
+        for index in range(12):
+            _seed_identity(client, line_user_id=f"U_STAFF_PAGINATION_{index:02d}", role="staff")
+
+        token = _login_token(client, "U_ADMIN_PAGINATION")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        first_page = client.get("/v1/staff/admin/users?role=staff&limit=10&offset=0", headers=headers)
+        assert first_page.status_code == 200
+        first_payload = first_page.json()
+        assert first_payload["total"] == 12
+        assert first_payload["limit"] == 10
+        assert first_payload["offset"] == 0
+        assert len(first_payload["items"]) == 10
+
+        second_page = client.get("/v1/staff/admin/users?role=staff&limit=10&offset=10", headers=headers)
+        assert second_page.status_code == 200
+        second_payload = second_page.json()
+        assert second_payload["total"] == 12
+        assert second_payload["limit"] == 10
+        assert second_payload["offset"] == 10
+        assert len(second_payload["items"]) == 2
+
+
 def test_admin_user_list_includes_real_name_field_with_null_default(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "admin-user-management-real-name-null.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

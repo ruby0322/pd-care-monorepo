@@ -18,7 +18,7 @@ import {
   approveAdminAccessRequest,
   deleteInactiveAdminUsers,
   fetchAdminAccessRequests,
-  fetchAdminUsers,
+  fetchAdminUsersPage,
   fetchStaffMe,
   previewDeleteInactiveAdminUsers,
   rejectAdminAccessRequest,
@@ -26,6 +26,8 @@ import {
   updateAdminUserRole,
   updateAdminUserStatus,
 } from "@/lib/api/staff";
+
+const DEFAULT_PAGE_SIZE = 10;
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -37,6 +39,9 @@ export default function AdminUsersPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminIdentityItem[]>([]);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userPage, setUserPage] = useState(1);
+  const userPageSize = DEFAULT_PAGE_SIZE;
   const [queryDraft, setQueryDraft] = useState(parsedFilters.q);
   const [debouncedQuery, setDebouncedQuery] = useState(parsedFilters.q);
   const [roleFilter, setRoleFilter] = useState<AdminRoleFilter>(parsedFilters.role);
@@ -84,22 +89,34 @@ export default function AdminUsersPage() {
       if (profile.role !== "admin") {
         setIsAdmin(false);
         setUsers([]);
+        setUserTotal(0);
+        setUserPage(1);
         setRequests([]);
         return;
       }
       setIsAdmin(true);
-      const [userItems, requestItems] = await Promise.all([
-        fetchAdminUsers(apiQuery),
+      const [userResponse, requestItems] = await Promise.all([
+        fetchAdminUsersPage({
+          ...apiQuery,
+          limit: userPageSize,
+          offset: (userPage - 1) * userPageSize,
+        }),
         fetchAdminAccessRequests({ status: "pending" }),
       ]);
-      setUsers(userItems);
+      setUsers(userResponse.items);
+      setUserTotal(userResponse.total);
       setRequests(requestItems);
+
+      const currentOffset = (userPage - 1) * userPageSize;
+      if (userResponse.total > 0 && currentOffset >= userResponse.total) {
+        setUserPage(Math.max(1, Math.ceil(userResponse.total / userPageSize)));
+      }
     } catch (requestError) {
       setError(getReadableApiError(requestError));
     } finally {
       setLoading(false);
     }
-  }, [apiQuery]);
+  }, [apiQuery, userPage, userPageSize]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -121,6 +138,10 @@ export default function AdminUsersPage() {
   }, [queryDraft]);
 
   useEffect(() => {
+    setUserPage(1);
+  }, [apiQuery]);
+
+  useEffect(() => {
     const current = searchParams.toString();
     if (current === queryString) {
       return;
@@ -137,6 +158,12 @@ export default function AdminUsersPage() {
   }, [load]);
 
   const pendingRequests = useMemo(() => requests.filter((item) => item.status === "pending"), [requests]);
+  const totalPages = Math.max(1, Math.ceil(userTotal / userPageSize));
+  const currentOffset = (userPage - 1) * userPageSize;
+  const displayFrom = userTotal === 0 ? 0 : currentOffset + 1;
+  const displayTo = userTotal === 0 ? 0 : Math.min(currentOffset + users.length, userTotal);
+  const canGoPreviousPage = userPage > 1;
+  const canGoNextPage = userPage < totalPages;
 
   async function handleApprove(requestId: number, role: "staff" | "admin") {
     setWorkingId(requestId);
@@ -549,9 +576,9 @@ export default function AdminUsersPage() {
               variant="outline"
               className="whitespace-nowrap border-red-200 text-red-700 hover:bg-red-50"
               disabled={inactiveUserIds.length === 0 || deleting}
-              onClick={() => void openDeleteDialog(inactiveUserIds, "目前篩選結果")}
+              onClick={() => void openDeleteDialog(inactiveUserIds, "目前篩選結果（當前頁面）")}
             >
-              移除篩選結果中的停權用戶
+              移除當前頁面篩選結果中的停權用戶
             </Button>
           </div>
         </div>
@@ -587,8 +614,33 @@ export default function AdminUsersPage() {
             )}
           </TableBody>
         </Table>
-        <div className="border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
-          顯示 {usersTable.getRowModel().rows.length} 位用戶
+        <div className="flex items-center justify-between border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
+          <span>
+            顯示 {displayFrom}-{displayTo} / {userTotal} 位用戶（目前篩選與當前頁面）
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!canGoPreviousPage}
+              onClick={() => setUserPage((current) => Math.max(1, current - 1))}
+            >
+              上一頁
+            </Button>
+            <span>
+              第 {userPage} / {totalPages} 頁
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!canGoNextPage}
+              onClick={() => setUserPage((current) => Math.min(totalPages, current + 1))}
+            >
+              下一頁
+            </Button>
+          </div>
         </div>
       </section>
 
