@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pd-care-sit
+  namespace: argocd
+spec:
+  project: pd-care-sit
+  source:
+    repoURL: https://github.com/ruby0322/pd-care-monorepo
+    targetRevision: dev
+    path: charts/pd-care
+    helm:
+      valueFiles:
+        - ../../environments/sit/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sit
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

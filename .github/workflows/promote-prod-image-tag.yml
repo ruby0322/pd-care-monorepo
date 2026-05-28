@@ -1,0 +1,55 @@
+name: Promote SIT Image Tag To PROD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - environments/sit/values.yaml
+      - .github/workflows/promote-prod-image-tag.yml
+
+permissions:
+  contents: write
+
+jobs:
+  promote-tag:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Copy SIT image tag to PROD values
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          sit_path = Path("environments/sit/values.yaml")
+          prod_path = Path("environments/prod/values.yaml")
+
+          sit_content = sit_path.read_text()
+          prod_content = prod_path.read_text()
+
+          match = re.search(r'^\s*tag:\s*"?(.*?)"?\s*$', sit_content, flags=re.MULTILINE)
+          if not match:
+              raise SystemExit("Could not find image.tag in environments/sit/values.yaml")
+
+          sit_tag = match.group(1)
+          updated = re.sub(r'(^\s*tag:\s*).+$', rf'\1"{sit_tag}"', prod_content, flags=re.MULTILINE)
+          prod_path.write_text(updated)
+          PY
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- environments/prod/values.yaml; then
+            echo "No PROD tag changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add environments/prod/values.yaml
+          git commit -m "chore(gitops): promote SIT image tag to PROD"
+          git push origin main

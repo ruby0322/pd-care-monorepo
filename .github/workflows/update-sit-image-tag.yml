@@ -1,0 +1,56 @@
+name: Update SIT Image Tag
+
+on:
+  workflow_run:
+    workflows:
+      - Build and Push Backend Image
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  update-sit-tag:
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'dev' &&
+      github.event.workflow_run.actor.login != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Update SIT values image tag to commit SHA
+        env:
+          IMAGE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+
+          path = Path("environments/sit/values.yaml")
+          content = path.read_text()
+          updated = re.sub(
+              r'(^\s*tag:\s*).+$',
+              rf'\1"{os.environ["IMAGE_SHA"]}"',
+              content,
+              flags=re.MULTILINE,
+          )
+          path.write_text(updated)
+          PY
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- environments/sit/values.yaml; then
+            echo "No SIT tag changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add environments/sit/values.yaml
+          git commit -m "chore(gitops): set SIT image tag to ${{ github.event.workflow_run.head_sha }}"
+          git push origin dev

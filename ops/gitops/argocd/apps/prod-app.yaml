@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pd-care-prod
+  namespace: argocd
+spec:
+  project: pd-care-prod
+  source:
+    repoURL: https://github.com/ruby0322/pd-care-monorepo
+    targetRevision: main
+    path: charts/pd-care
+    helm:
+      valueFiles:
+        - ../../environments/prod/values.yaml
+  destination:
+    server: https://prod-cluster.example.internal
+    namespace: prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

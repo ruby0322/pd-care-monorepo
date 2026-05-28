@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pd-care-sit
+  namespace: argocd
+spec:
+  description: SIT project for non-prod deployments from dev branch
+  sourceRepos:
+    - https://github.com/ruby0322/pd-care-monorepo
+  destinations:
+    - namespace: sit
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

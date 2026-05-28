@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pd-care-prod
+  namespace: argocd
+spec:
+  description: Production project for main branch deployments
+  sourceRepos:
+    - https://github.com/ruby0322/pd-care-monorepo
+  destinations:
+    - namespace: prod
+      server: https://prod-cluster.example.internal
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
