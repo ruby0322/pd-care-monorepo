@@ -7,7 +7,7 @@ from typing import Literal
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import Select, and_, case, delete, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
 
@@ -106,6 +106,16 @@ def list_patient_assignments(
     limit: int,
     offset: int,
 ) -> tuple[list[StaffAssignmentRow], int]:
+    patient_identity = aliased(LiffIdentity)
+    patient_bound_exists = (
+        select(patient_identity.id)
+        .where(
+            patient_identity.patient_id == Patient.id,
+            patient_identity.role == "patient",
+        )
+        .correlate(Patient)
+        .exists()
+    )
     stmt: Select = (
         select(
             Patient,
@@ -125,14 +135,12 @@ def list_patient_assignments(
             | LiffIdentity.display_name.ilike(q)
             | LiffIdentity.line_user_id.ilike(q)
         )
-    resolved_assignment_filter = assignment_filter
-    if resolved_assignment_filter is None:
-        if binding_filter == "bound":
-            resolved_assignment_filter = "assigned"
-        elif binding_filter == "unbound_only":
-            resolved_assignment_filter = "unassigned"
-        else:
-            resolved_assignment_filter = "all"
+    if binding_filter == "bound":
+        stmt = stmt.where(patient_bound_exists)
+    elif binding_filter == "unbound_only":
+        stmt = stmt.where(~patient_bound_exists)
+
+    resolved_assignment_filter = assignment_filter or "all"
 
     if resolved_assignment_filter == "assigned":
         stmt = stmt.where(StaffPatientAssignment.staff_identity_id.is_not(None))

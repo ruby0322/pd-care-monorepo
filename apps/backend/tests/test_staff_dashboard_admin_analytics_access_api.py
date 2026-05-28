@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.models import AIResult, LiffIdentity, Patient, Upload
+from app.db.models import AIResult, LiffIdentity, Patient, StaffPatientAssignment, Upload
 from app.main import create_app
 from tests.test_staff_dashboard_api import (
     _assign_staff_patient,
@@ -237,6 +237,88 @@ def test_admin_analytics_endpoints_apply_patient_filters(tmp_path: Path) -> None
         inactive_histogram_payload = inactive_histogram_response.json()
         assert inactive_histogram_payload["total_patients"] == 1
         assert sum(item["count"] for item in inactive_histogram_payload["items"]) == 1
+
+
+def test_admin_assignment_filters_apply_binding_and_assignment_independently(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-assignment-dual-filters.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ASSIGNMENT_FILTERS", role="admin")
+        assignee_id = _seed_staff(client, line_user_id="U_ASSIGN_TARGET", role="staff")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            bound_assigned = Patient(case_number="ASSIGN-BA", birth_date="1988-01-01", full_name="Bound Assigned", gender="male")
+            bound_unassigned = Patient(
+                case_number="ASSIGN-BU",
+                birth_date="1989-01-01",
+                full_name="Bound Unassigned",
+                gender="female",
+            )
+            unbound_assigned = Patient(
+                case_number="ASSIGN-UA",
+                birth_date="1990-01-01",
+                full_name="Unbound Assigned",
+                gender="other",
+            )
+            unbound_unassigned = Patient(
+                case_number="ASSIGN-UU",
+                birth_date="1991-01-01",
+                full_name="Unbound Unassigned",
+                gender="unknown",
+            )
+            session.add_all([bound_assigned, bound_unassigned, unbound_assigned, unbound_unassigned])
+            session.flush()
+
+            session.add_all(
+                [
+                    LiffIdentity(
+                        line_user_id="U_PATIENT_ASSIGN_BA",
+                        display_name="Bound Assigned",
+                        picture_url=None,
+                        patient_id=bound_assigned.id,
+                        role="patient",
+                    ),
+                    LiffIdentity(
+                        line_user_id="U_PATIENT_ASSIGN_BU",
+                        display_name="Bound Unassigned",
+                        picture_url=None,
+                        patient_id=bound_unassigned.id,
+                        role="patient",
+                    ),
+                ]
+            )
+            session.add_all(
+                [
+                    StaffPatientAssignment(staff_identity_id=assignee_id, patient_id=bound_assigned.id),
+                    StaffPatientAssignment(staff_identity_id=assignee_id, patient_id=unbound_assigned.id),
+                ]
+            )
+            session.commit()
+
+        token = _login_staff_token(client, "U_ADMIN_ASSIGNMENT_FILTERS")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        bound_unassigned_response = client.get(
+            "/v1/staff/admin/assignments?binding_filter=bound&assignment_filter=unassigned&limit=50",
+            headers=headers,
+        )
+        assert bound_unassigned_response.status_code == 200
+        assert {item["case_number"] for item in bound_unassigned_response.json()["items"]} == {"ASSIGN-BU"}
+
+        unbound_assigned_response = client.get(
+            "/v1/staff/admin/assignments?binding_filter=unbound_only&assignment_filter=assigned&limit=50",
+            headers=headers,
+        )
+        assert unbound_assigned_response.status_code == 200
+        assert {item["case_number"] for item in unbound_assigned_response.json()["items"]} == {"ASSIGN-UA"}
+
+        all_unassigned_response = client.get(
+            "/v1/staff/admin/assignments?binding_filter=all&assignment_filter=unassigned&limit=50",
+            headers=headers,
+        )
+        assert all_unassigned_response.status_code == 200
+        assert {item["case_number"] for item in all_unassigned_response.json()["items"]} == {"ASSIGN-BU", "ASSIGN-UU"}
 
 
 def test_staff_is_denied_for_admin_analytics_endpoints(tmp_path: Path) -> None:

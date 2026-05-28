@@ -9,7 +9,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { type AdminBindingFilter, assignmentFiltersToSearchParams, parseAssignmentFilters } from "@/lib/admin/filters";
+import {
+  type AdminAssignmentStatusFilter,
+  type AdminBindingFilter,
+  assignmentFiltersToSearchParams,
+  parseAssignmentFilters,
+} from "@/lib/admin/filters";
 import { getReadableApiError } from "@/lib/api/client";
 import {
   AdminIdentityItem,
@@ -25,26 +30,6 @@ import {
 } from "@/lib/api/staff";
 
 const DEFAULT_PAGE_SIZE = 10;
-
-function mapBindingToAssignmentFilter(binding: AdminBindingFilter): "all" | "assigned" | "unassigned" {
-  if (binding === "bound") {
-    return "assigned";
-  }
-  if (binding === "unbound_only") {
-    return "unassigned";
-  }
-  return "all";
-}
-
-function mapAssignmentFilterToBinding(filter: "all" | "assigned" | "unassigned"): AdminBindingFilter {
-  if (filter === "assigned") {
-    return "bound";
-  }
-  if (filter === "unassigned") {
-    return "unbound_only";
-  }
-  return "all";
-}
 
 export default function AdminPatientAssignmentPage() {
   const router = useRouter();
@@ -70,9 +55,8 @@ export default function AdminPatientAssignmentPage() {
   >({});
   const [patientPage, setPatientPage] = useState(1);
   const patientPageSize = DEFAULT_PAGE_SIZE;
-  const [assignmentFilter, setAssignmentFilter] = useState<"all" | "assigned" | "unassigned">(
-    mapBindingToAssignmentFilter(parsedFilters.binding)
-  );
+  const [bindingFilter, setBindingFilter] = useState<AdminBindingFilter>(parsedFilters.binding);
+  const [assignmentFilter, setAssignmentFilter] = useState<AdminAssignmentStatusFilter>(parsedFilters.assignment);
   const [assigneeActiveFilter, setAssigneeActiveFilter] = useState<"all" | "active" | "inactive">("all");
   const [keywordDraft, setKeywordDraft] = useState(parsedFilters.q);
   const [keyword, setKeyword] = useState(parsedFilters.q);
@@ -90,9 +74,10 @@ export default function AdminPatientAssignmentPage() {
     () =>
       assignmentFiltersToSearchParams({
         q: keyword.trim(),
-        binding: mapAssignmentFilterToBinding(assignmentFilter),
+        binding: bindingFilter,
+        assignment: assignmentFilter,
       }).toString(),
-    [assignmentFilter, keyword]
+    [assignmentFilter, bindingFilter, keyword]
   );
 
   useEffect(() => {
@@ -159,7 +144,8 @@ export default function AdminPatientAssignmentPage() {
     try {
       const response = await fetchAdminAssignments({
         query: keyword.trim() || undefined,
-        bindingFilter: mapAssignmentFilterToBinding(assignmentFilter),
+        bindingFilter,
+        assignmentFilter,
         assigneeActive: assigneeActiveFilter,
         limit: patientPageSize,
         offset: (patientPage - 1) * patientPageSize,
@@ -187,7 +173,7 @@ export default function AdminPatientAssignmentPage() {
     } finally {
       setAssignmentsLoading(false);
     }
-  }, [assignmentFilter, assigneeActiveFilter, isAdmin, keyword, patientPage, patientPageSize]);
+  }, [assignmentFilter, assigneeActiveFilter, bindingFilter, isAdmin, keyword, patientPage, patientPageSize]);
 
   const loadAssignmentsByStaff = useCallback(
     async (staffIds: number[]) => {
@@ -222,7 +208,8 @@ export default function AdminPatientAssignmentPage() {
     const timer = window.setTimeout(() => {
       setKeywordDraft(parsedFilters.q);
       setKeyword(parsedFilters.q);
-      setAssignmentFilter(mapBindingToAssignmentFilter(parsedFilters.binding));
+      setBindingFilter(parsedFilters.binding);
+      setAssignmentFilter(parsedFilters.assignment);
       setPatientPage(1);
     }, 0);
     return () => window.clearTimeout(timer);
@@ -671,19 +658,35 @@ export default function AdminPatientAssignmentPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-xs text-zinc-600">
+            註冊狀態
+            <select
+              aria-label="註冊狀態"
+              value={bindingFilter}
+              onChange={(event) => {
+                setBindingFilter(event.target.value as AdminBindingFilter);
+                setPatientPage(1);
+              }}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <option value="bound">僅已註冊</option>
+              <option value="all">全部病患</option>
+              <option value="unbound_only">僅未註冊</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-zinc-600">
             分配狀態
             <select
               aria-label="分配狀態"
               value={assignmentFilter}
               onChange={(event) => {
-                setAssignmentFilter(event.target.value as "all" | "assigned" | "unassigned");
+                setAssignmentFilter(event.target.value as AdminAssignmentStatusFilter);
                 setPatientPage(1);
               }}
               className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
             >
-              <option value="assigned">僅已綁定</option>
+              <option value="assigned">僅已分配</option>
               <option value="all">全部病患</option>
-              <option value="unassigned">僅未綁定</option>
+              <option value="unassigned">僅未分配</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs text-zinc-600">

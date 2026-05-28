@@ -2,6 +2,7 @@ export type AdminActiveFilter = "all" | "active" | "inactive";
 export type AdminRoleFilter = "all" | "staff" | "admin";
 export type AdminInfectionFilter = "all" | "suspected" | "normal";
 export type AdminBindingFilter = "bound" | "all" | "unbound_only";
+export type AdminAssignmentStatusFilter = "all" | "assigned" | "unassigned";
 
 type SearchParamReader = {
   get(name: string): string | null;
@@ -28,6 +29,7 @@ export type AdminPatientsFilters = CommonFilters & {
 export type AdminAssignmentFilters = {
   q: string;
   binding: AdminBindingFilter;
+  assignment: AdminAssignmentStatusFilter;
 };
 
 const EMPTY_USERS_FILTERS: AdminUsersFilters = {
@@ -52,6 +54,7 @@ const EMPTY_PATIENT_FILTERS: AdminPatientsFilters = {
 const EMPTY_ASSIGNMENT_FILTERS: AdminAssignmentFilters = {
   q: "",
   binding: "bound",
+  assignment: "unassigned",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -83,6 +86,13 @@ function normalizeBinding(value: string | null): AdminBindingFilter {
     return value;
   }
   return "bound";
+}
+
+function normalizeAssignment(value: string | null): AdminAssignmentStatusFilter {
+  if (value === "all" || value === "assigned") {
+    return value;
+  }
+  return "unassigned";
 }
 
 function normalizePage(value: string | null): number {
@@ -144,6 +154,7 @@ export function parseAssignmentFilters(searchParams: SearchParamReader): AdminAs
   return {
     q: normalizeText(searchParams.get("q")),
     binding: normalizeBinding(searchParams.get("binding")),
+    assignment: normalizeAssignment(searchParams.get("assignment")),
   };
 }
 
@@ -174,5 +185,6 @@ export function assignmentFiltersToSearchParams(filters: AdminAssignmentFilters)
   const params = new URLSearchParams();
   setParam(params, "q", filters.q.trim());
   setEnumParam(params, "binding", filters.binding, EMPTY_ASSIGNMENT_FILTERS.binding);
+  setEnumParam(params, "assignment", filters.assignment, EMPTY_ASSIGNMENT_FILTERS.assignment);
   return params;
 }
