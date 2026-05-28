@@ -439,7 +439,7 @@ function CapturePageInner() {
               {([
                 { key: "pain", label: "疼痛" },
                 { key: "discharge", label: "分泌物" },
-                { key: "pus", label: "流膿" },
+                { key: "pus", label: "透析液混濁" },
               ] as const).map(({ key, label }) => (
                 <label
                   key={key}
@@ -470,6 +470,8 @@ function CapturePageInner() {
                     discharge: false,
                     pus: false,
                   });
+                  setSymptomConfirmed(true);
+                  setShowSymptomModal(false);
                 }}
                 className="flex-1 rounded-2xl border border-zinc-200 py-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
               >
