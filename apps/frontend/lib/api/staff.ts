@@ -701,7 +701,7 @@ export async function fetchAdminAssignments(params?: {
   const { data } = await apiClient.get<AdminPatientAssignmentListResponse>("/v1/staff/admin/assignments", {
     params: {
       query: params?.query,
-      binding_filter: params?.bindingFilter ?? "bound",
+      binding_filter: params?.bindingFilter,
       assignment_filter: params?.assignmentFilter,
       assignee_role: params?.assigneeRole ?? "all",
       assignee_active: params?.assigneeActive ?? "all",

@@ -58,31 +58,47 @@ describe("admin patients filters", () => {
 });
 
 describe("admin assignment filters", () => {
-  test("defaults binding to bound", () => {
+  test("defaults binding to bound and assignment to unassigned", () => {
     const params = new URLSearchParams();
 
     const filters = parseAssignmentFilters(params);
 
     expect(filters.q).toBe("");
     expect(filters.binding).toBe("bound");
+    expect(filters.assignment).toBe("unassigned");
   });
 
-  test("coerces invalid binding to bound", () => {
-    const params = new URLSearchParams("q=abc&binding=invalid");
+  test("coerces invalid binding and assignment to defaults", () => {
+    const params = new URLSearchParams("q=abc&binding=invalid&assignment=invalid");
 
     const filters = parseAssignmentFilters(params);
 
     expect(filters.q).toBe("abc");
     expect(filters.binding).toBe("bound");
+    expect(filters.assignment).toBe("unassigned");
   });
 
-  test("serializes q and non-default binding", () => {
+  test("omits binding and assignment when both are defaults", () => {
     const params = assignmentFiltersToSearchParams({
       q: "foo",
-      binding: "unbound_only",
+      binding: "bound",
+      assignment: "unassigned",
     });
 
     expect(params.get("q")).toBe("foo");
-    expect(params.get("binding")).toBe("unbound_only");
+    expect(params.get("binding")).toBeNull();
+    expect(params.get("assignment")).toBeNull();
+  });
+
+  test("serializes non-default binding and assignment", () => {
+    const params = assignmentFiltersToSearchParams({
+      q: "foo",
+      binding: "all",
+      assignment: "assigned",
+    });
+
+    expect(params.get("q")).toBe("foo");
+    expect(params.get("binding")).toBe("all");
+    expect(params.get("assignment")).toBe("assigned");
   });
 });
