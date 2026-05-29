@@ -47,6 +47,14 @@ from app.schemas.staff_dashboard import (
     StaffUploadQueueItem,
     StaffUploadQueueResponse,
     StaffUploadRecord,
+    StaffHistoryOverviewCalendarItem,
+    StaffHistoryOverviewCalendarResponse,
+    StaffHistoryOverviewDayItem,
+    StaffHistoryOverviewDaysResponse,
+    StaffHistoryOverviewKpi,
+    StaffHistoryOverviewResponse,
+    StaffHistoryOverviewUploadItem,
+    StaffHistoryOverviewUserGroupItem,
 )
 from app.db.models import LiffIdentity, Patient, PendingBinding, Upload
 from app.services.staff_dashboard import (
@@ -67,6 +75,11 @@ from app.services.staff_dashboard import (
     update_pending_binding_status,
     update_patient_active_status,
     upsert_annotation_for_upload,
+)
+from app.services.staff_history_overview import (
+    get_history_overview,
+    get_history_overview_calendar_month,
+    list_history_overview_days,
 )
 
 router = APIRouter(tags=["Staff"])
@@ -386,6 +399,183 @@ async def get_staff_upload_queue(
                 )
                 for upload, ai_result, patient, line_user_id, has_annotation in rows
             ]
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/uploads/history-overview/days", response_model=StaffHistoryOverviewDaysResponse)
+async def get_staff_history_overview_days(
+    request: Request,
+    credentials=Depends(bearer_scheme),
+) -> StaffHistoryOverviewDaysResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        rows = list_history_overview_days(
+            session,
+            accessible_patient_ids=accessible_patient_ids,
+        )
+        return StaffHistoryOverviewDaysResponse(
+            items=[
+                StaffHistoryOverviewDayItem(
+                    local_date=row.local_date.isoformat(),
+                    upload_count=row.upload_count,
+                    uploaded_users=row.uploaded_users,
+                    suspected_infected_users=row.suspected_infected_users,
+                    infection_rate=row.infection_rate,
+                    risky_patient_count=row.risky_patient_count,
+                    has_infection_risk=row.has_infection_risk,
+                )
+                for row in rows
+            ]
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/uploads/history-overview", response_model=StaffHistoryOverviewResponse)
+async def get_staff_history_overview(
+    request: Request,
+    local_date: date = Query(...),
+    sort_by: str = Query(default="timeline", pattern="^(timeline|risk)$"),
+    group_by_user: bool = Query(default=False),
+    group_sort_by: str = Query(default="infection_risk", pattern="^(uploads|age|infection_risk)$"),
+    credentials=Depends(bearer_scheme),
+) -> StaffHistoryOverviewResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        data = get_history_overview(
+            session,
+            local_day=local_date,
+            sort_by=sort_by,
+            group_by_user=group_by_user,
+            group_sort_by=group_sort_by,
+            accessible_patient_ids=accessible_patient_ids,
+        )
+        return StaffHistoryOverviewResponse(
+            local_date=data.local_date.isoformat(),
+            sort_by="risk" if data.sort_by == "risk" else "timeline",
+            group_by_user=data.group_by_user,
+            group_sort_by=data.group_sort_by if data.group_sort_by in {"uploads", "age", "infection_risk"} else "infection_risk",
+            kpi=StaffHistoryOverviewKpi(
+                uploaded_users=data.uploaded_users,
+                uploads=data.uploads,
+                suspected_infected_users=data.suspected_infected_users,
+                infection_rate=data.infection_rate,
+            ),
+            items=[
+                StaffHistoryOverviewUploadItem(
+                    upload_id=item.upload_id,
+                    patient_id=item.patient_id,
+                    case_number=item.case_number,
+                    patient_full_name=item.patient_full_name,
+                    gender=item.gender,  # type: ignore[arg-type]
+                    line_user_id=item.line_user_id,
+                    line_display_name=item.line_display_name,
+                    real_name=item.real_name,
+                    picture_url=item.picture_url,
+                    created_at=item.created_at,
+                    screening_result=item.screening_result,
+                    probability=item.probability,
+                    symptom_pain=item.symptom_pain,
+                    symptom_discharge=item.symptom_discharge,
+                    symptom_pus=item.symptom_pus,
+                    annotation_label=item.annotation_label,
+                    annotation_comment=item.annotation_comment,
+                    risk_rank=item.risk_rank,
+                )
+                for item in data.items
+            ],
+            groups=[
+                StaffHistoryOverviewUserGroupItem(
+                    patient_id=group.patient_id,
+                    case_number=group.case_number,
+                    patient_full_name=group.patient_full_name,
+                    gender=group.gender,  # type: ignore[arg-type]
+                    age=group.age,
+                    line_user_id=group.line_user_id,
+                    line_display_name=group.line_display_name,
+                    real_name=group.real_name,
+                    picture_url=group.picture_url,
+                    upload_count=group.upload_count,
+                    highest_risk_rank=group.highest_risk_rank,
+                    highest_risk_count=group.highest_risk_count,
+                    latest_upload_at=group.latest_upload_at,
+                    uploads=[
+                        StaffHistoryOverviewUploadItem(
+                            upload_id=item.upload_id,
+                            patient_id=item.patient_id,
+                            case_number=item.case_number,
+                            patient_full_name=item.patient_full_name,
+                            gender=item.gender,  # type: ignore[arg-type]
+                            line_user_id=item.line_user_id,
+                            line_display_name=item.line_display_name,
+                            real_name=item.real_name,
+                            picture_url=item.picture_url,
+                            created_at=item.created_at,
+                            screening_result=item.screening_result,
+                            probability=item.probability,
+                            symptom_pain=item.symptom_pain,
+                            symptom_discharge=item.symptom_discharge,
+                            symptom_pus=item.symptom_pus,
+                            annotation_label=item.annotation_label,
+                            annotation_comment=item.annotation_comment,
+                            risk_rank=item.risk_rank,
+                        )
+                        for item in group.uploads
+                    ],
+                )
+                for group in data.groups
+            ],
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/uploads/history-overview/calendar", response_model=StaffHistoryOverviewCalendarResponse)
+async def get_staff_history_overview_calendar(
+    request: Request,
+    year: int = Query(..., ge=2000, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    credentials=Depends(bearer_scheme),
+) -> StaffHistoryOverviewCalendarResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        rows = get_history_overview_calendar_month(
+            session,
+            year=year,
+            month=month,
+            accessible_patient_ids=accessible_patient_ids,
+        )
+        return StaffHistoryOverviewCalendarResponse(
+            year=year,
+            month=month,
+            items=[
+                StaffHistoryOverviewCalendarItem(
+                    local_date=item.local_date.isoformat(),
+                    risky_patient_count=item.risky_patient_count,
+                    has_infection_risk=item.has_infection_risk,
+                )
+                for item in rows
+            ],
         )
     finally:
         session.close()

@@ -923,3 +923,164 @@ def test_staff_patient_list_excludes_rejected_uploads_from_counts(tmp_path: Path
         assert [item["case_number"] for item in normal_filter.json()["items"]] == ["P-REJECTED-STATS"]
 
 
+def _seed_history_overview_data(client: TestClient, *, staff_identity_id: int) -> dict[str, int]:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        patient_a = Patient(case_number="HX-001", birth_date="1980-01-01", full_name="History A", gender="male", is_active=True)
+        patient_b = Patient(case_number="HX-002", birth_date="1990-01-01", full_name="History B", gender="female", is_active=True)
+        session.add_all([patient_a, patient_b])
+        session.flush()
+        session.add_all(
+            [
+                LiffIdentity(
+                    line_user_id="U_HISTORY_A",
+                    display_name="History Display A",
+                    real_name="History Real A",
+                    picture_url="https://example.com/a.jpg",
+                    patient_id=patient_a.id,
+                    role="patient",
+                ),
+                LiffIdentity(
+                    line_user_id="U_HISTORY_B",
+                    display_name="History Display B",
+                    real_name="History Real B",
+                    picture_url="https://example.com/b.jpg",
+                    patient_id=patient_b.id,
+                    role="patient",
+                ),
+            ]
+        )
+
+        upload_a_confirmed = Upload(
+            patient_id=patient_a.id,
+            object_key="patients/hx001/uploads/1.jpg",
+            content_type="image/jpeg",
+            created_at=datetime(2026, 5, 29, 1, 0, tzinfo=timezone.utc),
+            symptom_pain=True,
+            symptom_discharge=False,
+            symptom_pus=False,
+        )
+        upload_a_normal = Upload(
+            patient_id=patient_a.id,
+            object_key="patients/hx001/uploads/2.jpg",
+            content_type="image/jpeg",
+            created_at=datetime(2026, 5, 29, 3, 0, tzinfo=timezone.utc),
+            symptom_pain=False,
+            symptom_discharge=False,
+            symptom_pus=False,
+        )
+        upload_b_suspected = Upload(
+            patient_id=patient_b.id,
+            object_key="patients/hx002/uploads/1.jpg",
+            content_type="image/jpeg",
+            created_at=datetime(2026, 5, 29, 5, 0, tzinfo=timezone.utc),
+            symptom_pain=False,
+            symptom_discharge=True,
+            symptom_pus=False,
+        )
+        upload_prev_day = Upload(
+            patient_id=patient_b.id,
+            object_key="patients/hx002/uploads/prev.jpg",
+            content_type="image/jpeg",
+            created_at=datetime(2026, 5, 28, 14, 0, tzinfo=timezone.utc),
+        )
+        session.add_all([upload_a_confirmed, upload_a_normal, upload_b_suspected, upload_prev_day])
+        session.flush()
+        session.add_all(
+            [
+                AIResult(
+                    upload_id=upload_a_confirmed.id,
+                    screening_result="normal",
+                    probability=0.2,
+                    threshold=0.5,
+                ),
+                AIResult(
+                    upload_id=upload_a_normal.id,
+                    screening_result="normal",
+                    probability=0.1,
+                    threshold=0.5,
+                ),
+                AIResult(
+                    upload_id=upload_b_suspected.id,
+                    screening_result="suspected",
+                    probability=0.87,
+                    threshold=0.5,
+                ),
+                AIResult(
+                    upload_id=upload_prev_day.id,
+                    screening_result="normal",
+                    probability=0.1,
+                    threshold=0.5,
+                ),
+            ]
+        )
+        session.add(
+            Annotation(
+                patient_id=patient_a.id,
+                upload_id=upload_a_confirmed.id,
+                reviewer_identity_id=staff_identity_id,
+                label="confirmed_infection",
+                comment="confirmed by staff",
+                patient_read_at=None,
+            )
+        )
+        session.commit()
+        return {
+            "patient_a_id": patient_a.id,
+            "patient_b_id": patient_b.id,
+            "upload_a_confirmed_id": upload_a_confirmed.id,
+        }
+
+
+def test_staff_history_overview_endpoints_return_expected_shape(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-history-overview.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        seeded = _seed_history_overview_data(client, staff_identity_id=staff_identity_id)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=seeded["patient_a_id"])
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=seeded["patient_b_id"])
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        days_response = client.get("/v1/staff/uploads/history-overview/days", headers=headers)
+        assert days_response.status_code == 200
+        days = days_response.json()["items"]
+        assert any(day["local_date"] == "2026-05-29" for day in days)
+        day_0529 = next(day for day in days if day["local_date"] == "2026-05-29")
+        assert day_0529["upload_count"] == 3
+        assert day_0529["uploaded_users"] == 2
+        assert day_0529["suspected_infected_users"] == 2
+        assert day_0529["has_infection_risk"] is True
+
+        overview_response = client.get(
+            "/v1/staff/uploads/history-overview",
+            headers=headers,
+            params={
+                "local_date": "2026-05-29",
+                "sort_by": "risk",
+                "group_by_user": "true",
+                "group_sort_by": "infection_risk",
+            },
+        )
+        assert overview_response.status_code == 200
+        overview_payload = overview_response.json()
+        assert overview_payload["kpi"]["uploads"] == 3
+        assert overview_payload["group_by_user"] is True
+        assert len(overview_payload["groups"]) == 2
+        first_group_upload = overview_payload["groups"][0]["uploads"][0]
+        assert first_group_upload["risk_rank"] == 0
+        assert first_group_upload["annotation_label"] == "confirmed_infection"
+
+        calendar_response = client.get(
+            "/v1/staff/uploads/history-overview/calendar",
+            headers=headers,
+            params={"year": 2026, "month": 5},
+        )
+        assert calendar_response.status_code == 200
+        calendar_items = calendar_response.json()["items"]
+        day_0529_calendar = next(item for item in calendar_items if item["local_date"] == "2026-05-29")
+        assert day_0529_calendar["risky_patient_count"] == 2
+        assert day_0529_calendar["has_infection_risk"] is True
+
+

@@ -3,6 +3,7 @@
 import {
   Activity,
   Bolt,
+  CalendarDays,
   ChartNoAxesCombined,
   ChevronLeft,
   ChevronRight,
@@ -165,6 +166,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               極速審核
             </Link>
             <Link
+              href="/admin/history-overview"
+              onClick={closeMobileSidebar}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/history-overview"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <CalendarDays className="w-4 h-4" strokeWidth={1.5} />
+              歷史總覽
+            </Link>
+            <Link
               href="/admin/registration-review"
               onClick={closeMobileSidebar}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
@@ -305,6 +318,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               <Bolt className="w-4 h-4" strokeWidth={1.5} />
               {!isSidebarCollapsed ? "極速審核" : null}
+            </Link>
+            <Link
+              href="/admin/history-overview"
+              className={`flex items-center rounded-xl transition-colors text-sm ${
+                isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+              } ${
+                pathname === "/admin/history-overview"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+              aria-label="歷史總覽"
+              title={isSidebarCollapsed ? "歷史總覽" : undefined}
+            >
+              <CalendarDays className="w-4 h-4" strokeWidth={1.5} />
+              {!isSidebarCollapsed ? "歷史總覽" : null}
             </Link>
             <Link
               href="/admin/registration-review"

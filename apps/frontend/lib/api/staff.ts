@@ -94,6 +94,87 @@ export type StaffRapidReviewQueueItem = StaffUploadQueueItem & {
   risk_rank: number;
 };
 
+export type StaffHistoryOverviewDayItem = {
+  local_date: string;
+  upload_count: number;
+  uploaded_users: number;
+  suspected_infected_users: number;
+  infection_rate: number;
+  risky_patient_count: number;
+  has_infection_risk: boolean;
+};
+
+export type StaffHistoryOverviewDaysResponse = {
+  items: StaffHistoryOverviewDayItem[];
+};
+
+export type StaffHistoryOverviewKpi = {
+  uploaded_users: number;
+  uploads: number;
+  suspected_infected_users: number;
+  infection_rate: number;
+};
+
+export type StaffHistoryOverviewUploadItem = {
+  upload_id: number;
+  patient_id: number;
+  case_number: string;
+  patient_full_name: string | null;
+  gender: "male" | "female" | "other" | "unknown";
+  line_user_id: string | null;
+  line_display_name: string | null;
+  real_name: string | null;
+  picture_url: string | null;
+  created_at: string;
+  screening_result: "normal" | "suspected" | "rejected" | "technical_error";
+  probability: number | null;
+  symptom_pain: boolean;
+  symptom_discharge: boolean;
+  symptom_pus: boolean;
+  annotation_label: "normal" | "suspected" | "confirmed_infection" | "rejected" | null;
+  annotation_comment: string | null;
+  risk_rank: number;
+};
+
+export type StaffHistoryOverviewUserGroupItem = {
+  patient_id: number;
+  case_number: string;
+  patient_full_name: string | null;
+  gender: "male" | "female" | "other" | "unknown";
+  age: number | null;
+  line_user_id: string | null;
+  line_display_name: string | null;
+  real_name: string | null;
+  picture_url: string | null;
+  upload_count: number;
+  highest_risk_rank: number;
+  highest_risk_count: number;
+  latest_upload_at: string | null;
+  uploads: StaffHistoryOverviewUploadItem[];
+};
+
+export type StaffHistoryOverviewResponse = {
+  local_date: string;
+  sort_by: "timeline" | "risk";
+  group_by_user: boolean;
+  group_sort_by: "uploads" | "age" | "infection_risk";
+  kpi: StaffHistoryOverviewKpi;
+  items: StaffHistoryOverviewUploadItem[];
+  groups: StaffHistoryOverviewUserGroupItem[];
+};
+
+export type StaffHistoryOverviewCalendarItem = {
+  local_date: string;
+  risky_patient_count: number;
+  has_infection_risk: boolean;
+};
+
+export type StaffHistoryOverviewCalendarResponse = {
+  year: number;
+  month: number;
+  items: StaffHistoryOverviewCalendarItem[];
+};
+
 export type StaffAnnotationItem = {
   id: number;
   upload_id: number;
@@ -395,6 +476,41 @@ export async function fetchUploadQueue(params?: {
   } catch (error) {
     throw error;
   }
+}
+
+export async function fetchHistoryOverviewDays(): Promise<StaffHistoryOverviewDaysResponse> {
+  const { data } = await apiClient.get<StaffHistoryOverviewDaysResponse>("/v1/staff/uploads/history-overview/days");
+  return data;
+}
+
+export async function fetchHistoryOverview(params: {
+  localDate: string;
+  sortBy?: "timeline" | "risk";
+  groupByUser?: boolean;
+  groupSortBy?: "uploads" | "age" | "infection_risk";
+}): Promise<StaffHistoryOverviewResponse> {
+  const { data } = await apiClient.get<StaffHistoryOverviewResponse>("/v1/staff/uploads/history-overview", {
+    params: {
+      local_date: params.localDate,
+      sort_by: params.sortBy ?? "timeline",
+      group_by_user: params.groupByUser ?? false,
+      group_sort_by: params.groupSortBy ?? "infection_risk",
+    },
+  });
+  return data;
+}
+
+export async function fetchHistoryOverviewCalendar(params: {
+  year: number;
+  month: number;
+}): Promise<StaffHistoryOverviewCalendarResponse> {
+  const { data } = await apiClient.get<StaffHistoryOverviewCalendarResponse>("/v1/staff/uploads/history-overview/calendar", {
+    params: {
+      year: params.year,
+      month: params.month,
+    },
+  });
+  return data;
 }
 
 function riskRank(item: StaffUploadQueueItem): number {
