@@ -77,6 +77,87 @@ class StaffUploadQueueResponse(BaseModel):
     items: list[StaffUploadQueueItem]
 
 
+class StaffHistoryOverviewDayItem(BaseModel):
+    local_date: str
+    upload_count: int
+    uploaded_users: int
+    suspected_infected_users: int
+    infection_rate: float
+    risky_patient_count: int
+    has_infection_risk: bool
+
+
+class StaffHistoryOverviewDaysResponse(BaseModel):
+    items: list[StaffHistoryOverviewDayItem]
+
+
+class StaffHistoryOverviewKpi(BaseModel):
+    uploaded_users: int
+    uploads: int
+    suspected_infected_users: int
+    infection_rate: float
+
+
+class StaffHistoryOverviewUploadItem(BaseModel):
+    upload_id: int
+    patient_id: int
+    case_number: str
+    patient_full_name: str | None
+    gender: Literal["male", "female", "other", "unknown"]
+    line_user_id: str | None
+    line_display_name: str | None
+    real_name: str | None
+    picture_url: str | None
+    created_at: datetime
+    screening_result: str
+    probability: float | None
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
+    annotation_label: str | None
+    annotation_comment: str | None
+    risk_rank: int
+
+
+class StaffHistoryOverviewUserGroupItem(BaseModel):
+    patient_id: int
+    case_number: str
+    patient_full_name: str | None
+    gender: Literal["male", "female", "other", "unknown"]
+    age: int | None
+    line_user_id: str | None
+    line_display_name: str | None
+    real_name: str | None
+    picture_url: str | None
+    upload_count: int
+    highest_risk_rank: int
+    highest_risk_count: int
+    latest_upload_at: datetime | None
+    uploads: list[StaffHistoryOverviewUploadItem]
+
+
+class StaffHistoryOverviewResponse(BaseModel):
+    local_date: str
+    sort_by: Literal["timeline", "risk"]
+    group_by_user: bool
+    group_sort_by: Literal["uploads", "age", "infection_risk"]
+    kpi: StaffHistoryOverviewKpi
+    items: list[StaffHistoryOverviewUploadItem]
+    groups: list[StaffHistoryOverviewUserGroupItem]
+
+
+class StaffHistoryOverviewCalendarItem(BaseModel):
+    local_date: str
+    risky_patient_count: int
+    has_infection_risk: bool
+
+
+class StaffHistoryOverviewCalendarResponse(BaseModel):
+    year: int
+    month: int
+    items: list[StaffHistoryOverviewCalendarItem]
+
+
 class StaffAnnotationUpsertRequest(BaseModel):
     label: Literal["normal", "suspected", "confirmed_infection", "rejected"]
     comment: str | None = Field(default=None, max_length=500)
