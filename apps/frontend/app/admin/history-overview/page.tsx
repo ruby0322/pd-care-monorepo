@@ -92,7 +92,7 @@ export default function AdminHistoryOverviewPage() {
   const [overviewData, setOverviewData] = useState<StaffHistoryOverviewResponse | null>(null);
 
   const [sortBy, setSortBy] = useState<SortBy>("timeline");
-  const [groupByUser, setGroupByUser] = useState(false);
+  const [groupByUser, setGroupByUser] = useState(true);
   const [groupSortBy, setGroupSortBy] = useState<GroupSortBy>("infection_risk");
 
   const [calendarLoading, setCalendarLoading] = useState(false);
