@@ -1,0 +1,11 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pd-care
+spec:
+  tls:
+    - hosts:
+        - test.pd.lu.im.ntu.edu.tw
+      secretName: test-pd-lu-im-ntu-edu-tw-tls
+  rules:
+    - host: test.pd.lu.im.ntu.edu.tw

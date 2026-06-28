@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-care-config
+data:
+  APP_ENV: "production"
+  UVICORN_HOST: "0.0.0.0"
+  UVICORN_PORT: "8000"
+  UVICORN_WORKERS: "1"
+  MODEL_PATH: "/models/model_e41_production_best.pt"
+  MODEL_URL: "https://huggingface.co/ruby0322/pd-exit-site-classification/resolve/main/model_e41_production_best.pt"
+  MODEL_CACHE_DIR: "/models"
+  DEVICE: "auto"
+  THRESHOLD: "0.5"
+  IMAGE_SIZE: "384"
+  MAX_UPLOAD_MB: "10"
+  S3_ENDPOINT_URL: "http://seaweedfs-s3:8333"
+  S3_REGION: "us-east-1"
+  S3_BUCKET_NAME: "pd-care-private"
+  LINE_VERIFY_MODE: "line"
+  LINE_CHANNEL_ID: "1657724367"
+  LINE_VERIFY_ENDPOINT: "https://api.line.me/oauth2/v2.1/verify"
+  LINE_VERIFY_TIMEOUT_SECONDS: "5"
+  PRESCREEN_ENABLED: "true"
+  PRESCREEN_MODEL_REPO_ID: "ruby0322/pd-exit-site-clip-linear-probe"
+  PRESCREEN_MODEL_REVISION: ""
+  PRESCREEN_REJECT_REASON: "non_exit_site_or_random_photo"
+  PRESCREEN_MODEL_CACHE_DIR: "/models/prescreen"
+  NEXT_PUBLIC_API_BASE_URL: "/api"
+  NEXT_PUBLIC_LIFF_ID: "1657724367-uzPg8SgK"
+  BACKEND_INTERNAL_URL: "http://backend:8000"
