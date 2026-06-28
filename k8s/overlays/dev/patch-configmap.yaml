@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-care-config
+data:
+  APP_ENV: "development"
+  NEXT_PUBLIC_LIFF_ID: ""
+  S3_BUCKET_NAME: "pd-care-dev-private"

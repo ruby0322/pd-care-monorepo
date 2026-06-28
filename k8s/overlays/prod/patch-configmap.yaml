@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-care-config
+data:
+  APP_ENV: "production"
+  S3_BUCKET_NAME: "pd-care-prod-private"
