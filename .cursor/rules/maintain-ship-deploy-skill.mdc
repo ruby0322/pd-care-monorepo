@@ -1,0 +1,33 @@
+---
+description: >-
+  When git hooks, npm deploy scripts, or Docker Compose files change, update
+  the ship-and-deploy skill and run its audit script.
+globs: package.json,.husky/**,docker-compose*.yml,README.md,AGENTS.md,.cursor/skills/ship-and-deploy/**
+alwaysApply: false
+---
+
+# Maintain ship-and-deploy skill
+
+If you edit any file that affects staging, committing, pushing, or deployment:
+
+1. Read [.cursor/skills/ship-and-deploy/SKILL.md](../skills/ship-and-deploy/SKILL.md).
+2. Run:
+
+   ```bash
+   .cursor/skills/ship-and-deploy/scripts/audit-sources.sh
+   ```
+
+3. When the audit reports **STALE** sources (or you changed deploy behavior):
+   - Update [.cursor/skills/ship-and-deploy/reference.md](../skills/ship-and-deploy/reference.md) with new commands, ports, or hooks.
+   - Adjust [.cursor/skills/ship-and-deploy/SKILL.md](../skills/ship-and-deploy/SKILL.md) if the workflow changed.
+   - Set `last_audited_commit` in [MANIFEST.json](../skills/ship-and-deploy/MANIFEST.json) to current `HEAD` (short or full hash).
+   - Bump `version` in MANIFEST when deploy steps or safety rules change.
+   - Append a dated row to [CHANGELOG.md](../skills/ship-and-deploy/CHANGELOG.md).
+
+Include skill maintenance in the same commit/PR as the setup change whenever possible so the workflow stays traceable.
+
+When updating deploy behavior, always preserve:
+- **Production data safety** — no volume wipes, no unnecessary restarts of Postgres/SeaweedFS
+- **Scoped redeploy default** — rebuild only services affected by the diff
+
+Do **not** duplicate long command lists in this rule — keep details in the skill reference file.
