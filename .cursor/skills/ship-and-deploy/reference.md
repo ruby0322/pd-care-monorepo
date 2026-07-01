@@ -60,6 +60,13 @@ Never append `-v` on production-like hosts.
 
 Runbook: [docs/deploy/k8s-minikube.md](../../../docs/deploy/k8s-minikube.md).
 
+K8s backend rebuild command (bakes model artifacts into image):
+
+```bash
+eval "$(minikube docker-env)"
+docker build -t pd-care-backend:latest ./apps/backend
+```
+
 ### K8s frontend image tags
 
 | Namespace | Image tag | Notes |
@@ -90,7 +97,6 @@ Use `git diff --name-only <baseline>..HEAD` to pick services:
 
 - `postgres` (DB data in `postgres-data` volume)
 - `seaweedfs-*` (object storage in named volumes)
-- `model-cache` volume (downloaded ML weights)
 
 ## Production data safety checklist
 
@@ -184,7 +190,7 @@ From `AGENTS.md`:
 
 ## Volume / data persistence
 
-- `docker compose down` preserves named volumes (Postgres, SeaweedFS, model cache).
+- `docker compose down` preserves named volumes (Postgres, SeaweedFS).
 - `docker compose down -v` **destroys** persisted data — **never** on production unless the user explicitly requests a wipe.
 - Changing `PDCARE_POSTGRES_PASSWORD` in compose does not rotate credentials for an already-initialized Postgres volume (see root `README.md`).
 

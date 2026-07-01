@@ -12,7 +12,7 @@ The service is designed around the original training setup:
 ## Features
 
 - FastAPI API with `multipart/form-data` image upload
-- startup checkpoint download from Hugging Face when `MODEL_PATH` is missing
+- baked-model Docker build path (checkpoint + prescreen + CLIP cache under `/models`)
 - GPU-aware runtime with `DEVICE=auto` and a CUDA Docker base image
 - readiness probe that stays unhealthy until the model is loaded
 - fallback checkpoint reconstruction path for `state_dict`-style checkpoints
@@ -64,7 +64,7 @@ python3 -m alembic -c alembic.ini upgrade head
 python3 -m uvicorn app.main:app --reload
 ```
 
-The first startup downloads the model to `MODEL_PATH` if it is not already present.
+Default K8s/production workflow bakes model artifacts into the image during `docker build`. Runtime download remains as a fallback when `MODEL_PATH` is missing.
 
 ## API
 
@@ -122,6 +122,13 @@ Important settings:
 ### Build
 
 ```bash
+docker build -t pd-exit-site-inference-api .
+```
+
+Build with optional `HF_TOKEN` (for private repos or Hub rate limits):
+
+```bash
+export HF_TOKEN=...
 docker build -t pd-exit-site-inference-api .
 ```
 

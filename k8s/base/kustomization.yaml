@@ -7,7 +7,6 @@ resources:
   - frontend-service.yaml
   - backend-deployment.yaml
   - backend-service.yaml
-  - model-cache-pvc.yaml
   - postgres-pvc.yaml
   - postgres-statefulset.yaml
   - postgres-service.yaml

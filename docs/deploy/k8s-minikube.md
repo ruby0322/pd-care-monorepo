@@ -39,6 +39,8 @@ docker build -t pd-care-frontend:dev \
   --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-B0JCWwiu \
   ./apps/frontend
 
+# Backend image now bakes checkpoint + prescreen + CLIP cache into /models at build time.
+# Optional: export HF_TOKEN when private Hub access or rate limits require auth.
 docker build -t pd-care-backend:latest ./apps/backend
 ```
 
@@ -329,7 +331,6 @@ Never run these during routine updates:
 Data-bearing PVCs:
 
 - `postgres-data`
-- `model-cache`
 - `seaweed-master-data`
 - `seaweed-volume-data`
 - `seaweed-filer-data`

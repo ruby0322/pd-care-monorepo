@@ -80,12 +80,12 @@ Verify object count/sample keys:
 aws --endpoint-url http://<k8s-seaweed-endpoint>:8333 s3 ls s3://pd-care-prod-private --recursive | head
 ```
 
-## 4) Model cache handling
+## 4) Model artifacts handling
 
-`model-cache` does not require strict data migration.
+Backend model artifacts are baked into the backend image at build time (checkpoint, prescreen bundle, and CLIP cache).
 
-- If omitted, backend will re-download models from configured sources.
-- If startup speed is critical, pre-seed model files into `/models` on the backend PVC/pod.
+- No `model-cache` PVC migration is required for K8s.
+- Ensure the backend image is rebuilt before rollout when model artifacts change.
 
 ## 5) Cutover verification in `pd-care-prod`
 

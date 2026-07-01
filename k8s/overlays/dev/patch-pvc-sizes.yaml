@@ -6,16 +6,6 @@ spec:
   resources:
     requests:
       storage: 5Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: model-cache
-spec:
-  resources:
-    requests:
-      storage: 15Gi
----
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

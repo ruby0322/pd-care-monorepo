@@ -10,6 +10,8 @@ data:
   MODEL_PATH: "/models/model_e41_production_best.pt"
   MODEL_URL: "https://huggingface.co/ruby0322/pd-exit-site-classification/resolve/main/model_e41_production_best.pt"
   MODEL_CACHE_DIR: "/models"
+  HF_HOME: "/models/hf-cache"
+  TRANSFORMERS_CACHE: "/models/hf-cache"
   DEVICE: "auto"
   THRESHOLD: "0.5"
   IMAGE_SIZE: "384"

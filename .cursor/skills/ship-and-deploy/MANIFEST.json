@@ -1,7 +1,7 @@
 {
   "skill": "ship-and-deploy",
-  "version": "1.2.0",
-  "last_audited_commit": "bd941dc",
+  "version": "1.2.1",
+  "last_audited_commit": "0a7d9e2",
   "last_audited_at": "2026-07-01",
   "sources": [
     {
@@ -40,8 +40,13 @@
       "skill_files": ["SKILL.md", "reference.md"]
     },
     {
-      "path": "k8s/overlays/",
-      "sections": ["dev/prod overlays", "ingress", "frontend image tags"],
+      "path": "k8s/overlays/dev/kustomization.yaml",
+      "sections": ["dev overlay patch chain"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": "k8s/overlays/prod/kustomization.yaml",
+      "sections": ["prod overlay patch chain", "ingress", "frontend image tags"],
       "skill_files": ["SKILL.md", "reference.md"]
     },
     {

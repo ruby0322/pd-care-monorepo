@@ -207,6 +207,8 @@ kubectl rollout restart deploy/backend -n pd-care-dev
 # kubectl rollout restart deploy/backend -n pd-care-prod
 ```
 
+`pd-care-backend` build now bakes model artifacts into the image. Set `HF_TOKEN` in the environment when private Hub access or rate limits require auth.
+
 | Change scope | Namespace | Command pattern |
 | --- | --- | --- |
 | Frontend only | `pd-care-dev` | build `:dev` image → `rollout restart deploy/frontend` |
