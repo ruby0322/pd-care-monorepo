@@ -11,3 +11,19 @@ spec:
       secretName: pd-lu-im-ntu-edu-tw-tls
   rules:
     - host: pd.lu.im.ntu.edu.tw
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
