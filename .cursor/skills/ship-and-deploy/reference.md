@@ -46,6 +46,29 @@ docker compose down && docker compose up --build -d
 
 Never append `-v` on production-like hosts.
 
+## Deploy targets (after disambiguation)
+
+**Ask the user** for deploy method and environment when not specified. Never default to Compose or K8s prod.
+
+| Target | Redeploy | Verify | Data safety |
+| --- | --- | --- | --- |
+| **Compose** | `docker compose up --build -d <service>` | `curl http://127.0.0.1:8000/healthz` | Named volumes when Compose is active production |
+| **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; lower blast radius |
+| **K8s `pd-care-prod`** | build `:latest` if frontend, `kubectl rollout restart -n pd-care-prod` | `curl https://pd.lu.im.ntu.edu.tw/api/healthz` | **PVCs authoritative**; never `kubectl delete pvc` |
+| **Ingress bridge** | `docker compose -f docker-compose.ingress-bridge.yml up -d` | public HTTPS smoke on prod/dev domains | Host `:443` only; leave `:80` for certbot |
+| **Commit/push only** | skip deploy | — | — |
+
+Runbook: [docs/deploy/k8s-minikube.md](../../../docs/deploy/k8s-minikube.md).
+
+### K8s frontend image tags
+
+| Namespace | Image tag | Notes |
+| --- | --- | --- |
+| `pd-care-prod` | `pd-care-frontend:latest` | prod `NEXT_PUBLIC_LIFF_ID` at build time |
+| `pd-care-dev` | `pd-care-frontend:dev` | dev LIFF ID at build time |
+
+`NEXT_PUBLIC_*` are build-time only — runtime ConfigMap changes do not update client bundles.
+
 ## Scoped redeploy: path → service map
 
 Use `git diff --name-only <baseline>..HEAD` to pick services:
@@ -58,7 +81,9 @@ Use `git diff --name-only <baseline>..HEAD` to pick services:
 | `docker-compose.yml` | Usually `frontend` + `backend`; ask if postgres/SeaweedFS service blocks changed |
 | `docker-compose.gpu.yml` | `backend` with GPU compose override |
 | `docker-compose.observability.yml` | observability services only |
-| `docs/**`, `.cursor/**`, `**/*.md` | No deploy |
+| `k8s/**`, `docs/deploy/k8s-*.md` | K8s deploy — ask target namespace; see deploy targets table |
+| `docker-compose.ingress-bridge.yml` | ingress bridge only (host :443) |
+| `docs/**`, `.cursor/**`, `**/*.md` | No deploy unless user requests doc-only ship |
 | `ops/security/**` | Ask user; default no deploy |
 
 **Stateful services — leave running unless explicitly required:**
@@ -76,6 +101,8 @@ Before any deploy command, confirm:
 - [ ] No destructive SQL or credential changes
 - [ ] New Alembic migrations reviewed if redeploying `backend`
 - [ ] Postgres remains bound to localhost unless user explicitly requested remote exposure
+- [ ] K8s prod: no `kubectl delete pvc` / namespace delete
+- [ ] Deploy method and environment confirmed (or explicitly stated by user)
 
 ### Forbidden without explicit user approval
 
@@ -84,6 +111,8 @@ Before any deploy command, confirm:
 | `docker compose down -v` | Wipes Postgres, SeaweedFS, model cache volumes |
 | `docker volume rm …` | Permanent data loss |
 | `docker system prune --volumes` | Permanent data loss |
+| `kubectl delete pvc …` in `pd-care-prod` | Permanent K8s data loss |
+| `kubectl delete namespace pd-care-prod` | Permanent K8s data loss |
 | Full `docker compose down` when scoped `up --build -d <svc>` suffices | Unnecessary downtime |
 | Restart `postgres` / `seaweedfs-*` for frontend-only changes | Risk to live data + wasted time |
 | `ALTER USER … PASSWORD` on initialized Postgres volume | Can desync app credentials |
@@ -120,6 +149,14 @@ Observability override (`docker-compose.observability.yml`) adds Grafana (`3001`
 ```bash
 curl -sf http://127.0.0.1:8000/healthz
 curl -sf http://127.0.0.1:8000/readyz
+```
+
+Through K8s ingress (frontend `/api` rewrite):
+
+```bash
+curl -fsS https://pd.lu.im.ntu.edu.tw/api/healthz
+curl -fsS https://pd.lu.im.ntu.edu.tw/api/readyz
+curl -fsS https://test.pd.lu.im.ntu.edu.tw/api/healthz
 ```
 
 ## TLS / frontend notes

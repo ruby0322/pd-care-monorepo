@@ -61,7 +61,7 @@ PD Care currently supports two runtime topologies:
 
 - `frontend` is the user-facing web app and depends on a healthy `backend`.
   - In Compose, `frontend` also terminates HTTPS directly on host `:443`.
-  - In Kubernetes, ingress routes `/` to `frontend`; API traffic uses frontend rewrite (`/api/*` -> backend `/v1/*`).
+  - In Kubernetes, ingress routes `/` to `frontend`; API traffic uses frontend rewrite (`/api/*` → backend `/*`, e.g. `/api/v1/...` → `/v1/...`).
 - `backend` provides API, inference, and workflow logic, and depends on healthy `postgres` and `seaweedfs-s3`.
 - SeaweedFS object storage is composed as:
   - `seaweedfs-s3 -> seaweedfs-filer -> (seaweedfs-master + seaweedfs-volume)`.
@@ -181,7 +181,7 @@ npm run docker:up
 
 Compose brings up `frontend`, `backend`, `postgres`, and SeaweedFS services. By default:
 
-- HTTPS app: `https://localhost` (host `:443`)
+- HTTPS app: `https://localhost` (host `:443`) — requires host TLS certs under `/etc/letsencrypt/live/<LETSENCRYPT_DOMAIN>/` (see TLS note below); for local dev without certs, use `npm run dev` instead
 - Backend API: `http://localhost:8000`
 - Postgres: `127.0.0.1:5432`
 - SeaweedFS S3: `http://localhost:8333`
@@ -307,7 +307,7 @@ Important backend environment variables:
 
 The root `docker-compose.yml` starts:
 
-- `frontend` on `https://localhost` (host port `443`)
+- `frontend` on `https://localhost` (host port `443`) — requires Let's Encrypt certs on the host (not zero-config)
 - `backend` on `http://localhost:8000`
 - `postgres` on `127.0.0.1:5432` by default (override bind/port with `PDCARE_POSTGRES_PORT_BIND`)
 - SeaweedFS S3 on `http://localhost:8333`
@@ -397,10 +397,10 @@ docker exec pd-care-postgres-1 sh -lc \
   - `./ops/security/postgres_audit.sh` for periodic IOC + exposure checks.
   - `./ops/security/postgres-incident-runbook.md` for the standardized incident workflow.
 
-Frontend runtime/build overrides:
+Frontend build-time overrides (`NEXT_PUBLIC_*`):
 
-- `NEXT_PUBLIC_API_BASE_URL` (defaults to `/api`)
-- `NEXT_PUBLIC_LIFF_ID`
+- `NEXT_PUBLIC_API_BASE_URL` (defaults to `/api`) — inlined at **image build** time; changing compose env without rebuilding `frontend` does not update client bundles
+- `NEXT_PUBLIC_LIFF_ID` — also build-time; K8s dev/prod need separate image builds (see `docs/deploy/k8s-minikube.md` §9)
 - `LETSENCRYPT_DOMAIN` (used to resolve cert/key under `/etc/letsencrypt/live/<domain>/`)
 - `PDCARE_HTTPS_PORT` (defaults to `443` on the host)
 

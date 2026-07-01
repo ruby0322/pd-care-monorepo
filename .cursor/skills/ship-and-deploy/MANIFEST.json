@@ -1,8 +1,8 @@
 {
   "skill": "ship-and-deploy",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "last_audited_commit": "bd941dc",
-  "last_audited_at": "2026-06-28",
+  "last_audited_at": "2026-07-01",
   "sources": [
     {
       "path": "package.json",
@@ -35,8 +35,23 @@
       "skill_files": ["reference.md"]
     },
     {
+      "path": "docker-compose.ingress-bridge.yml",
+      "sections": ["host :443 to ingress NodePort bridge"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": "k8s/overlays/",
+      "sections": ["dev/prod overlays", "ingress", "frontend image tags"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": "docs/deploy/k8s-minikube.md",
+      "sections": ["K8s deploy", "verify", "scoped updates", "PVC safety"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
       "path": "README.md",
-      "sections": ["docker startup", "git hooks", "TLS notes"],
+      "sections": ["docker startup", "git hooks", "TLS notes", "K8s topology"],
       "skill_files": ["reference.md"]
     },
     {

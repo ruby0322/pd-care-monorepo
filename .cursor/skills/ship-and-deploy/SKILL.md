@@ -2,9 +2,10 @@
 name: ship-and-deploy
 description: >-
   Stage, commit, push, and redeploy the PD Care monorepo using project git
-  hooks and Docker Compose. Prefer scoped redeploys of affected services only.
-  Protect production data (volumes, Postgres, object storage). Use when the user
-  asks to ship changes, commit, push, deploy, redeploy, or release.
+  hooks. Supports Docker Compose and Kubernetes (pd-care-dev / pd-care-prod).
+  Ask the user for deploy target when method or environment is unspecified.
+  Prefer scoped redeploys. Protect production data (volumes, PVCs, Postgres).
+  Use when the user asks to ship, commit, push, deploy, redeploy, or release.
 ---
 
 # Ship and Deploy (PD Care)
@@ -28,6 +29,8 @@ End-to-end workflow for committing code and redeploying this repository.
 
 - `docker compose down -v` or any command that removes named volumes
 - `docker volume rm`, `docker system prune --volumes`
+- `kubectl delete pvc ...` in `pd-care-prod` or any command that removes K8s stateful volumes
+- `kubectl delete namespace pd-care-prod`
 - Destructive SQL (`DROP`, `TRUNCATE`, manual `DELETE` at scale) or credential rotation on live Postgres
 - Changing `PDCARE_POSTGRES_PORT_BIND` to expose Postgres beyond localhost
 - Full-stack `docker compose down` when a scoped service rebuild is sufficient
@@ -36,8 +39,8 @@ End-to-end workflow for committing code and redeploying this repository.
 ### Always prefer
 
 - **Scoped redeploy** — rebuild/restart only services affected by the diff
-- **Rolling recreate** — `docker compose up --build -d <service>` without stopping unrelated containers
-- **Volume preservation** — assume Postgres + SeaweedFS + model cache volumes contain production data
+- **Rolling recreate** — Compose: `docker compose up --build -d <service>`; K8s: `kubectl rollout restart deploy/<name> -n <namespace>`
+- **Data authority follows the chosen deploy path** — Compose named volumes when Compose is active production; `pd-care-prod` PVCs when K8s is active production (see [k8s-minikube.md](../../../docs/deploy/k8s-minikube.md) §8)
 - **Migration caution** — backend start runs Alembic; review new migrations before redeploying backend on production
 
 See [reference.md](reference.md) for the path → service mapping and forbidden-command list.
@@ -45,7 +48,7 @@ See [reference.md](reference.md) for the path → service mapping and forbidden-
 ## Workflow overview
 
 ```text
-Inspect → Stage → Commit → Push → Deploy → Verify → Report
+Inspect → Stage → Commit → Push → [Disambiguate deploy] → Deploy → Verify → Report
 ```
 
 Copy this checklist and track progress:
@@ -56,9 +59,10 @@ Ship Progress:
 - [ ] Stage intended files only
 - [ ] Commit with HEREDOC message
 - [ ] Push to remote
+- [ ] If deploying: confirm deploy method + environment (ask if not specified)
 - [ ] Determine affected services from diff (do not default to full stack)
 - [ ] Redeploy affected services only
-- [ ] Verify health / container status
+- [ ] Verify health / container or pod status
 - [ ] Report commit hash, push result, deploy scope + result
 ```
 
@@ -115,7 +119,28 @@ git push
 
 ## Step 5 — Deploy
 
-### 5a. Decide scope from the diff
+### 5a. Deploy target disambiguation (mandatory)
+
+**Never assume a default deploy path.** Do not default to Docker Compose or K8s prod.
+
+If the user requests deploy/redeploy/ship without stating **both** deploy method and environment, use **AskQuestion** before running deploy commands:
+
+| Question | Options |
+| --- | --- |
+| Deploy method | Docker Compose \| Kubernetes \| Commit/push only (no deploy) |
+| Environment (if K8s) | `pd-care-dev` \| `pd-care-prod` |
+| Scope (confirm if inferable from diff) | frontend \| backend \| both \| ingress-bridge only |
+
+**Proceed without asking** only when the user is explicit, for example:
+
+- "deploy to prod k8s" → Kubernetes, `pd-care-prod`
+- "restart dev frontend on k8s" → Kubernetes, `pd-care-dev`, frontend only
+- `docker compose up --build -d backend` → Compose, backend only
+- "commit and push only" → skip deploy
+
+See [reference.md](reference.md) for per-target commands and verification.
+
+### 5b. Decide scope from the diff
 
 Inspect changed paths (`git diff --name-only` against the deploy baseline, usually `HEAD~1` or the pushed commits). Map to services:
 
@@ -129,11 +154,11 @@ Inspect changed paths (`git diff --name-only` against the deploy baseline, usual
 | docs, skills, tests only | **Skip deploy** | everything |
 | `ops/security/**` | **Ask user** — usually no redeploy | — |
 
-When both frontend and backend changed, redeploy both — still without `docker compose down`.
+When both frontend and backend changed, redeploy both — still without `docker compose down` or namespace-wide restarts on K8s prod.
 
-### 5b. Scoped redeploy (default)
+### 5c. Scoped redeploy — Docker Compose
 
-**Prefer this.** Rebuilds only the target service; leaves Postgres/SeaweedFS running:
+**Use when deploy target is Compose.** Rebuilds only the target service; leaves Postgres/SeaweedFS running:
 
 ```bash
 # frontend-only example
@@ -155,7 +180,44 @@ docker compose up --build -d frontend backend
 | Observability | `npm run docker:up:obs` | Does not touch app data services |
 | Foreground dev stack | `npm run docker:up` | Local dev only; blocks terminal |
 
-### 5c. Full-stack redeploy (exception)
+### 5d. Scoped redeploy — Kubernetes
+
+**Use when deploy target is K8s.** Rebuild images inside Minikube docker, then rollout restart the affected deployment only.
+
+```bash
+eval "$(minikube docker-env)"
+
+# Prod frontend (pd-care-prod)
+docker build -t pd-care-frontend:latest \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+  --build-arg NEXT_PUBLIC_LIFF_ID=<prod-liff-id> \
+  ./apps/frontend
+kubectl rollout restart deploy/frontend -n pd-care-prod
+
+# Dev frontend (pd-care-dev) — separate tag and LIFF ID
+docker build -t pd-care-frontend:dev \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+  --build-arg NEXT_PUBLIC_LIFF_ID=<dev-liff-id> \
+  ./apps/frontend
+kubectl rollout restart deploy/frontend -n pd-care-dev
+
+# Backend (dev first, then prod after verification)
+docker build -t pd-care-backend:latest ./apps/backend
+kubectl rollout restart deploy/backend -n pd-care-dev
+# kubectl rollout restart deploy/backend -n pd-care-prod
+```
+
+| Change scope | Namespace | Command pattern |
+| --- | --- | --- |
+| Frontend only | `pd-care-dev` | build `:dev` image → `rollout restart deploy/frontend` |
+| Frontend only | `pd-care-prod` | build `:latest` image → `rollout restart deploy/frontend` |
+| Backend only | either | build backend image → `rollout restart deploy/backend` |
+| Ingress bridge only | host | `docker compose -f docker-compose.ingress-bridge.yml up -d` |
+| Docs/skills only | — | Skip deploy |
+
+Full runbook: [docs/deploy/k8s-minikube.md](../../../docs/deploy/k8s-minikube.md).
+
+### 5e. Full-stack redeploy (exception)
 
 Use only when the user explicitly requests it **or** compose/network changes require recreating every service:
 
@@ -175,13 +237,25 @@ See [reference.md](reference.md) for ports, health endpoints, and the full safet
 
 ## Step 6 — Verify
 
-After deploy:
+After deploy, verify according to the **chosen deploy target**:
+
+**Docker Compose:**
 
 ```bash
 docker compose ps
 curl -sf http://127.0.0.1:8000/healthz
 curl -sf http://127.0.0.1:8000/readyz
 ```
+
+**Kubernetes:**
+
+```bash
+kubectl get pods -n <namespace>
+curl -fsS https://<domain>/api/healthz
+curl -fsS https://<domain>/api/readyz
+```
+
+Use `test.pd.lu.im.ntu.edu.tw` for dev, `pd.lu.im.ntu.edu.tw` for prod (ingress bridge must be running for public DNS).
 
 Report:
 
@@ -198,8 +272,8 @@ Report:
 | --- | --- |
 | "stage, commit, push" | Steps 1–4 + verify clean tree |
 | "commit and push" | 1–4 |
-| "redeploy" / "deploy" | 5–6 (infer scope from diff; ask if ambiguous) |
-| "ship it" / "stage, commit, push, redeploy" | 1–6 |
+| "redeploy" / "deploy" | 5–6 (ask deploy target if unspecified; infer scope from diff) |
+| "ship it" / "stage, commit, push, redeploy" | 1–6 (ask deploy target if method/env not stated) |
 
 ## Keep the skill current
 

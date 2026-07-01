@@ -15,8 +15,8 @@ Ingress host mappings are defined in:
 ## Required preconditions
 
 1. DNS records are set:
-   - `pd.lu.im.ntu.edu.tw` -> Kubernetes ingress external IP/LB
-   - `test.pd.lu.im.ntu.edu.tw` -> Kubernetes ingress external IP/LB
+   - **Minikube (this repo):** `pd.lu.im.ntu.edu.tw` and `test.pd.lu.im.ntu.edu.tw` → **operator host public IP**; start [`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml) to forward host `:443` to ingress NodePort (see [`k8s-minikube.md` §2.1](k8s-minikube.md#21-ingress-architecture-two-layers)).
+   - **Cloud LB (future):** DNS → Kubernetes ingress external IP/load balancer.
 2. Ingress controller class `nginx` is active.
 3. Namespace secrets are distinct and applied out-of-band (not committed to git):
    - Dev template: [`k8s/overlays/dev/secret.yaml.example`](../../k8s/overlays/dev/secret.yaml.example)
@@ -88,16 +88,21 @@ Go only if all are true:
 - `kubectl get pvc -n pd-care-prod` shows all required PVCs `Bound`.
 - TLS secrets exist in both namespaces.
 - Data migration verification passes in `pd-care-prod`.
-- `/healthz` and `/readyz` pass through production ingress path.
+- Through production ingress (with bridge running): `curl -fsS https://pd.lu.im.ntu.edu.tw/api/healthz` and `curl -fsS https://pd.lu.im.ntu.edu.tw/api/readyz` return 200.
 
 No-go if any of the above fails.
 
 ## Non-sudo verification
 
-You can verify domain routing without editing `/etc/hosts` by using `--resolve`:
+You can verify domain routing without editing `/etc/hosts` by using `--resolve`.
+
+`INGRESS_IP` depends on what you are testing:
+
+- `INGRESS_IP=$(minikube ip)` — direct ingress NodePort (bridge not required).
+- `INGRESS_IP=<host-public-ip>` — full path through the ingress bridge (matches real DNS).
 
 ```bash
-INGRESS_IP="<ingress-ip>"
+INGRESS_IP="$(minikube ip)"
 curl -kI --resolve test.pd.lu.im.ntu.edu.tw:443:${INGRESS_IP} https://test.pd.lu.im.ntu.edu.tw/
 curl -kI --resolve pd.lu.im.ntu.edu.tw:443:${INGRESS_IP} https://pd.lu.im.ntu.edu.tw/
 ```

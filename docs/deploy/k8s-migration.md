@@ -55,16 +55,18 @@ kubectl exec -n pd-care-prod "$POSTGRES_POD" -- \
 
 ## 3) Migrate SeaweedFS bucket objects
 
-Use one method only (`aws s3 sync` or `mc mirror`).
+**Recommended:** Option B (`mc mirror`) with **separate** Compose and K8s endpoints. Do not use a single `aws s3 sync` against one endpoint to copy from Compose to K8s — both buckets must be reachable on different hosts/ports.
 
-### Option A: aws cli
+### Option A: aws cli (same endpoint only — not Compose → K8s)
+
+Use only when source and destination buckets live on the **same** Seaweed S3 endpoint (for example, renaming buckets within one cluster). For Compose → K8s migration, use Option B.
 
 ```bash
-aws --endpoint-url http://<compose-seaweed-endpoint>:8333 \
-  s3 sync s3://pd-care-private s3://pd-care-prod-private
+aws --endpoint-url http://<single-seaweed-endpoint>:8333 \
+  s3 sync s3://<source-bucket> s3://<dest-bucket>
 ```
 
-### Option B: mc (MinIO client)
+### Option B: mc (MinIO client) — recommended for Compose → K8s
 
 ```bash
 mc alias set compose http://<compose-seaweed-endpoint>:8333 <access_key> <secret_key>
@@ -87,9 +89,10 @@ aws --endpoint-url http://<k8s-seaweed-endpoint>:8333 s3 ls s3://pd-care-prod-pr
 
 ## 5) Cutover verification in `pd-care-prod`
 
-1. Backend readiness:
-   - `/healthz` returns 200
-   - `/readyz` returns 200
+1. Backend readiness (via ingress, with bridge running):
+   - `curl -fsS https://pd.lu.im.ntu.edu.tw/api/healthz` returns 200
+   - `curl -fsS https://pd.lu.im.ntu.edu.tw/api/readyz` returns 200
+   - Or pod-local: `kubectl exec -n pd-care-prod deploy/backend -- curl -fsS http://localhost:8000/healthz`
 2. Representative patient history endpoint works.
 3. Image access URLs resolve objects from the migrated bucket.
 4. Logs show no repeated storage/database initialization errors.

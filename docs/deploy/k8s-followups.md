@@ -12,6 +12,8 @@ Docker Compose sets optional backend env vars that are not yet in K8s manifests:
 | `PILOT_STAFF_IDENTITY_IDS` | `docker-compose.yml` | Not in ConfigMap/Secret | Pilot staff access control dropped on cutover |
 | `HF_TOKEN` | `docker-compose.yml` / overlay secret | Placeholder in `secret.yaml.example` | Prescreen model download fails if HF repo is private |
 
+`IMAGE_ACCESS_TOKEN_TTL_SECONDS` and `AUTH_TOKEN_TTL_SECONDS` are omitted from K8s manifests; backend defaults (300 / 28800) match Compose.
+
 **Before cutover:** Copy values from the Compose `.env` into overlay secrets or ConfigMaps as appropriate.
 
 ## Real cluster readiness

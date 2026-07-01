@@ -24,13 +24,21 @@ Use Minikube's Docker daemon so local images are available to pods:
 eval "$(minikube docker-env)"
 ```
 
-Build images used by manifests:
+Build images used by manifests (both frontend tags are required before applying dev and prod overlays):
 
 ```bash
+# Prod namespace (pd-care-prod)
 docker build -t pd-care-frontend:latest \
   --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
   --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-uzPg8SgK \
   ./apps/frontend
+
+# Dev namespace (pd-care-dev) — separate tag and LIFF ID
+docker build -t pd-care-frontend:dev \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+  --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-B0JCWwiu \
+  ./apps/frontend
+
 docker build -t pd-care-backend:latest ./apps/backend
 ```
 
@@ -60,6 +68,42 @@ docker compose -f docker-compose.ingress-bridge.yml up -d
 ```
 
 See [`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml).
+
+### 2.1) Ingress architecture (two layers)
+
+`minikube addons enable ingress` and `docker-compose.ingress-bridge.yml` are **not** the same thing. They work together:
+
+| Layer | What it is | Role |
+| --- | --- | --- |
+| **Ingress addon** | nginx ingress controller inside Minikube | Reads `Ingress` manifests, routes by host (`test.pd...` vs `pd...`), terminates TLS, forwards to cluster services |
+| **Ingress bridge** | host-network `socat` container ([`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml)) | Publishes ingress on the host public NIC: `host:443` → `minikube-ip:30793` |
+
+With the Minikube **docker** driver, ingress listens on the Minikube VM IP (for example `192.168.49.2`), not on the host's public interface. DNS points at the host, so the bridge is required for browsers to reach K8s ingress.
+
+```mermaid
+flowchart LR
+  Internet["Public DNS / host :443"] --> Bridge["ingress-bridge socat"]
+  Bridge --> NodePort["Minikube IP :30793"]
+  NodePort --> IngressCtrl["nginx ingress controller"]
+  IngressCtrl --> Frontend["frontend service"]
+  Frontend --> Backend["backend via /api rewrite"]
+```
+
+Default bridge target (override with env vars in the compose file):
+
+- `MINIKUBE_IP` — from `minikube ip` (default `192.168.49.2`)
+- `INGRESS_HTTPS_NODEPORT` — from `kubectl get svc -n ingress-nginx ingress-nginx-controller` (default `30793`)
+
+Confirm the NodePort before starting the bridge:
+
+```bash
+minikube ip
+kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}{"\n"}'
+```
+
+**Port 80 is intentionally not bridged** so `certbot certonly --standalone` can bind `:80` during renewal.
+
+**Do not run both** the ingress bridge and Docker Compose `frontend` on host `:443` at the same time — only one process can listen on that port. After K8s cutover, stop Compose HTTPS routing (see §6) and keep the bridge.
 
 ## 3) TLS secrets for ingress (certbot only)
 
@@ -189,12 +233,19 @@ Expected hosts:
 - `test.pd.lu.im.ntu.edu.tw` -> dev ingress
 - `pd.lu.im.ntu.edu.tw` -> prod ingress
 
-If DNS is not ready yet, you can still verify routing without sudo by forcing Host header:
+If DNS is not ready yet, you can still verify routing without sudo by forcing Host header.
+
+`INGRESS_IP` depends on what you are testing:
+
+- `INGRESS_IP=$(minikube ip)` — hits ingress NodePort directly (bridge not required).
+- `INGRESS_IP=<host-public-ip>` — full path through the ingress bridge (matches real DNS).
 
 ```bash
-INGRESS_IP="<ingress-ip>"
+INGRESS_IP="$(minikube ip)"
 curl -kI --resolve test.pd.lu.im.ntu.edu.tw:443:${INGRESS_IP} https://test.pd.lu.im.ntu.edu.tw/
 curl -kI --resolve pd.lu.im.ntu.edu.tw:443:${INGRESS_IP} https://pd.lu.im.ntu.edu.tw/
+curl -fsS --resolve pd.lu.im.ntu.edu.tw:443:${INGRESS_IP} https://pd.lu.im.ntu.edu.tw/api/healthz
+curl -fsS --resolve pd.lu.im.ntu.edu.tw:443:${INGRESS_IP} https://pd.lu.im.ntu.edu.tw/api/readyz
 ```
 
 Check backend probes:
@@ -227,7 +278,7 @@ Rollback sequence:
 
 Only restart affected workloads.
 
-Frontend-only change:
+### Prod frontend (`pd-care-prod`)
 
 ```bash
 eval "$(minikube docker-env)"
@@ -235,10 +286,12 @@ docker build -t pd-care-frontend:latest \
   --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
   --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-uzPg8SgK \
   ./apps/frontend
-kubectl rollout restart deploy/frontend -n pd-care-dev
+kubectl rollout restart deploy/frontend -n pd-care-prod
 ```
 
-Dev namespace uses a separate image tag and LIFF ID:
+### Dev frontend (`pd-care-dev`)
+
+Uses image tag `pd-care-frontend:dev` and dev LIFF ID (see [`k8s/overlays/dev/patch-frontend.yaml`](../../k8s/overlays/dev/patch-frontend.yaml)):
 
 ```bash
 eval "$(minikube docker-env)"
@@ -249,7 +302,7 @@ docker build -t pd-care-frontend:dev \
 kubectl rollout restart deploy/frontend -n pd-care-dev
 ```
 
-Backend-only change:
+### Backend (dev first, then prod)
 
 ```bash
 eval "$(minikube docker-env)"
@@ -342,6 +395,37 @@ Deferred cutover items (Compose env parity, registry/GPU): [`k8s-followups.md`](
 
 ## 10) Troubleshooting
 
+### Public URL fails but `--resolve` to Minikube IP works
+
+Usually the **ingress bridge is not running** or is pointing at the wrong NodePort.
+
+```bash
+docker ps --filter name=pd-care-ingress-bridge
+minikube ip
+kubectl get svc -n ingress-nginx ingress-nginx-controller
+# Restart bridge if NodePort changed:
+INGRESS_HTTPS_NODEPORT="$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')"
+MINIKUBE_IP="$(minikube ip)" INGRESS_HTTPS_NODEPORT="${INGRESS_HTTPS_NODEPORT}" \
+  docker compose -f docker-compose.ingress-bridge.yml up -d
+```
+
+Smoke test without public DNS:
+
+```bash
+INGRESS_IP="$(minikube ip)"
+curl -kI --resolve test.pd.lu.im.ntu.edu.tw:443:${INGRESS_IP} https://test.pd.lu.im.ntu.edu.tw/
+```
+
+### Host :443 already in use
+
+Check for a conflicting listener (Compose `frontend`, old `k8s-ingress-https-proxy`, or a second bridge):
+
+```bash
+docker ps --format '{{.Names}} {{.Ports}}' | grep 443
+```
+
+Stop the conflicting service before starting `docker-compose.ingress-bridge.yml`.
+
 ### API returns 404 `{"detail":"Not Found"}`
 
 Usually means ingress is forwarding `/api/*` directly to backend without stripping `/api`. Keep ingress frontend-only and let Next.js rewrite `/api/:path*` to backend `/:path*`. `POST /api/v1/auth/login` should reach backend as `/v1/auth/login`.
@@ -360,6 +444,10 @@ eval "$(minikube docker-env)"
 docker build -t pd-care-frontend:latest \
   --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
   --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-uzPg8SgK \
+  ./apps/frontend
+docker build -t pd-care-frontend:dev \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+  --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-B0JCWwiu \
   ./apps/frontend
 docker build -t pd-care-backend:latest ./apps/backend
 ```
