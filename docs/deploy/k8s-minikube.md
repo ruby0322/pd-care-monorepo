@@ -46,28 +46,51 @@ Ingress hosts are already set in overlays:
 What the administrator must do (no sudo needed from your side):
 
 1. Point DNS records to the Kubernetes ingress external IP / load balancer.
-2. Provide TLS certificates for both domains (or install cert-manager issuance).
+2. Issue Let's Encrypt certificates with certbot for both domains.
 3. Create the TLS secrets in each namespace (next section).
 
-## 3) TLS secrets for ingress
+## 3) TLS secrets for ingress (certbot only)
 
-Create per-namespace TLS secrets used by ingress resources.
+Issue/renew certs on the operator host with certbot, then sync into namespace TLS secrets.
 
-Example with existing cert/key files:
+Example issue commands:
+
+```bash
+sudo certbot certonly --standalone -d test.pd.lu.im.ntu.edu.tw
+sudo certbot certonly --standalone -d pd.lu.im.ntu.edu.tw
+```
+
+Create Kubernetes TLS secrets from certbot outputs:
 
 ```bash
 kubectl create secret tls test-pd-lu-im-ntu-edu-tw-tls \
-  --cert=/path/to/test.pd.lu.im.ntu.edu.tw.crt \
-  --key=/path/to/test.pd.lu.im.ntu.edu.tw.key \
+  --cert=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/fullchain.pem \
+  --key=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/privkey.pem \
   -n pd-care-dev
 
 kubectl create secret tls pd-lu-im-ntu-edu-tw-tls \
-  --cert=/path/to/pd.lu.im.ntu.edu.tw.crt \
-  --key=/path/to/pd.lu.im.ntu.edu.tw.key \
+  --cert=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/fullchain.pem \
+  --key=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/privkey.pem \
   -n pd-care-prod
 ```
 
 If namespaces do not exist yet, apply overlays first, then create the TLS secrets.
+
+After certbot renewal, refresh both TLS secrets:
+
+```bash
+kubectl -n pd-care-dev delete secret test-pd-lu-im-ntu-edu-tw-tls --ignore-not-found
+kubectl create secret tls test-pd-lu-im-ntu-edu-tw-tls \
+  --cert=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/fullchain.pem \
+  --key=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/privkey.pem \
+  -n pd-care-dev
+
+kubectl -n pd-care-prod delete secret pd-lu-im-ntu-edu-tw-tls --ignore-not-found
+kubectl create secret tls pd-lu-im-ntu-edu-tw-tls \
+  --cert=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/fullchain.pem \
+  --key=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/privkey.pem \
+  -n pd-care-prod
+```
 
 ## 4) Deploy
 
@@ -117,7 +140,24 @@ kubectl get pods -n pd-care-prod -l app=backend
 kubectl logs -n pd-care-prod deploy/backend
 ```
 
-## 6) Scoped updates (default)
+## 6) Production cutover and rollback
+
+Cutover sequence:
+
+1. Verify `pd-care-dev` and `pd-care-prod` pods are healthy.
+2. Complete data migration for `pd-care-prod` (see [`k8s-migration.md`](k8s-migration.md)).
+3. Verify production namespace ingress/TLS and smoke tests before DNS switch.
+4. Point `pd.lu.im.ntu.edu.tw` DNS/LB to K8s ingress.
+5. Re-run smoke tests on production domain.
+6. Stop Docker Compose production routing only after successful K8s validation.
+
+Rollback sequence:
+
+1. Revert `pd.lu.im.ntu.edu.tw` DNS/LB back to Docker Compose endpoint.
+2. Keep K8s namespaces running for diagnostics.
+3. Do not delete PVCs during rollback.
+
+## 7) Scoped updates (default)
 
 Only restart affected workloads.
 
@@ -145,7 +185,7 @@ kubectl rollout restart deploy/frontend -n pd-care-prod
 kubectl rollout restart deploy/backend -n pd-care-prod
 ```
 
-## 7) Safety rules (production-data protection)
+## 8) Safety rules (production-data protection)
 
 Never run these during routine updates:
 
@@ -166,22 +206,26 @@ Treat `pd-care-prod` as production-like:
 - no destructive cleanup commands
 - no namespace-wide recycle for frontend-only/backend-only updates
 
-## 8) Config and secret management
+## 9) Config and secret management
 
-The base secret file `k8s/base/secret.template.yaml` is a template.
+Secrets are managed per overlay:
 
-Before production-like use:
+- Dev: [`k8s/overlays/dev/secret.yaml`](../../k8s/overlays/dev/secret.yaml)
+- Prod: [`k8s/overlays/prod/secret.yaml`](../../k8s/overlays/prod/secret.yaml)
+- Reference template only: [`k8s/base/secret.template.yaml`](../../k8s/base/secret.template.yaml)
 
-1. Replace default secrets.
-2. Update `DATABASE_URL` to use the real password.
-3. Re-apply overlays:
+Before production cutover:
+
+1. Replace all placeholder values in overlay secret files.
+2. Ensure dev/prod values are distinct (`DATABASE_URL`, token secrets, S3 credentials).
+3. Apply overlays:
 
 ```bash
 kubectl apply -k k8s/overlays/dev
 kubectl apply -k k8s/overlays/prod
 ```
 
-## 9) Troubleshooting
+## 10) Troubleshooting
 
 Render manifests to inspect final output:
 

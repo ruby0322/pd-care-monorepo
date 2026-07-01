@@ -5,6 +5,7 @@ namespace: pd-care-dev
 
 resources:
   - namespace.yaml
+  - secret.yaml
   - ../../base
 
 patches:
