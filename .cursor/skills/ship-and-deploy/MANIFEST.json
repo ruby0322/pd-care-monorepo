@@ -1,0 +1,48 @@
+{
+  "skill": "ship-and-deploy",
+  "version": "1.1.0",
+  "last_audited_commit": "bd941dc",
+  "last_audited_at": "2026-06-28",
+  "sources": [
+    {
+      "path": "package.json",
+      "sections": ["npm scripts", "docker commands", "husky prepare"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": ".husky/pre-commit",
+      "sections": ["pre-commit hook command"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": ".husky/pre-push",
+      "sections": ["pre-push hook command"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": "docker-compose.yml",
+      "sections": ["services", "ports", "healthchecks", "env defaults"],
+      "skill_files": ["reference.md"]
+    },
+    {
+      "path": "docker-compose.gpu.yml",
+      "sections": ["GPU override compose"],
+      "skill_files": ["reference.md"]
+    },
+    {
+      "path": "docker-compose.observability.yml",
+      "sections": ["observability stack compose"],
+      "skill_files": ["reference.md"]
+    },
+    {
+      "path": "README.md",
+      "sections": ["docker startup", "git hooks", "TLS notes"],
+      "skill_files": ["reference.md"]
+    },
+    {
+      "path": "AGENTS.md",
+      "sections": ["test execution policy near commit/push"],
+      "skill_files": ["SKILL.md"]
+    }
+  ]
+}
