@@ -27,7 +27,10 @@ eval "$(minikube docker-env)"
 Build images used by manifests:
 
 ```bash
-docker build -t pd-care-frontend:latest ./apps/frontend
+docker build -t pd-care-frontend:latest \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+  --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-uzPg8SgK \
+  ./apps/frontend
 docker build -t pd-care-backend:latest ./apps/backend
 ```
 
@@ -101,6 +104,46 @@ kubectl apply -k k8s/overlays/dev
 kubectl apply -k k8s/overlays/prod
 ```
 
+## 4.1) API routing model (Compose-compatible)
+
+Ingress routes all public traffic (`/`) to the frontend service. API calls use the same path model as Docker Compose:
+
+- Browser/client calls `/api/v1/...`
+- Next.js rewrites `/api/:path*` to `BACKEND_INTERNAL_URL/:path*` (see [`apps/frontend/next.config.mjs`](../../apps/frontend/next.config.mjs))
+- Backend receives `/v1/...` (no `/api` prefix)
+
+`BACKEND_INTERNAL_URL` is set in [`k8s/base/configmap.yaml`](../../k8s/base/configmap.yaml) (`http://backend:8000`). Do not add a separate ingress `/api` rule; that bypasses the rewrite and causes route-level 404s such as `POST /api/v1/auth/login`.
+
+Verify API path translation after deploy:
+
+```bash
+# Should NOT return {"detail":"Not Found"} from FastAPI route mismatch
+curl -sS -o /dev/null -w 'prod_login=%{http_code}\n' \
+  -X POST https://pd.lu.im.ntu.edu.tw/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  --data '{"line_id_token":"invalid"}'
+
+curl -sS -o /dev/null -w 'dev_login=%{http_code}\n' \
+  -X POST https://test.pd.lu.im.ntu.edu.tw/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  --data '{"line_id_token":"invalid"}'
+```
+
+Expected: HTTP `400` or `401`/`403` (auth validation), not `404`.
+
+Confirm rendered ingress has only `/` -> frontend:
+
+```bash
+kubectl kustomize k8s/overlays/dev | grep -E 'path:|name: (frontend|backend)'
+kubectl kustomize k8s/overlays/prod | grep -E 'path:|name: (frontend|backend)'
+```
+
+## 4.2) Observability / Grafana (deferred)
+
+Grafana is **not** part of the K8s manifests. It still lives in [`docker-compose.observability.yml`](../../docker-compose.observability.yml) (see [`docs/observability.md`](../observability.md)).
+
+On K8s-hosted domains, `/grafana` and `/admin/monitoring` will fail until observability is migrated or `GRAFANA_INTERNAL_URL` is set to a reachable host-side endpoint. This is intentionally deferred; do not block app cutover on it.
+
 ## 5) Verify
 
 Check workload readiness:
@@ -165,7 +208,21 @@ Frontend-only change:
 
 ```bash
 eval "$(minikube docker-env)"
-docker build -t pd-care-frontend:latest ./apps/frontend
+docker build -t pd-care-frontend:latest \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+  --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-uzPg8SgK \
+  ./apps/frontend
+kubectl rollout restart deploy/frontend -n pd-care-dev
+```
+
+Dev namespace uses a separate image tag and LIFF ID:
+
+```bash
+eval "$(minikube docker-env)"
+docker build -t pd-care-frontend:dev \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+  --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-B0JCWwiu \
+  ./apps/frontend
 kubectl rollout restart deploy/frontend -n pd-care-dev
 ```
 
@@ -227,6 +284,10 @@ kubectl apply -k k8s/overlays/prod
 
 ## 10) Troubleshooting
 
+### API returns 404 `{"detail":"Not Found"}`
+
+Usually means ingress is forwarding `/api/*` directly to backend without stripping `/api`. Keep ingress frontend-only and let Next.js rewrite `/api/:path*` to backend `/:path*`. `POST /api/v1/auth/login` should reach backend as `/v1/auth/login`.
+
 Render manifests to inspect final output:
 
 ```bash
@@ -238,6 +299,9 @@ If pods fail because images are missing, rebuild inside Minikube docker:
 
 ```bash
 eval "$(minikube docker-env)"
-docker build -t pd-care-frontend:latest ./apps/frontend
+docker build -t pd-care-frontend:latest \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+  --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-uzPg8SgK \
+  ./apps/frontend
 docker build -t pd-care-backend:latest ./apps/backend
 ```
