@@ -32,18 +32,28 @@ spec:
           volumeMounts:
             - name: seaweed-volume-data
               mountPath: /data
+          startupProbe:
+            httpGet:
+              path: /status
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
           readinessProbe:
             httpGet:
               path: /status
               port: 8080
-            initialDelaySeconds: 10
+            initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 10
           livenessProbe:
             httpGet:
               path: /status
               port: 8080
-            initialDelaySeconds: 20
-            periodSeconds: 15
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            timeoutSeconds: 3
       volumes:
         - name: seaweed-volume-data
           persistentVolumeClaim:

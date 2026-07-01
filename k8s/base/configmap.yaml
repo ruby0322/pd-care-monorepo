@@ -26,6 +26,4 @@ data:
   PRESCREEN_MODEL_REVISION: ""
   PRESCREEN_REJECT_REASON: "non_exit_site_or_random_photo"
   PRESCREEN_MODEL_CACHE_DIR: "/models/prescreen"
-  NEXT_PUBLIC_API_BASE_URL: "/api"
-  NEXT_PUBLIC_LIFF_ID: "1657724367-uzPg8SgK"
   BACKEND_INTERNAL_URL: "http://backend:8000"

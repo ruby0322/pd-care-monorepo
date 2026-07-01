@@ -24,6 +24,9 @@ apps/backend/*.db
 .env
 apps/backend/.env
 
+# Per-overlay K8s secrets (copy from secret.yaml.example locally)
+k8s/overlays/*/secret.yaml
+
 __pycache__/
 **/__pycache__/
 

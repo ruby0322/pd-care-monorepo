@@ -18,9 +18,10 @@ Ingress host mappings are defined in:
    - `pd.lu.im.ntu.edu.tw` -> Kubernetes ingress external IP/LB
    - `test.pd.lu.im.ntu.edu.tw` -> Kubernetes ingress external IP/LB
 2. Ingress controller class `nginx` is active.
-3. Namespace secrets are distinct:
-   - `pd-care-dev` secret source: [`k8s/overlays/dev/secret.yaml`](../../k8s/overlays/dev/secret.yaml)
-   - `pd-care-prod` secret source: [`k8s/overlays/prod/secret.yaml`](../../k8s/overlays/prod/secret.yaml)
+3. Namespace secrets are distinct and applied out-of-band (not committed to git):
+   - Dev template: [`k8s/overlays/dev/secret.yaml.example`](../../k8s/overlays/dev/secret.yaml.example)
+   - Prod template: [`k8s/overlays/prod/secret.yaml.example`](../../k8s/overlays/prod/secret.yaml.example)
+   - Apply with `kubectl apply -f k8s/overlays/<env>/secret.yaml -n <namespace>` before overlay deploy (see [`k8s-minikube.md` §9](k8s-minikube.md#9-config-and-secret-management))
 4. Data migration prep is complete (see [`docs/deploy/k8s-migration.md`](k8s-migration.md)).
 
 ## Certbot issuance (no cert-manager)
