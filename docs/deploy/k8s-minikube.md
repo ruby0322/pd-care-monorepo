@@ -48,9 +48,18 @@ Ingress hosts are already set in overlays:
 
 What the administrator must do (no sudo needed from your side):
 
-1. Point DNS records to the Kubernetes ingress external IP / load balancer.
+1. Point DNS records to the operator host public IP (same host that runs minikube).
+   - `pd.lu.im.ntu.edu.tw` — required for production
+   - `test.pd.lu.im.ntu.edu.tw` — required for dev; site returns 200 via ingress when resolved to the host IP
 2. Issue Let's Encrypt certificates with certbot for both domains.
 3. Create the TLS secrets in each namespace (next section).
+4. Start the HTTPS ingress bridge only (minikube docker driver does not bind :443 on the public NIC; leave :80 free for certbot):
+
+```bash
+docker compose -f docker-compose.ingress-bridge.yml up -d
+```
+
+See [`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml).
 
 ## 3) TLS secrets for ingress (certbot only)
 
@@ -305,7 +314,14 @@ kubectl apply -k k8s/overlays/dev
 kubectl apply -k k8s/overlays/prod
 ```
 
-**Credential rotation:** If secrets were ever committed to git, rotate all affected credentials before cutover.
+**Credential rotation:** If secrets were ever committed to git, rotate all affected credentials before cutover:
+
+```bash
+./ops/security/rotate_k8s_secrets.sh          # generate new secret.yaml + apply when cluster is up
+./ops/security/rotate_k8s_secrets.sh --apply-only   # apply existing gitignored secret.yaml files
+```
+
+The script updates `pd-care-secrets`, runs `ALTER USER` on Postgres, and restarts backend (invalidates auth/image tokens). Old values remain in git history until history rewrite — treat leaked commits as compromised even after rotation.
 
 Alternative: `kubectl create secret generic pd-care-secrets --from-literal=... -n <namespace>` with the same key names expected by deployments.
 
