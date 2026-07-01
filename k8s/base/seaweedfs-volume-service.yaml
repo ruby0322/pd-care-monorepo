@@ -9,3 +9,6 @@ spec:
     - name: volume-http
       port: 8080
       targetPort: 8080
+    - name: volume-grpc
+      port: 18080
+      targetPort: 18080
