@@ -4,5 +4,5 @@ metadata:
   name: pd-care-config
 data:
   APP_ENV: "development"
-  NEXT_PUBLIC_LIFF_ID: ""
   S3_BUCKET_NAME: "pd-care-dev-private"
+  NEXT_PUBLIC_LIFF_ID: "1657724367-B0JCWwiu"
