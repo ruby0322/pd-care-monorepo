@@ -12,7 +12,7 @@ Migrate production data from Docker Compose services into Kubernetes `pd-care-pr
 
 1. `pd-care-prod` namespace is deployed.
 2. All required PVCs in `pd-care-prod` are `Bound`.
-3. Destination secrets/config in `pd-care-prod` are finalized.
+3. Destination secrets/config in `pd-care-prod` are finalized (see [`k8s-minikube.md` §9](k8s-minikube.md#9-config-and-secret-management)).
 4. Migration window approved (write traffic freeze or maintenance mode recommended).
 
 ## 1) Export Postgres from Docker Compose

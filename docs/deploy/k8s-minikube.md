@@ -97,6 +97,20 @@ kubectl create secret tls pd-lu-im-ntu-edu-tw-tls \
 
 ## 4) Deploy
 
+Create application secrets in each namespace before applying overlays (secrets are not committed to git):
+
+```bash
+# Dev
+cp k8s/overlays/dev/secret.yaml.example k8s/overlays/dev/secret.yaml
+# Edit k8s/overlays/dev/secret.yaml with real values (file is gitignored)
+kubectl apply -f k8s/overlays/dev/secret.yaml -n pd-care-dev
+
+# Prod
+cp k8s/overlays/prod/secret.yaml.example k8s/overlays/prod/secret.yaml
+# Edit k8s/overlays/prod/secret.yaml with real values (file is gitignored)
+kubectl apply -f k8s/overlays/prod/secret.yaml -n pd-care-prod
+```
+
 Apply each overlay independently:
 
 ```bash
@@ -265,22 +279,50 @@ Treat `pd-care-prod` as production-like:
 
 ## 9) Config and secret management
 
-Secrets are managed per overlay:
+### Application secrets (not in git)
 
-- Dev: [`k8s/overlays/dev/secret.yaml`](../../k8s/overlays/dev/secret.yaml)
-- Prod: [`k8s/overlays/prod/secret.yaml`](../../k8s/overlays/prod/secret.yaml)
-- Reference template only: [`k8s/base/secret.template.yaml`](../../k8s/base/secret.template.yaml)
+Overlay secrets are **not** committed. Use the examples as templates:
 
-Before production cutover:
+- Dev: [`k8s/overlays/dev/secret.yaml.example`](../../k8s/overlays/dev/secret.yaml.example)
+- Prod: [`k8s/overlays/prod/secret.yaml.example`](../../k8s/overlays/prod/secret.yaml.example)
+- Base reference: [`k8s/base/secret.template.yaml`](../../k8s/base/secret.template.yaml)
 
-1. Replace all placeholder values in overlay secret files.
-2. Ensure dev/prod values are distinct (`DATABASE_URL`, token secrets, S3 credentials).
-3. Apply overlays:
+Workflow:
+
+1. Copy `secret.yaml.example` to `secret.yaml` in the target overlay directory (`secret.yaml` is gitignored).
+2. Replace all placeholder values. Ensure dev/prod values are distinct (`DATABASE_URL`, token secrets, S3 credentials).
+3. Apply the secret before the overlay:
+
+```bash
+kubectl apply -f k8s/overlays/dev/secret.yaml -n pd-care-dev
+kubectl apply -f k8s/overlays/prod/secret.yaml -n pd-care-prod
+```
+
+4. Apply overlays:
 
 ```bash
 kubectl apply -k k8s/overlays/dev
 kubectl apply -k k8s/overlays/prod
 ```
+
+**Credential rotation:** If secrets were ever committed to git, rotate all affected credentials before cutover.
+
+Alternative: `kubectl create secret generic pd-care-secrets --from-literal=... -n <namespace>` with the same key names expected by deployments.
+
+### Frontend build args (`NEXT_PUBLIC_*`)
+
+`NEXT_PUBLIC_LIFF_ID` and `NEXT_PUBLIC_API_BASE_URL` are **build-time** values. Next.js inlines them during `docker build` (see [`apps/frontend/Dockerfile`](../../apps/frontend/Dockerfile)); runtime ConfigMap env vars do not change client bundles.
+
+Build a separate image per environment:
+
+| Namespace | Image tag | `NEXT_PUBLIC_LIFF_ID` |
+| --- | --- | --- |
+| `pd-care-prod` | `pd-care-frontend:latest` | prod LIFF ID |
+| `pd-care-dev` | `pd-care-frontend:dev` | dev LIFF ID |
+
+Both use `NEXT_PUBLIC_API_BASE_URL=/api`. See §1 and §7 for build commands.
+
+Deferred cutover items (Compose env parity, registry/GPU): [`k8s-followups.md`](k8s-followups.md).
 
 ## 10) Troubleshooting
 
