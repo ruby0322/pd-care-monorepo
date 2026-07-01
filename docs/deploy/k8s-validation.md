@@ -24,9 +24,9 @@ wc -l /tmp/pd-care-k8s-dev.yaml /tmp/pd-care-k8s-prod.yaml
 Rendered line counts:
 
 ```text
-647 /tmp/pd-care-k8s-dev.yaml
-617 /tmp/pd-care-k8s-prod.yaml
-1264 total
+648 /tmp/pd-care-k8s-dev.yaml
+618 /tmp/pd-care-k8s-prod.yaml
+1266 total
 ```
 
 Dry-run output summary:
@@ -36,8 +36,20 @@ dev overlay: resources unchanged/configured (dry run)
 prod overlay: resources created (dry run)
 ```
 
+## Dual-env readiness matrix
+
+| Check | Dev (`pd-care-dev`) | Prod (`pd-care-prod`) |
+| --- | --- | --- |
+| Overlay render (`kubectl kustomize`) | Pass | Pass |
+| Dry-run apply (`--validate=false`) | Pass | Pass |
+| Namespace exists | Pass | Not deployed |
+| Pods ready | Pass | Not deployed |
+| Ingress present | Pass (`test.pd.lu.im.ntu.edu.tw`) | Not deployed |
+| Secret `pd-care-secrets` present | Pass | Not deployed |
+| PVCs bound | Pass | Not deployed |
+
 ## Interpretation
 
-- Overlay rendering succeeded for both environments.
-- Client-side dry-run succeeded for both overlays in active Minikube context.
-- Earlier API discovery errors were environment/context-specific and are no longer present.
+- Overlay rendering and dry-run apply succeeded for both environments.
+- Dev namespace is healthy and serving.
+- Prod namespace has not yet been deployed to this cluster; readiness checks are pending actual apply.
