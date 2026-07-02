@@ -4,6 +4,10 @@ metadata:
   name: backend-migrate
   labels:
     app: backend-migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   backoffLimit: 2
   ttlSecondsAfterFinished: 86400

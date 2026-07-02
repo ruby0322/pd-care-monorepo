@@ -129,7 +129,7 @@ If the user requests deploy/redeploy/ship without stating **both** deploy method
 
 | Question | Options |
 | --- | --- |
-| Deploy method | Docker Compose \| Kubernetes \| Commit/push only (no deploy) |
+| Deploy method | Docker Compose \| Kubernetes (direct rollout) \| Kubernetes (Argo CD GitOps) \| Commit/push only (no deploy) |
 | Environment (if K8s) | `pd-care-dev` \| `pd-care-prod` |
 | Scope (confirm if inferable from diff) | frontend \| backend \| both \| ingress-bridge only |
 
@@ -137,6 +137,7 @@ If the user requests deploy/redeploy/ship without stating **both** deploy method
 
 - "deploy to prod k8s" → Kubernetes, `pd-care-prod`
 - "restart dev frontend on k8s" → Kubernetes, `pd-care-dev`, frontend only
+- "promote prod via Argo CD" → Kubernetes (Argo CD GitOps), `pd-care-prod`
 - `docker compose up --build -d backend` → Compose, backend only
 - "commit and push only" → skip deploy
 

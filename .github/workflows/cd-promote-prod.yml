@@ -1,0 +1,78 @@
+name: CD Promote Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_tag:
+        description: "Backend image tag (example: sha-abc123def456)"
+        required: true
+        type: string
+      frontend_tag:
+        description: "Frontend image tag (example: prod-sha-abc123def456)"
+        required: true
+        type: string
+
+concurrency:
+  group: cd-promote-prod-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  promote-prod:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install YAML dependency
+        run: python -m pip install pyyaml
+
+      - name: Update prod overlay image tags
+        run: |
+          python - <<'PY'
+          import yaml
+          from pathlib import Path
+
+          file_path = Path("k8s/overlays/prod/kustomization.yaml")
+          data = yaml.safe_load(file_path.read_text())
+          images = data.setdefault("images", [])
+
+          desired = {
+              "pd-care-frontend": {
+                  "name": "pd-care-frontend",
+                  "newName": "ghcr.io/ruby0322/pd-care-frontend",
+              },
+              "pd-care-backend": {
+                  "name": "pd-care-backend",
+                  "newName": "ghcr.io/ruby0322/pd-care-backend",
+              },
+          }
+
+          existing = {item.get("name"): item for item in images}
+          backend_tag = "${{ github.event.inputs.backend_tag }}"
+          frontend_tag = "${{ github.event.inputs.frontend_tag }}"
+          for name, base in desired.items():
+              item = existing.get(name, base.copy())
+              item["name"] = base["name"]
+              item["newName"] = base["newName"]
+              item["newTag"] = frontend_tag if name == "pd-care-frontend" else backend_tag
+              existing[name] = item
+
+          data["images"] = [existing["pd-care-frontend"], existing["pd-care-backend"]]
+          file_path.write_text(yaml.safe_dump(data, sort_keys=False))
+          PY
+
+      - name: Commit prod promotion
+        run: |
+          if git diff --quiet -- k8s/overlays/prod/kustomization.yaml; then
+            echo "No prod image changes to commit."
+            exit 0
+          fi
+          git add k8s/overlays/prod/kustomization.yaml
+          git commit -m "ci(cd): promote prod images ${{ github.event.inputs.backend_tag }}"
+          git push origin HEAD:main

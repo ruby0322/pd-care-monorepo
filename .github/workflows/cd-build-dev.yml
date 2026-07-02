@@ -1,0 +1,120 @@
+name: CD Build Dev
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: cd-build-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-promote-dev:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io
+      OWNER: ruby0322
+      FRONTEND_IMAGE: pd-care-frontend
+      BACKEND_IMAGE: pd-care-backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tag
+        run: |
+          echo "BACKEND_TAG=sha-${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+          echo "DEV_FRONTEND_TAG=dev-sha-${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+          echo "PROD_FRONTEND_TAG=prod-sha-${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/backend
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.BACKEND_IMAGE }}:${{ env.BACKEND_TAG }}
+
+      - name: Build and push dev frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/frontend
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=/api
+            NEXT_PUBLIC_LIFF_ID=${{ vars.PDCARE_DEV_LIFF_ID }}
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE }}:${{ env.DEV_FRONTEND_TAG }}
+
+      - name: Build and push prod frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/frontend
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=/api
+            NEXT_PUBLIC_LIFF_ID=${{ vars.PDCARE_PROD_LIFF_ID }}
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE }}:${{ env.PROD_FRONTEND_TAG }}
+
+      - name: Install YAML dependency
+        run: python -m pip install pyyaml
+
+      - name: Update dev overlay image tags
+        run: |
+          python - <<'PY'
+          import yaml
+          from pathlib import Path
+
+          file_path = Path("k8s/overlays/dev/kustomization.yaml")
+          data = yaml.safe_load(file_path.read_text())
+          images = data.setdefault("images", [])
+
+          desired = {
+              "pd-care-frontend": {
+                  "name": "pd-care-frontend",
+                  "newName": "ghcr.io/ruby0322/pd-care-frontend",
+              },
+              "pd-care-backend": {
+                  "name": "pd-care-backend",
+                  "newName": "ghcr.io/ruby0322/pd-care-backend",
+              },
+          }
+
+          existing = {item.get("name"): item for item in images}
+          backend_tag = "${{ env.BACKEND_TAG }}"
+          frontend_tag = "${{ env.DEV_FRONTEND_TAG }}"
+          for name, base in desired.items():
+              item = existing.get(name, base.copy())
+              item["name"] = base["name"]
+              item["newName"] = base["newName"]
+              item["newTag"] = frontend_tag if name == "pd-care-frontend" else backend_tag
+              existing[name] = item
+
+          data["images"] = [existing["pd-care-frontend"], existing["pd-care-backend"]]
+          file_path.write_text(yaml.safe_dump(data, sort_keys=False))
+          PY
+
+      - name: Commit dev promotion
+        run: |
+          if git diff --quiet -- k8s/overlays/dev/kustomization.yaml; then
+            echo "No dev image changes to commit."
+            exit 0
+          fi
+          git add k8s/overlays/dev/kustomization.yaml
+          git commit -m "ci(cd): promote dev images ${BACKEND_TAG}"
+          git push origin HEAD:main
