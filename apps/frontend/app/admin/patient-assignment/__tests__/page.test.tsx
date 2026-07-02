@@ -8,6 +8,14 @@ import {
   fetchStaffMe,
 } from "@/lib/api/staff";
 
+const mockSearchParams = new URLSearchParams();
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: jest.fn() }),
+  usePathname: () => "/admin/patient-assignment",
+  useSearchParams: () => mockSearchParams,
+}));
+
 jest.mock("sonner", () => ({
   toast: {
     success: jest.fn(),
@@ -103,20 +111,20 @@ describe("AdminPatientAssignmentPage", () => {
     expect(userScope.getByRole("button", { name: "下一頁" })).toBeDisabled();
   });
 
-  test("provides patient filters for assignment, role, active status and sends them to API", async () => {
+  test("provides patient filters for assignment, binding, active status and sends them to API", async () => {
     render(<AdminPatientAssignmentPage />);
 
     await screen.findByRole("heading", { name: "病患分配" });
 
     fireEvent.change(screen.getByLabelText("分配狀態"), { target: { value: "assigned" } });
-    fireEvent.change(screen.getByLabelText("人員角色"), { target: { value: "staff" } });
+    fireEvent.change(screen.getByLabelText("註冊狀態"), { target: { value: "unbound_only" } });
     fireEvent.change(screen.getByLabelText("人員狀態"), { target: { value: "inactive" } });
 
     await waitFor(() => {
       expect(fetchAdminAssignments).toHaveBeenLastCalledWith(
         expect.objectContaining({
           assignmentFilter: "assigned",
-          assigneeRole: "staff",
+          bindingFilter: "unbound_only",
           assigneeActive: "inactive",
         })
       );
