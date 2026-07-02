@@ -5,7 +5,7 @@ describe("admin dashboard suspected KPI mapping", () => {
     const result = getSuspectedKpi("today", 12, 1);
 
     expect(result).toEqual({
-      label: "今日 疑似感染筆數",
+      label: "今日疑似感染筆數",
       value: 1,
     });
   });

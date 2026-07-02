@@ -224,6 +224,24 @@ After `npm install` at the repository root, Husky installs Git hooks automatical
 
 If you need to bypass hooks for an emergency commit or push, use `--no-verify`.
 
+### GitHub Actions CI
+
+The repository also runs CI in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on pull requests and pushes to `main`.
+
+Phase 1 CI scope is intentionally narrow and fast:
+
+- `npm run lint` (frontend eslint + migration policy check)
+- backend tests (`npm run test:backend`)
+- frontend unit tests (`npm --prefix apps/frontend run test:unit -- --ci`)
+- frontend build (`npm --prefix apps/frontend run build`)
+- K8s overlay render checks (`kubectl kustomize k8s/overlays/dev|prod`)
+
+Out of scope for this phase:
+
+- deploy or redeploy automation
+- Docker image build/bake checks
+- live Minikube/Kubernetes smoke tests
+
 ### Repository Layout
 
 ```text

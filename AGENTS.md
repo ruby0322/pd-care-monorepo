@@ -56,6 +56,13 @@ Deploy and production operations are **not** defaulted here — use [.cursor/ski
   - a git hook runs them (hooks currently run **lint only**, not full tests).
 - Prefer lightweight checks while iterating (syntax, focused lint, reading related tests).
 
+## CI policy
+
+- GitHub Actions CI runs from [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on pull requests and pushes to `main`.
+- CI phase 1 checks: lint, backend tests, frontend unit tests, frontend build, and K8s overlay render (`kubectl kustomize`).
+- CI does **not** deploy services or run live-cluster smoke tests in this phase.
+- Keep ship/deploy decisions in [.cursor/skills/ship-and-deploy/SKILL.md](.cursor/skills/ship-and-deploy/SKILL.md) and deploy runbooks.
+
 ## Production safety
 
 Treat production data as authoritative. Without explicit user approval, do **not**:
