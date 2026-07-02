@@ -23,7 +23,6 @@ Install hooks: `npm install` at repo root (runs `prepare` → husky).
 | `docker:up` | `docker compose up --build` |
 | `docker:up:frontend` | `docker compose up --build frontend` |
 | `docker:up:backend` | `docker compose up --build backend` |
-| `docker:up:gpu` | `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build` |
 | `docker:up:obs` | `docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build` |
 | `docker:down` | `docker compose down` |
 | `docker:down:obs` | compose down with observability override |
@@ -53,12 +52,22 @@ Never append `-v` on production-like hosts.
 | Target | Redeploy | Verify | Data safety |
 | --- | --- | --- | --- |
 | **Compose** | `docker compose up --build -d <service>` | `curl http://127.0.0.1:8000/healthz` | Named volumes when Compose is active production |
-| **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; lower blast radius |
-| **K8s `pd-care-prod`** | build `:latest` if frontend, `kubectl rollout restart -n pd-care-prod` | `curl https://pd.lu.im.ntu.edu.tw/api/healthz` | **PVCs authoritative**; never `kubectl delete pvc` |
+| **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; single replica; migrations on pod start |
+| **K8s `pd-care-prod`** | build image; backend: migrate Job then rollout; frontend: rollout only | `curl https://pd.lu.im.ntu.edu.tw/api/healthz`; expect `2/2` replicas | **PVCs authoritative**; zero-downtime rolling (`maxUnavailable: 0`) |
 | **Ingress bridge** | `docker compose -f docker-compose.ingress-bridge.yml up -d` | public HTTPS smoke on prod/dev domains | Host `:443` only; leave `:80` for certbot |
 | **Commit/push only** | skip deploy | — | — |
 
-Runbook: [docs/deploy/k8s-minikube.md](../../../docs/deploy/k8s-minikube.md).
+Runbooks: [k8s-minikube.md](../../../docs/deploy/k8s-minikube.md), [k8s-zero-downtime-rollout.md](../../../docs/deploy/k8s-zero-downtime-rollout.md).
+
+### Prod zero-downtime rolling (`pd-care-prod`)
+
+| Resource | Setting |
+| --- | --- |
+| Frontend / backend replicas | `2` |
+| Rolling strategy | `maxUnavailable: 0`, `maxSurge: 1` |
+| preStop | frontend `sleep 10`, backend `sleep 15` |
+| PodDisruptionBudgets | `minAvailable: 1` per app |
+| Backend migrations | `backend-migrate` Job only; pods use `RUN_DB_MIGRATIONS=false` |
 
 K8s backend rebuild command (bakes model artifacts into image):
 
@@ -66,6 +75,57 @@ K8s backend rebuild command (bakes model artifacts into image):
 eval "$(minikube docker-env)"
 docker build -t pd-care-backend:latest ./apps/backend
 ```
+
+Prod **frontend** zero-downtime restart:
+
+```bash
+eval "$(minikube docker-env)"
+docker build -t pd-care-frontend:latest \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+  --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-uzPg8SgK \
+  ./apps/frontend
+kubectl rollout restart deploy/frontend -n pd-care-prod
+kubectl rollout status deploy/frontend -n pd-care-prod --timeout=300s
+```
+
+Prod **backend** zero-downtime restart (run migrate Job when `apps/backend/migrations/**` changed, or when unsure):
+
+```bash
+kubectl delete job backend-migrate -n pd-care-prod --ignore-not-found
+kubectl apply -f k8s/overlays/prod/migrate-job.yaml -n pd-care-prod
+kubectl wait --for=condition=complete job/backend-migrate -n pd-care-prod --timeout=300s
+kubectl rollout restart deploy/backend -n pd-care-prod
+kubectl rollout status deploy/backend -n pd-care-prod --timeout=600s
+```
+
+If `k8s/**` changed, apply the overlay before rollout:
+
+```bash
+kubectl apply -k k8s/overlays/prod
+```
+
+Continuous availability probe during prod rollout (separate terminal):
+
+```bash
+while true; do
+  date -Is
+  curl -fsS -o /dev/null -w 'readyz=%{http_code} time=%{time_total}\n' \
+    https://pd.lu.im.ntu.edu.tw/api/readyz || echo FAIL
+  curl -fsS -o /dev/null -w 'frontend=%{http_code}\n' \
+    https://pd.lu.im.ntu.edu.tw/ || echo FAIL
+  sleep 1
+done
+```
+
+Acceptance: no sustained `readyz` failures; `kubectl get deploy backend frontend -n pd-care-prod` shows `2/2` for both.
+
+### Migration behavior by deploy path
+
+| Path | When Alembic runs |
+| --- | --- |
+| Docker Compose backend | On container start (`start-backend.sh`) |
+| K8s `pd-care-dev` backend | On pod start |
+| K8s `pd-care-prod` backend | `backend-migrate` Job before rollout; pods skip migrations |
 
 ### K8s frontend image tags
 
@@ -86,9 +146,9 @@ Use `git diff --name-only <baseline>..HEAD` to pick services:
 | `apps/backend/**` | `backend` |
 | `apps/backend/migrations/**` | `backend` (review migration safety first) |
 | `docker-compose.yml` | Usually `frontend` + `backend`; ask if postgres/SeaweedFS service blocks changed |
-| `docker-compose.gpu.yml` | `backend` with GPU compose override |
 | `docker-compose.observability.yml` | observability services only |
-| `k8s/**`, `docs/deploy/k8s-*.md` | K8s deploy — ask target namespace; see deploy targets table |
+| `k8s/**` | Apply overlay if manifests changed, then rollout affected deploy(s); ask namespace |
+| `docs/deploy/k8s-*.md` | No deploy unless manifests also changed |
 | `docker-compose.ingress-bridge.yml` | ingress bridge only (host :443) |
 | `docs/**`, `.cursor/**`, `**/*.md` | No deploy unless user requests doc-only ship |
 | `ops/security/**` | Ask user; default no deploy |
@@ -106,6 +166,7 @@ Before any deploy command, confirm:
 - [ ] No `-v` / `volume rm` / `prune --volumes`
 - [ ] No destructive SQL or credential changes
 - [ ] New Alembic migrations reviewed if redeploying `backend`
+- [ ] K8s prod backend: migrate Job completed before rollout when schema may have changed
 - [ ] Postgres remains bound to localhost unless user explicitly requested remote exposure
 - [ ] K8s prod: no `kubectl delete pvc` / namespace delete
 - [ ] Deploy method and environment confirmed (or explicitly stated by user)

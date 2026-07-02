@@ -138,13 +138,7 @@ docker build -t pd-exit-site-inference-api .
 npm run docker:up:backend
 ```
 
-The root compose file now starts on CPU-only hosts by default. With `DEVICE=auto`, the app will still select CUDA automatically when GPU access is available.
-
-If you want to force the legacy NVIDIA runtime on a GPU host, run:
-
-```bash
-npm run docker:up:gpu
-```
+The root compose file starts on CPU-only hosts by default. With `DEVICE=auto`, the app selects CUDA when GPU access is available.
 
 If your machine only has `docker-compose` v1 and fails with `KeyError: 'ContainerConfig'` during recreate, reset the old stack first:
 
@@ -152,12 +146,6 @@ If your machine only has `docker-compose` v1 and fails with `KeyError: 'Containe
 docker-compose down --remove-orphans
 docker-compose up --build backend
 ```
-
-That GPU override assumes:
-
-- NVIDIA drivers are installed on the host
-- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) is configured
-- Docker Compose can launch the service with the NVIDIA runtime
 
 The container uses a single Uvicorn worker by default so one process owns one GPU model copy.
 

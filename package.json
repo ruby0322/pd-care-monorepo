@@ -16,7 +16,6 @@
     "docker:up:frontend": "docker compose up --build frontend",
     "docker:up:backend": "docker compose up --build backend",
     "docker:up:obs": "docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build",
-    "docker:up:gpu": "docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build",
     "docker:down:obs": "docker compose -f docker-compose.yml -f docker-compose.observability.yml down",
     "docker:down": "docker compose down",
     "prepare": "husky"

@@ -6,6 +6,7 @@ spec:
   resources:
     requests:
       storage: 20Gi
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

@@ -213,7 +213,6 @@ For scoped compose updates:
 npm run docker:up:frontend
 npm run docker:up:backend
 npm run docker:up:obs
-npm run docker:up:gpu
 ```
 
 ### Git Hooks (Husky)
@@ -409,13 +408,7 @@ TLS note:
 - Compose frontend uses `apps/frontend/tls-gateway.cjs` and expects valid cert files mounted from host `/etc/letsencrypt`.
 - If your certs are not present at the default domain path, set `LETSENCRYPT_DOMAIN` or provide your own TLS paths through env.
 
-The default compose file now works on CPU-only hosts. The backend still honors `DEVICE=auto`, so it will use CUDA automatically when GPU access is available and fall back to CPU otherwise.
-
-To require GPU access on a compatible host, include the GPU override file:
-
-```bash
-npm run docker:up:gpu
-```
+The default compose file works on CPU-only hosts. The backend honors `DEVICE=auto`, so it uses CUDA when GPU access is available and falls back to CPU otherwise.
 
 If your host only has deprecated `docker-compose` v1 and you hit `KeyError: 'ContainerConfig'` while recreating containers, use the same fallback the npm scripts use:
 
@@ -423,12 +416,6 @@ If your host only has deprecated `docker-compose` v1 and you hit `KeyError: 'Con
 docker-compose down --remove-orphans
 docker-compose up --build
 ```
-
-That override expects:
-
-- NVIDIA drivers must be installed on the host
-- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) must be configured
-- Docker Compose must be able to launch the service with the NVIDIA runtime
 
 ### Backend API
 

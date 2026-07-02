@@ -23,7 +23,7 @@ Minikube prep uses local image tags and CPU-only scheduling. A real cluster need
 | Gap | Current state | Follow-up |
 | --- | --- | --- |
 | Image supply chain | `pd-care-frontend:latest`, `imagePullPolicy: IfNotPresent` | Push to a registry; pin digests or immutable tags |
-| GPU inference | `DEVICE: auto` in ConfigMap; no `nvidia.com/gpu` limits | Add node selectors / resource limits if matching `docker-compose.gpu.yml` latency |
+| GPU inference | `DEVICE: auto` in ConfigMap; no `nvidia.com/gpu` limits | Add node selectors / GPU resource limits on real clusters |
 | NetworkPolicies | None | Restrict pod-to-pod traffic within namespace (optional hardening) |
 | Postgres `pg_hba` | Compose mounts `ops/security/postgres/pg_hba.remote.conf` | Document cluster-internal-only assumption or port equivalent |
 

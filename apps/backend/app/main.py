@@ -1,6 +1,7 @@
 from __future__ import annotations
 # pyright: reportMissingImports=false
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -63,7 +64,8 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = settings
-        upgrade_database(settings.database_url)
+        if os.getenv("RUN_DB_MIGRATIONS", "true").lower() != "false":
+            upgrade_database(settings.database_url)
         engine, session_factory = initialize_database(settings.database_url, settings=settings)
         app.state.db_engine = engine
         app.state.db_session_factory = session_factory

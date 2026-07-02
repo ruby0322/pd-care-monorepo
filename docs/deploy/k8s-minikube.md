@@ -312,13 +312,24 @@ docker build -t pd-care-backend:latest ./apps/backend
 kubectl rollout restart deploy/backend -n pd-care-dev
 ```
 
-Promote to prod-like namespace only after dev verification:
+Promote to prod-like namespace only after dev verification.
+
+For prod zero-downtime rollout, run migrations once via Job before backend restart:
+
+```bash
+kubectl delete job backend-migrate -n pd-care-prod --ignore-not-found
+kubectl apply -f k8s/overlays/prod/migrate-job.yaml -n pd-care-prod
+kubectl wait --for=condition=complete job/backend-migrate -n pd-care-prod --timeout=300s
+kubectl rollout restart deploy/backend -n pd-care-prod
+```
+
+Frontend-only prod rollout:
 
 ```bash
 kubectl rollout restart deploy/frontend -n pd-care-prod
-# or
-kubectl rollout restart deploy/backend -n pd-care-prod
 ```
+
+See [`k8s-zero-downtime-rollout.md`](k8s-zero-downtime-rollout.md) for continuous-curl verification during rollout.
 
 ## 8) Safety rules (production-data protection)
 
