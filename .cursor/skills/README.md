@@ -6,6 +6,7 @@ Cursor Agent Skills scoped to this repository. Each skill lives in its own direc
 
 | Skill | Path | Use when |
 | --- | --- | --- |
+| Stage, Commit, Push | [stage-commit-push/SKILL.md](stage-commit-push/SKILL.md) | Stage/commit/push on ruby0322's behalf — no deploy |
 | Ship & Deploy | [ship-and-deploy/SKILL.md](ship-and-deploy/SKILL.md) | Staging, committing, pushing, or redeploying — with production data safety and scoped redeploy |
 
 ## Maintenance policy

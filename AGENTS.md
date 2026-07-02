@@ -15,6 +15,7 @@ Peritoneal dialysis exit-site imaging platform: Next.js frontend (`apps/frontend
 | `k8s/` | Kustomize overlays for `pd-care-dev` and `pd-care-prod` |
 | `docs/deploy/` | K8s runbooks (minikube, zero-downtime rollout, migration) |
 | `.cursor/skills/ship-and-deploy/` | Commit, push, and deploy workflow for agents |
+| `.cursor/skills/stage-commit-push/` | Stage, commit, push on ruby0322's behalf (no deploy) |
 
 ## How to work
 
@@ -22,7 +23,7 @@ Peritoneal dialysis exit-site imaging platform: Next.js frontend (`apps/frontend
 - **Match conventions** — read surrounding files first; reuse existing patterns, names, and abstractions.
 - **Comments** — only for non-obvious business logic; code should mostly speak for itself.
 - **Secrets** — never commit `.env`, `k8s/overlays/*/secret.yaml`, tokens, or credentials.
-- **Commits** — only when the user asks. Use `type(scope): summary` messages; explain *why* in the body.
+- **Commits** — only when the user asks (or [stage-commit-push](.cursor/skills/stage-commit-push/SKILL.md) applies). Use `type(scope): summary` messages; explain *why* in the body.
 - **Frontend deps** — use `npx` when installing/updating npm packages in `apps/frontend`.
 
 ## Common commands

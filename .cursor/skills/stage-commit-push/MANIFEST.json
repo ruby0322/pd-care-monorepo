@@ -1,0 +1,28 @@
+{
+  "skill": "stage-commit-push",
+  "version": "1.0.0",
+  "last_audited_commit": "8724a73",
+  "last_audited_at": "2026-07-02",
+  "sources": [
+    {
+      "path": "AGENTS.md",
+      "sections": ["test policy", "commit conventions", "secrets"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": ".husky/pre-commit",
+      "sections": ["pre-commit hook"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": ".husky/pre-push",
+      "sections": ["pre-push hook"],
+      "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": "package.json",
+      "sections": ["lint script", "husky prepare"],
+      "skill_files": ["reference.md"]
+    }
+  ]
+}

@@ -17,7 +17,7 @@ End-to-end workflow for committing code and redeploying this repository.
 
 ## Preconditions
 
-- Only commit or push when the user explicitly asks.
+- Only commit or push when the user explicitly asks — or use [stage-commit-push](../stage-commit-push/SKILL.md) for git-only ship on ruby0322's behalf.
 - Never update git config, force-push to `main`/`master`, or skip hooks unless the user explicitly requests it.
 - Do not commit secrets (`.env`, credentials, tokens).
 - Follow [AGENTS.md](../../../AGENTS.md) test policy: hooks run lint on commit/push; do not run full tests during implementation unless the user asks or you are in final pre-ship verification.
