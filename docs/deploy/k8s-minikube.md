@@ -5,6 +5,19 @@ This runbook provides a minimal, maintainable Kubernetes workflow for two namesp
 - `pd-care-dev`
 - `pd-care-prod` (prod-like, still inside Minikube)
 
+**Preferred delivery path:** GitOps via Argo CD and GHCR image tags. The source
+repository (`ruby0322/pd-care-monorepo`) is **public**, so Argo CD does not need
+a Git PAT. See [`argocd-cd.md`](argocd-cd.md) for CI/CD promotion, `ghcr-pull-secret`
+setup, and the end-to-end dry-run checklist.
+
+The sections below still document manual Minikube operations (local image builds,
+`kubectl apply`, scoped rollouts). Overlays now reference `ghcr.io/ruby0322/...` with
+`imagePullPolicy: Always` and `ghcr-pull-secret`. Manual deploys require either:
+
+- following the Argo CD path in [`argocd-cd.md`](argocd-cd.md), or
+- creating `ghcr-pull-secret` in the target namespace and using the GHCR tags from
+  `k8s/overlays/*/kustomization.yaml`.
+
 ## 1) Prerequisites
 
 - Minikube installed and running
@@ -279,6 +292,10 @@ Rollback sequence:
 ## 7) Scoped updates (default)
 
 Only restart affected workloads.
+
+For GitOps deployments, prefer Argo CD sync and the promotion workflows in
+[`argocd-cd.md`](argocd-cd.md). The commands below are a **manual fallback** when
+you need local image builds inside Minikube docker instead of GHCR pulls.
 
 ### Prod frontend (`pd-care-prod`)
 

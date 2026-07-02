@@ -31,7 +31,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Check changed paths
@@ -148,4 +148,5 @@ jobs:
           fi
           git add k8s/overlays/dev/kustomization.yaml
           git commit -m "ci(cd): promote dev images ${BACKEND_TAG}"
+          git pull --rebase origin main
           git push origin HEAD:main

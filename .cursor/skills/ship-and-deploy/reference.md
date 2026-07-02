@@ -54,7 +54,7 @@ Never append `-v` on production-like hosts.
 | **Compose** | `docker compose up --build -d <service>` | `curl http://127.0.0.1:8000/healthz` | Named volumes when Compose is active production |
 | **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; single replica; migrations on pod start |
 | **K8s `pd-care-prod`** | build image; backend: migrate Job then rollout; frontend: rollout only | `curl https://pd.lu.im.ntu.edu.tw/api/healthz`; expect `2/2` replicas | **PVCs authoritative**; zero-downtime rolling (`maxUnavailable: 0`) |
-| **K8s GitOps (Argo CD)** | push image-tag changes into `k8s/overlays/*/kustomization.yaml`; Argo reconciles | Argo app health + ingress health checks | Keep secrets out of git; migration hook runs PreSync in prod; require `ghcr-pull-secret` in each namespace |
+| **K8s GitOps (Argo CD)** | push image-tag changes into `k8s/overlays/*/kustomization.yaml`; Argo reconciles | Argo app health + ingress health checks | `pd-care-monorepo` is public (no Git PAT); require `ghcr-pull-secret` when GHCR packages are private; migration hook runs PreSync in prod |
 | **Ingress bridge** | `docker compose -f docker-compose.ingress-bridge.yml up -d` | public HTTPS smoke on prod/dev domains | Host `:443` only; leave `:80` for certbot |
 | **Commit/push only** | skip deploy | — | — |
 
@@ -66,6 +66,11 @@ Runbooks: [k8s-minikube.md](../../../docs/deploy/k8s-minikube.md), [k8s-zero-dow
 | --- | --- |
 | `.github/workflows/cd-build-dev.yml` | After successful CI on `main`, build backend + dev/prod frontend artifacts, push to GHCR, auto-update dev overlay tags |
 | `.github/workflows/cd-promote-prod.yml` | Promote selected backend/frontend tags into prod overlay |
+
+Argo CD bootstrap and verification:
+
+- `ops/deploy/bootstrap-argocd-cd.sh`
+- `ops/deploy/verify-argocd-cd.sh`
 
 Argo CD application definitions:
 

@@ -16,7 +16,7 @@ This runbook defines the GitOps delivery path for PD Care with:
   - `k8s/overlays/dev/kustomization.yaml`
   - `k8s/overlays/prod/kustomization.yaml`
 - Repository URL used by Argo CD:
-  - `https://github.com/ruby0322/pd-care-monorepo.git`
+  - `https://github.com/ruby0322/pd-care-monorepo.git` (**public** — no Git credential required for Argo CD sync)
 
 Apply Argo CD resources:
 
@@ -26,7 +26,54 @@ kubectl apply -f k8s/argocd/dev-application.yaml
 kubectl apply -f k8s/argocd/prod-application.yaml
 ```
 
+### Argo CD Git repository credentials
+
+`pd-care-monorepo` is a **public** GitHub repository. Argo CD can clone
+`https://github.com/ruby0322/pd-care-monorepo.git` without a deploy key or PAT.
+**Skip `GITHUB_PAT` for the current setup.**
+
+GHCR image pulls are separate from Git access: the cluster still needs
+`ghcr-pull-secret` when packages are private (see §2).
+
+If the repository is ever made private, configure read access with one of:
+
+Option A — Argo CD CLI (PAT with `repo` read scope):
+
+```bash
+argocd repo add https://github.com/ruby0322/pd-care-monorepo.git \
+  --username git \
+  --password "<github-pat>"
+```
+
+Option B — Kubernetes secret (Argo CD reads `argocd` namespace repo secrets):
+
+```bash
+kubectl -n argocd create secret generic repo-pd-care-monorepo \
+  --from-literal=type=git \
+  --from-literal=url=https://github.com/ruby0322/pd-care-monorepo.git \
+  --from-literal=username=git \
+  --from-literal=password="<github-pat>"
+kubectl -n argocd label secret repo-pd-care-monorepo \
+  argocd.argoproj.io/secret-type=repository
+```
+
+Verify repository connectivity:
+
+```bash
+argocd repo list
+argocd app get pd-care-dev
+argocd app get pd-care-prod
+```
+
 ## 2) Required cluster settings (GHCR pull auth)
+
+Bootstrap helper (installs Argo CD if missing, applies apps, optional secrets):
+
+```bash
+# Local operator setup: put read:packages token in repo root .env as GHCR_TOKEN or GITHUB_PAT_TOKEN
+bash ops/deploy/bootstrap-argocd-cd.sh
+bash ops/deploy/verify-argocd-cd.sh
+```
 
 Both namespaces must be able to pull from GHCR.
 
@@ -74,6 +121,15 @@ Repository secret (optional but recommended for backend model bake reliability):
 Repository policy prerequisite:
 
 - Ensure `main` branch rules allow automation commits from GitHub Actions, or configure an alternative write credential.
+
+Operator-owned secrets (not stored in git):
+
+| Item | Purpose | Required when |
+| --- | --- | --- |
+| `GHCR_TOKEN` or `GITHUB_PAT_TOKEN` (in root `.env`) | Cluster `ghcr-pull-secret` | GHCR packages are private (typical default) |
+| `GITHUB_PAT` | Argo CD private repo access | Only if `pd-care-monorepo` is made private |
+| `PDCARE_DEV_LIFF_ID` / `PDCARE_PROD_LIFF_ID` | Frontend image build args | Every CD image build |
+| `HF_TOKEN` | Backend model bake reliability | Optional; recommended |
 
 ## 4) Dev delivery flow (auto, gated by CI success)
 
@@ -130,6 +186,12 @@ This ensures schema migration runs before backend deployment updates.
 6. Trigger `CD Promote Prod` with matching tags.
 7. Confirm `k8s/overlays/prod/kustomization.yaml` receives promotion commit.
 8. Confirm Argo CD syncs `pd-care-prod`, `backend-migrate` PreSync hook completes, and pods become healthy.
+
+If bootstrap skipped `GHCR_TOKEN`, create `ghcr-pull-secret` first (§2), then re-run:
+
+```bash
+bash ops/deploy/verify-argocd-cd.sh
+```
 
 ## 8) Verification checklist
 

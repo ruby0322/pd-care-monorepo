@@ -1,7 +1,7 @@
 {
   "skill": "ship-and-deploy",
-  "version": "1.5.0",
-  "last_audited_commit": "113c8df",
+  "version": "1.5.1",
+  "last_audited_commit": "cea9e69",
   "last_audited_at": "2026-07-02",
   "sources": [
     {
@@ -78,6 +78,16 @@
       "path": "docs/deploy/k8s-zero-downtime-rollout.md",
       "sections": ["prod rolling upgrade runbook", "continuous curl verification"],
       "skill_files": ["SKILL.md", "reference.md"]
+    },
+    {
+      "path": "ops/deploy/bootstrap-argocd-cd.sh",
+      "sections": ["Argo CD install", "ghcr-pull-secret bootstrap", "application apply"],
+      "skill_files": ["reference.md"]
+    },
+    {
+      "path": "ops/deploy/verify-argocd-cd.sh",
+      "sections": ["Argo CD verification", "ingress health checks"],
+      "skill_files": ["reference.md"]
     },
     {
       "path": "docs/deploy/argocd-cd.md",
