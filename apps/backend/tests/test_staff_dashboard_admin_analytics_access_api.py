@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.db.models import AIResult, LiffIdentity, Patient, StaffPatientAssignment, Upload
@@ -18,11 +17,6 @@ from tests.test_staff_dashboard_api import (
     _seed_staff,
     make_settings,
 )
-
-
-@pytest.fixture(autouse=True)
-def _disable_storage_bucket_init(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.main.StorageService.ensure_bucket_exists", lambda _self: None)
 
 
 def test_staff_cannot_access_unassigned_patient_detail(tmp_path: Path) -> None:

@@ -21,11 +21,6 @@ from app.services.auth.token_service import AuthTokenService
 from tests.db_test_utils import migrated_sqlite_database_url
 
 
-@pytest.fixture(autouse=True)
-def _skip_bucket_initialization(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.main.StorageService.ensure_bucket_exists", lambda _self: None)
-
-
 class _NormalModel(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size = x.shape[0]

@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -13,11 +12,6 @@ from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Pati
 from app.main import create_app
 from tests.db_test_utils import migrated_sqlite_database_url
 from app.services.auth.token_service import AuthTokenService
-
-
-@pytest.fixture(autouse=True)
-def _disable_storage_bucket_init(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.main.StorageService.ensure_bucket_exists", lambda _self: None)
 
 
 def make_settings(db_path: Path) -> Settings:
