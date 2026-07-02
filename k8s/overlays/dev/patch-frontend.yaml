@@ -8,7 +8,6 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: pd-care-frontend:dev
           resources:
             requests:
               cpu: 100m

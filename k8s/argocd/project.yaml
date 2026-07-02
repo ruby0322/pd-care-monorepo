@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pd-care
+  namespace: argocd
+spec:
+  description: PD Care GitOps applications
+  sourceRepos:
+    - https://github.com/ruby0322/pd-care-monorepo.git
+  destinations:
+    - namespace: pd-care-dev
+      server: https://kubernetes.default.svc
+    - namespace: pd-care-prod
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

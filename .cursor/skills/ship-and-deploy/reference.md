@@ -54,10 +54,29 @@ Never append `-v` on production-like hosts.
 | **Compose** | `docker compose up --build -d <service>` | `curl http://127.0.0.1:8000/healthz` | Named volumes when Compose is active production |
 | **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; single replica; migrations on pod start |
 | **K8s `pd-care-prod`** | build image; backend: migrate Job then rollout; frontend: rollout only | `curl https://pd.lu.im.ntu.edu.tw/api/healthz`; expect `2/2` replicas | **PVCs authoritative**; zero-downtime rolling (`maxUnavailable: 0`) |
+| **K8s GitOps (Argo CD)** | push image-tag changes into `k8s/overlays/*/kustomization.yaml`; Argo reconciles | Argo app health + ingress health checks | `pd-care-monorepo` is public (no Git PAT); require `ghcr-pull-secret` when GHCR packages are private; migration hook runs PreSync in prod |
 | **Ingress bridge** | `docker compose -f docker-compose.ingress-bridge.yml up -d` | public HTTPS smoke on prod/dev domains | Host `:443` only; leave `:80` for certbot |
 | **Commit/push only** | skip deploy | — | — |
 
-Runbooks: [k8s-minikube.md](../../../docs/deploy/k8s-minikube.md), [k8s-zero-downtime-rollout.md](../../../docs/deploy/k8s-zero-downtime-rollout.md).
+Runbooks: [k8s-minikube.md](../../../docs/deploy/k8s-minikube.md), [k8s-zero-downtime-rollout.md](../../../docs/deploy/k8s-zero-downtime-rollout.md), [argocd-cd.md](../../../docs/deploy/argocd-cd.md).
+
+### GitHub CD workflows (Argo CD path)
+
+| Workflow | Purpose |
+| --- | --- |
+| `.github/workflows/cd-build-dev.yml` | After successful CI on `main`, build backend + dev/prod frontend artifacts, push to GHCR, auto-update dev overlay tags |
+| `.github/workflows/cd-promote-prod.yml` | Promote selected backend/frontend tags into prod overlay |
+
+Argo CD bootstrap and verification:
+
+- `ops/deploy/bootstrap-argocd-cd.sh`
+- `ops/deploy/verify-argocd-cd.sh`
+
+Argo CD application definitions:
+
+- `k8s/argocd/project.yaml`
+- `k8s/argocd/dev-application.yaml`
+- `k8s/argocd/prod-application.yaml`
 
 ### Prod zero-downtime rolling (`pd-care-prod`)
 
@@ -131,8 +150,10 @@ Acceptance: no sustained `readyz` failures; `kubectl get deploy backend frontend
 
 | Namespace | Image tag | Notes |
 | --- | --- | --- |
-| `pd-care-prod` | `pd-care-frontend:latest` | prod `NEXT_PUBLIC_LIFF_ID` at build time |
-| `pd-care-dev` | `pd-care-frontend:dev` | dev LIFF ID at build time |
+| `pd-care-prod` | `ghcr.io/ruby0322/pd-care-frontend:prod-sha-...` | prod `NEXT_PUBLIC_LIFF_ID` at build time |
+| `pd-care-dev` | `ghcr.io/ruby0322/pd-care-frontend:dev-sha-...` | dev LIFF ID at build time |
+
+Backend follows `ghcr.io/ruby0322/pd-care-backend:sha-...`.
 
 `NEXT_PUBLIC_*` are build-time only — runtime ConfigMap changes do not update client bundles.
 

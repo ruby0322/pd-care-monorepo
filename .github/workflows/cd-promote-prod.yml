@@ -1,0 +1,103 @@
+name: CD Promote Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_tag:
+        description: "Backend image tag (example: sha-abc123def456)"
+        required: true
+        type: string
+      frontend_tag:
+        description: "Frontend image tag (example: prod-sha-abc123def456)"
+        required: true
+        type: string
+
+concurrency:
+  group: cd-promote-prod-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  promote-prod:
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io
+      OWNER: ruby0322
+      FRONTEND_IMAGE: pd-care-frontend
+      BACKEND_IMAGE: pd-care-backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate input tag formats
+        run: |
+          set -euo pipefail
+          [[ "${{ github.event.inputs.backend_tag }}" =~ ^sha-[0-9a-f]{12}$ ]] || {
+            echo "backend_tag must match sha-<12-hex>"; exit 1;
+          }
+          [[ "${{ github.event.inputs.frontend_tag }}" =~ ^prod-sha-[0-9a-f]{12}$ ]] || {
+            echo "frontend_tag must match prod-sha-<12-hex>"; exit 1;
+          }
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate tags exist in GHCR
+        run: |
+          set -euo pipefail
+          docker manifest inspect "${REGISTRY}/${OWNER}/${BACKEND_IMAGE}:${{ github.event.inputs.backend_tag }}" >/dev/null
+          docker manifest inspect "${REGISTRY}/${OWNER}/${FRONTEND_IMAGE}:${{ github.event.inputs.frontend_tag }}" >/dev/null
+
+      - name: Update prod overlay image tags
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          file_path = Path("k8s/overlays/prod/kustomization.yaml")
+          lines = file_path.read_text().splitlines()
+          backend_tag = "${{ github.event.inputs.backend_tag }}"
+          frontend_tag = "${{ github.event.inputs.frontend_tag }}"
+
+          current = None
+          for index, line in enumerate(lines):
+              stripped = line.strip()
+              if stripped == "- name: pd-care-frontend":
+                  current = "frontend"
+              elif stripped == "- name: pd-care-backend":
+                  current = "backend"
+              elif stripped.startswith("- name: "):
+                  current = None
+              elif stripped.startswith("newTag:") and current == "frontend":
+                  lines[index] = f"    newTag: {frontend_tag}"
+                  current = None
+              elif stripped.startswith("newTag:") and current == "backend":
+                  lines[index] = f"    newTag: {backend_tag}"
+                  current = None
+
+          file_path.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Configure bot git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit prod promotion
+        run: |
+          if git diff --quiet -- k8s/overlays/prod/kustomization.yaml; then
+            echo "No prod image changes to commit."
+            exit 0
+          fi
+          git add k8s/overlays/prod/kustomization.yaml
+          git commit -m "ci(cd): promote prod images ${{ github.event.inputs.backend_tag }}"
+          git push origin HEAD:main
