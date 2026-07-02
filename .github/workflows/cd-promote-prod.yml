@@ -63,28 +63,41 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          file_path = Path("k8s/overlays/prod/kustomization.yaml")
-          lines = file_path.read_text().splitlines()
-          backend_tag = "${{ github.event.inputs.backend_tag }}"
-          frontend_tag = "${{ github.event.inputs.frontend_tag }}"
+          def upsert_ghcr_images(file_path: Path, frontend_tag: str, backend_tag: str) -> None:
+              lines = file_path.read_text().splitlines()
+              block = [
+                  "images:",
+                  "  - name: pd-care-frontend",
+                  "    newName: ghcr.io/ruby0322/pd-care-frontend",
+                  f"    newTag: {frontend_tag}",
+                  "  - name: pd-care-backend",
+                  "    newName: ghcr.io/ruby0322/pd-care-backend",
+                  f"    newTag: {backend_tag}",
+              ]
 
-          current = None
-          for index, line in enumerate(lines):
-              stripped = line.strip()
-              if stripped == "- name: pd-care-frontend":
-                  current = "frontend"
-              elif stripped == "- name: pd-care-backend":
-                  current = "backend"
-              elif stripped.startswith("- name: "):
-                  current = None
-              elif stripped.startswith("newTag:") and current == "frontend":
-                  lines[index] = f"    newTag: {frontend_tag}"
-                  current = None
-              elif stripped.startswith("newTag:") and current == "backend":
-                  lines[index] = f"    newTag: {backend_tag}"
-                  current = None
+              images_start = next(
+                  (index for index, line in enumerate(lines) if line.strip() == "images:"),
+                  None,
+              )
+              if images_start is None:
+                  if lines and lines[-1].strip():
+                      lines.append("")
+                  lines.extend(block)
+              else:
+                  images_end = len(lines)
+                  for index in range(images_start + 1, len(lines)):
+                      if lines[index] and not lines[index][0].isspace():
+                          images_end = index
+                          break
+                  lines = lines[:images_start] + block + lines[images_end:]
 
-          file_path.write_text("\n".join(lines) + "\n")
+              file_path.write_text("\n".join(lines) + "\n")
+
+          upsert_ghcr_images(
+              Path("k8s/overlays/prod/kustomization.yaml"),
+              "${{ github.event.inputs.frontend_tag }}",
+              "${{ github.event.inputs.backend_tag }}",
+          )
           PY
 
       - name: Configure bot git identity
