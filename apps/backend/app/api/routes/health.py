@@ -11,6 +11,7 @@ router = APIRouter(tags=["Health"])
 
 @router.get("/healthz", response_model=HealthResponse)
 async def healthz() -> HealthResponse:
+    """Liveness probe: API process is up (model load not required)."""
     return HealthResponse(status="ok")
 
 
