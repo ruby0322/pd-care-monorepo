@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from botocore.exceptions import ClientError
 
 from app.services.storage import StorageService, build_storage_client
+
+pytestmark = pytest.mark.no_bucket_patch
 
 
 class FakeS3Client:
