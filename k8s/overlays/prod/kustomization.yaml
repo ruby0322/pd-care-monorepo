@@ -14,4 +14,7 @@ patches:
   - path: patch-frontend.yaml
   - path: patch-backend.yaml
   - path: patch-ingress.yaml
-  - path: patch-pvc-sizes.yaml
+  - path: patch-pvc-postgres.yaml
+  - path: patch-pvc-seaweed-master.yaml
+  - path: patch-pvc-seaweed-volume.yaml
+  - path: patch-pvc-seaweed-filer.yaml
