@@ -4,6 +4,7 @@ Track skill updates separately from application commits so drift is auditable.
 
 | Date | Version | Commit audited | Change |
 | --- | --- | --- | --- |
+| 2026-07-02 | 1.5.0 | 113c8df | Document Argo CD hardening updates: CI-gated dev CD, GHCR pull-secret requirement, and promotion tag validation |
 | 2026-07-02 | 1.4.0 | 00a6ff5 | Add Argo CD GitOps CD references (dev auto-sync, prod promotion workflow, GHCR image-tag strategy) and refresh manifest sources |
 | 2026-07-02 | 1.3.1 | c444385 | Remove `docker-compose.gpu.yml` and `docker:up:gpu` references from skill and docs |
 | 2026-07-02 | 1.3.0 | c444385 | Document prod FE/BE zero-downtime rolling (replicas 2, migrate Job, PDB, continuous curl verify); add k8s-zero-downtime-rollout runbook and prod overlay sources to manifest |

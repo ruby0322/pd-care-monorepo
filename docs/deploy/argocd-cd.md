@@ -15,6 +15,8 @@ This runbook defines the GitOps delivery path for PD Care with:
 - Source of truth overlays:
   - `k8s/overlays/dev/kustomization.yaml`
   - `k8s/overlays/prod/kustomization.yaml`
+- Repository URL used by Argo CD:
+  - `https://github.com/ruby0322/pd-care-monorepo.git`
 
 Apply Argo CD resources:
 
@@ -24,7 +26,36 @@ kubectl apply -f k8s/argocd/dev-application.yaml
 kubectl apply -f k8s/argocd/prod-application.yaml
 ```
 
-## 2) Required GitHub settings
+## 2) Required cluster settings (GHCR pull auth)
+
+Both namespaces must be able to pull from GHCR.
+
+Create the pull secret in each namespace:
+
+```bash
+GHCR_USER="ruby0322"
+GHCR_TOKEN="<github-token-with-read:packages>"
+
+kubectl create secret docker-registry ghcr-pull-secret \
+  --docker-server=ghcr.io \
+  --docker-username="${GHCR_USER}" \
+  --docker-password="${GHCR_TOKEN}" \
+  -n pd-care-dev
+
+kubectl create secret docker-registry ghcr-pull-secret \
+  --docker-server=ghcr.io \
+  --docker-username="${GHCR_USER}" \
+  --docker-password="${GHCR_TOKEN}" \
+  -n pd-care-prod
+```
+
+Workloads reference this secret via `imagePullSecrets` in:
+
+- `k8s/base/frontend-deployment.yaml`
+- `k8s/base/backend-deployment.yaml`
+- `k8s/overlays/prod/migrate-job.yaml`
+
+## 3) Required GitHub settings
 
 Repository variables for frontend build-time LIFF values:
 
@@ -36,11 +67,19 @@ The CD workflows use GHCR image paths:
 - `ghcr.io/ruby0322/pd-care-frontend`
 - `ghcr.io/ruby0322/pd-care-backend`
 
-## 3) Dev delivery flow (auto)
+Repository secret (optional but recommended for backend model bake reliability):
+
+- `HF_TOKEN`
+
+Repository policy prerequisite:
+
+- Ensure `main` branch rules allow automation commits from GitHub Actions, or configure an alternative write credential.
+
+## 4) Dev delivery flow (auto, gated by CI success)
 
 Workflow: `.github/workflows/cd-build-dev.yml`
 
-On merge to `main`, the workflow:
+After a successful `CI` workflow on `main` push, the workflow:
 
 1. Builds and pushes backend image tag `sha-<12-char-commit>`.
 2. Builds and pushes frontend dev image tag `dev-sha-<12-char-commit>`.
@@ -49,7 +88,9 @@ On merge to `main`, the workflow:
 5. Pushes that commit to `main`.
 6. Argo CD auto-syncs `pd-care-dev`.
 
-## 4) Prod promotion flow (git-driven)
+The workflow skips image rebuilds when the source commit does not touch `apps/frontend/**` or `apps/backend/**`.
+
+## 5) Prod promotion flow (git-driven)
 
 Workflow: `.github/workflows/cd-promote-prod.yml`
 
@@ -58,9 +99,14 @@ Trigger manually with:
 - `backend_tag` (for `pd-care-backend`)
 - `frontend_tag` (for `pd-care-frontend`, use `prod-sha-...`)
 
-The workflow updates only `k8s/overlays/prod/kustomization.yaml`, commits to `main`, and Argo CD syncs prod from Git state.
+The workflow validates:
 
-## 5) Migration and rollout ordering
+- input tag format (`sha-...`, `prod-sha-...`)
+- image tag existence in GHCR
+
+Then it updates only `k8s/overlays/prod/kustomization.yaml`, commits to `main`, and Argo CD syncs prod from Git state.
+
+## 6) Migration and rollout ordering
 
 Prod migration sequencing is encoded in manifests:
 
@@ -72,7 +118,20 @@ Prod migration sequencing is encoded in manifests:
 
 This ensures schema migration runs before backend deployment updates.
 
-## 6) Verification checklist
+## 7) End-to-end dry run checklist
+
+1. Merge an app change to `main`.
+2. Confirm `CI` finishes successfully.
+3. Confirm `CD Build Dev` runs and pushes:
+   - backend: `sha-<12>`
+   - frontend: `dev-sha-<12>`, `prod-sha-<12>`
+4. Confirm `k8s/overlays/dev/kustomization.yaml` is auto-committed with new tags.
+5. Confirm Argo CD syncs `pd-care-dev` healthy.
+6. Trigger `CD Promote Prod` with matching tags.
+7. Confirm `k8s/overlays/prod/kustomization.yaml` receives promotion commit.
+8. Confirm Argo CD syncs `pd-care-prod`, `backend-migrate` PreSync hook completes, and pods become healthy.
+
+## 8) Verification checklist
 
 After each dev sync or prod promotion:
 
@@ -85,7 +144,7 @@ curl -fsS https://pd.lu.im.ntu.edu.tw/api/readyz
 curl -fsS https://pd.lu.im.ntu.edu.tw/
 ```
 
-## 7) Rollback
+## 9) Rollback
 
 Rollback is Git-first:
 

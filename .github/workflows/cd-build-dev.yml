@@ -1,7 +1,11 @@
 name: CD Build Dev
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
     branches:
       - main
 
@@ -15,23 +19,45 @@ permissions:
 
 jobs:
   build-and-promote-dev:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     env:
       REGISTRY: ghcr.io
       OWNER: ruby0322
       FRONTEND_IMAGE: pd-care-frontend
       BACKEND_IMAGE: pd-care-backend
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
+      - name: Check changed paths
+        id: paths
+        run: |
+          CHANGED_FILES="$(git show --pretty='' --name-only "${SOURCE_SHA}")"
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+          if echo "${CHANGED_FILES}" | grep -Eq '^(apps/frontend/|apps/backend/)'; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Exit when app code unchanged
+        if: steps.paths.outputs.should_run != 'true'
+        run: |
+          echo "No frontend/backend changes in ${SOURCE_SHA}; skipping image build and dev promotion."
+          exit 0
+
       - name: Set up Docker Buildx
+        if: steps.paths.outputs.should_run == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: steps.paths.outputs.should_run == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -39,19 +65,24 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute image tag
+        if: steps.paths.outputs.should_run == 'true'
         run: |
-          echo "BACKEND_TAG=sha-${GITHUB_SHA::12}" >> "$GITHUB_ENV"
-          echo "DEV_FRONTEND_TAG=dev-sha-${GITHUB_SHA::12}" >> "$GITHUB_ENV"
-          echo "PROD_FRONTEND_TAG=prod-sha-${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+          echo "BACKEND_TAG=sha-${SOURCE_SHA::12}" >> "$GITHUB_ENV"
+          echo "DEV_FRONTEND_TAG=dev-sha-${SOURCE_SHA::12}" >> "$GITHUB_ENV"
+          echo "PROD_FRONTEND_TAG=prod-sha-${SOURCE_SHA::12}" >> "$GITHUB_ENV"
 
       - name: Build and push backend image
+        if: steps.paths.outputs.should_run == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./apps/backend
           push: true
+          build-args: |
+            HF_TOKEN=${{ secrets.HF_TOKEN }}
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.BACKEND_IMAGE }}:${{ env.BACKEND_TAG }}
 
       - name: Build and push dev frontend image
+        if: steps.paths.outputs.should_run == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./apps/frontend
@@ -62,6 +93,7 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE }}:${{ env.DEV_FRONTEND_TAG }}
 
       - name: Build and push prod frontend image
+        if: steps.paths.outputs.should_run == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./apps/frontend
@@ -71,45 +103,44 @@ jobs:
             NEXT_PUBLIC_LIFF_ID=${{ vars.PDCARE_PROD_LIFF_ID }}
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE }}:${{ env.PROD_FRONTEND_TAG }}
 
-      - name: Install YAML dependency
-        run: python -m pip install pyyaml
-
       - name: Update dev overlay image tags
+        if: steps.paths.outputs.should_run == 'true'
         run: |
           python - <<'PY'
-          import yaml
           from pathlib import Path
 
           file_path = Path("k8s/overlays/dev/kustomization.yaml")
-          data = yaml.safe_load(file_path.read_text())
-          images = data.setdefault("images", [])
-
-          desired = {
-              "pd-care-frontend": {
-                  "name": "pd-care-frontend",
-                  "newName": "ghcr.io/ruby0322/pd-care-frontend",
-              },
-              "pd-care-backend": {
-                  "name": "pd-care-backend",
-                  "newName": "ghcr.io/ruby0322/pd-care-backend",
-              },
-          }
-
-          existing = {item.get("name"): item for item in images}
+          lines = file_path.read_text().splitlines()
           backend_tag = "${{ env.BACKEND_TAG }}"
           frontend_tag = "${{ env.DEV_FRONTEND_TAG }}"
-          for name, base in desired.items():
-              item = existing.get(name, base.copy())
-              item["name"] = base["name"]
-              item["newName"] = base["newName"]
-              item["newTag"] = frontend_tag if name == "pd-care-frontend" else backend_tag
-              existing[name] = item
 
-          data["images"] = [existing["pd-care-frontend"], existing["pd-care-backend"]]
-          file_path.write_text(yaml.safe_dump(data, sort_keys=False))
+          current = None
+          for index, line in enumerate(lines):
+              stripped = line.strip()
+              if stripped == "- name: pd-care-frontend":
+                  current = "frontend"
+              elif stripped == "- name: pd-care-backend":
+                  current = "backend"
+              elif stripped.startswith("- name: "):
+                  current = None
+              elif stripped.startswith("newTag:") and current == "frontend":
+                  lines[index] = f"    newTag: {frontend_tag}"
+                  current = None
+              elif stripped.startswith("newTag:") and current == "backend":
+                  lines[index] = f"    newTag: {backend_tag}"
+                  current = None
+
+          file_path.write_text("\n".join(lines) + "\n")
           PY
 
+      - name: Configure bot git identity
+        if: steps.paths.outputs.should_run == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Commit dev promotion
+        if: steps.paths.outputs.should_run == 'true'
         run: |
           if git diff --quiet -- k8s/overlays/dev/kustomization.yaml; then
             echo "No dev image changes to commit."

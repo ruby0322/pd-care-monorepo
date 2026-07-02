@@ -17,10 +17,12 @@ spec:
         app: backend-migrate
     spec:
       restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: migrate
           image: pd-care-backend:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["python3", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"]
           envFrom:
             - configMapRef:

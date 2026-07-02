@@ -238,7 +238,7 @@ Validation CI scope is intentionally narrow and fast:
 
 Separate CD workflows handle image build and GitOps promotion:
 
-- dev auto-delivery: [`.github/workflows/cd-build-dev.yml`](.github/workflows/cd-build-dev.yml)
+- dev auto-delivery (after successful CI): [`.github/workflows/cd-build-dev.yml`](.github/workflows/cd-build-dev.yml)
 - prod git-based promotion: [`.github/workflows/cd-promote-prod.yml`](.github/workflows/cd-promote-prod.yml)
 - runbook: [`docs/deploy/argocd-cd.md`](docs/deploy/argocd-cd.md)
 

@@ -6,7 +6,7 @@ metadata:
 spec:
   description: PD Care GitOps applications
   sourceRepos:
-    - https://github.com/ruby0322/pd-care.git
+    - https://github.com/ruby0322/pd-care-monorepo.git
   destinations:
     - namespace: pd-care-dev
       server: https://kubernetes.default.svc

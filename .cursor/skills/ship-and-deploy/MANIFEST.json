@@ -1,7 +1,7 @@
 {
   "skill": "ship-and-deploy",
-  "version": "1.4.0",
-  "last_audited_commit": "00a6ff5",
+  "version": "1.5.0",
+  "last_audited_commit": "113c8df",
   "last_audited_at": "2026-07-02",
   "sources": [
     {
