@@ -18,3 +18,11 @@ patches:
   - path: patch-pvc-seaweed-master.yaml
   - path: patch-pvc-seaweed-volume.yaml
   - path: patch-pvc-seaweed-filer.yaml
+
+images:
+  - name: pd-care-frontend
+    newName: ghcr.io/ruby0322/pd-care-frontend
+    newTag: prod-sha-3b0063c32b79
+  - name: pd-care-backend
+    newName: ghcr.io/ruby0322/pd-care-backend
+    newTag: sha-3b0063c32b79
