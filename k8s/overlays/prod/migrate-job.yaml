@@ -6,11 +6,12 @@ metadata:
     app: backend-migrate
   annotations:
     argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed
     argocd.argoproj.io/sync-wave: "0"
 spec:
   backoffLimit: 2
-  ttlSecondsAfterFinished: 86400
+  # Fail the hook if pull/migrate hangs (ImagePullBackOff otherwise keeps the Job Running forever).
+  activeDeadlineSeconds: 7200
   template:
     metadata:
       labels:

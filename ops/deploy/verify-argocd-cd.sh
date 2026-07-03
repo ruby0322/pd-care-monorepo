@@ -86,18 +86,45 @@ else
   skip "pd-care-prod/backend-migrate job not present"
 fi
 
+check_ingress_health() {
+  local label="$1"
+  local url="$2"
+  local host="$3"
+  local namespace="$4"
+
+  if curl -fsS "${url}" >/dev/null 2>&1; then
+    pass "${label}"
+    return 0
+  fi
+
+  local ingress_ip=""
+  if kubectl get ingress -n "${namespace}" >/dev/null 2>&1; then
+    ingress_ip="$(kubectl get ingress -n "${namespace}" -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+  fi
+  if [[ -z "${ingress_ip}" ]] && command -v minikube >/dev/null 2>&1; then
+    ingress_ip="$(minikube ip 2>/dev/null || true)"
+  fi
+  if [[ -n "${ingress_ip}" ]] && curl -fsSk --resolve "${host}:443:${ingress_ip}" "${url}" >/dev/null 2>&1; then
+    pass "${label} (via ingress ${ingress_ip})"
+    return 0
+  fi
+
+  fail "${label}"
+  return 1
+}
+
 echo "==> Ingress health checks"
 if command -v curl >/dev/null 2>&1; then
-  if curl -fsS https://test.pd.lu.im.ntu.edu.tw/api/healthz >/dev/null 2>&1; then
-    pass "dev ingress /api/healthz"
-  else
-    fail "dev ingress /api/healthz"
-  fi
-  if curl -fsS https://pd.lu.im.ntu.edu.tw/api/readyz >/dev/null 2>&1; then
-    pass "prod ingress /api/readyz"
-  else
-    fail "prod ingress /api/readyz"
-  fi
+  check_ingress_health \
+    "dev ingress /api/healthz" \
+    "https://test.pd.lu.im.ntu.edu.tw/api/healthz" \
+    "test.pd.lu.im.ntu.edu.tw" \
+    "pd-care-dev"
+  check_ingress_health \
+    "prod ingress /api/readyz" \
+    "https://pd.lu.im.ntu.edu.tw/api/readyz" \
+    "pd.lu.im.ntu.edu.tw" \
+    "pd-care-prod"
 else
   skip "curl not available for ingress checks"
 fi

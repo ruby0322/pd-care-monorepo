@@ -172,11 +172,40 @@ Prod migration sequencing is encoded in manifests:
 
 - `k8s/overlays/prod/migrate-job.yaml`:
   - `argocd.argoproj.io/hook: PreSync`
+  - `argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed`
   - `argocd.argoproj.io/sync-wave: "0"`
+  - `activeDeadlineSeconds: 7200` so `ImagePullBackOff` cannot leave the hook Running forever
 - `k8s/overlays/prod/patch-backend.yaml`:
   - `argocd.argoproj.io/sync-wave: "1"`
 
 This ensures schema migration runs before backend deployment updates.
+
+### Stuck `backend-migrate` hook
+
+If a prod sync used a nonexistent GHCR tag (for example `ghcr.io/.../backend:latest`), the
+PreSync Job can sit in `ImagePullBackOff` indefinitely. Argo CD then keeps the sync
+operation in `Running` with `waiting for completion of hook batch/Job/backend-migrate`,
+blocking later promotions.
+
+Recovery:
+
+```bash
+# 1) Clear the stuck Argo operation (safe; does not delete app workloads)
+kubectl -n argocd patch application pd-care-prod --type json \
+  -p='[{"op": "remove", "path": "/operation"}]' 2>/dev/null || true
+kubectl -n argocd patch application pd-care-prod --type json \
+  -p='[{"op": "remove", "path": "/status/operationState"}]'
+
+# 2) Delete the failed hook Job (BeforeHookCreation recreates it on next sync)
+kubectl delete job backend-migrate -n pd-care-prod --ignore-not-found
+
+# 3) Refresh and watch
+kubectl -n argocd annotate application pd-care-prod argocd.argoproj.io/refresh=hard --overwrite
+kubectl -n argocd get application pd-care-prod -w
+```
+
+After the overlay fix and hook policy update land on `main`, failed hooks are deleted
+automatically (`HookFailed`) or time out (`activeDeadlineSeconds`).
 
 ## 7) End-to-end dry run checklist
 
