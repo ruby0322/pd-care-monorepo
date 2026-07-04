@@ -37,7 +37,8 @@ jobs:
       - name: Check changed paths
         id: paths
         run: |
-          CHANGED_FILES="$(git show --pretty='' --name-only "${SOURCE_SHA}")"
+          # -m is required for merge commits; plain git show returns no paths on PR merges.
+          CHANGED_FILES="$(git show -m --pretty='' --name-only "${SOURCE_SHA}" | sed '/^$/d' | sort -u)"
           echo "Changed files:"
           echo "${CHANGED_FILES}"
           if echo "${CHANGED_FILES}" | grep -Eq '^(apps/frontend/|apps/backend/)'; then
