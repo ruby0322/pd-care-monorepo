@@ -30,6 +30,18 @@ kubectl apply -f k8s/argocd/dev-application.yaml
 kubectl apply -f k8s/argocd/prod-application.yaml
 ```
 
+### Argo CD dashboard (UI)
+
+`argocd-server` is ClusterIP only — use localhost port-forward for the web UI:
+
+```bash
+bash ops/deploy/argocd-ui-portforward.sh
+# Open http://127.0.0.1:8080 (user: admin; HTTP when server.insecure is enabled)
+```
+
+See [argocd-dashboard.md](argocd-dashboard.md) for login, SSH tunnel, and external UI at
+`https://argocd.pd.lu.im.ntu.edu.tw` (Ingress + cert-manager; port-forward fallback).
+
 ### Argo CD Git repository credentials
 
 `pd-care-monorepo` is a **public** GitHub repository. Argo CD can clone

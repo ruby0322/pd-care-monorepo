@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pd-lu-im-ntu-edu-tw
+  namespace: pd-care-prod
+spec:
+  secretName: pd-lu-im-ntu-edu-tw-tls
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod
+  dnsNames:
+    - pd.lu.im.ntu.edu.tw

@@ -1,21 +1,23 @@
 # K8s Domain Handover Checklist
 
-Use this checklist to complete DNS/TLS cutover from Docker Compose to Kubernetes ingress without cert-manager.
+Use this checklist to complete DNS/TLS cutover from Docker Compose to Kubernetes ingress with cert-manager-managed certificates.
 
 ## Target domains
 
 - Production namespace `pd-care-prod`: `pd.lu.im.ntu.edu.tw`
 - Test namespace `pd-care-dev`: `test.pd.lu.im.ntu.edu.tw`
+- Argo CD platform namespace `argocd`: `argocd.pd.lu.im.ntu.edu.tw`
 
 Ingress host mappings are defined in:
 
 - [`k8s/overlays/prod/patch-ingress.yaml`](../../k8s/overlays/prod/patch-ingress.yaml)
 - [`k8s/overlays/dev/patch-ingress.yaml`](../../k8s/overlays/dev/patch-ingress.yaml)
+- [`k8s/argocd/ingress.yaml`](../../k8s/argocd/ingress.yaml)
 
 ## Required preconditions
 
 1. DNS records are set:
-   - **Minikube (this repo):** `pd.lu.im.ntu.edu.tw` and `test.pd.lu.im.ntu.edu.tw` → **operator host public IP**; start [`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml) to forward host `:443` to ingress NodePort (see [`k8s-minikube.md` §2.1](k8s-minikube.md#21-ingress-architecture-two-layers)).
+   - **Minikube (this repo):** `pd.lu.im.ntu.edu.tw`, `test.pd.lu.im.ntu.edu.tw`, and `argocd.pd.lu.im.ntu.edu.tw` → **operator host public IP**; start [`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml) to forward host `:443` to ingress NodePort (see [`k8s-minikube.md` §2.1](k8s-minikube.md#21-ingress-architecture-two-layers)).
    - **Cloud LB (future):** DNS → Kubernetes ingress external IP/load balancer.
 2. Ingress controller class `nginx` is active.
 3. Namespace secrets are distinct and applied out-of-band (not committed to git):
@@ -24,44 +26,35 @@ Ingress host mappings are defined in:
    - Apply with `kubectl apply -f k8s/overlays/<env>/secret.yaml -n <namespace>` before overlay deploy (see [`k8s-minikube.md` §9](k8s-minikube.md#9-config-and-secret-management))
 4. Data migration prep is complete (see [`docs/deploy/k8s-migration.md`](k8s-migration.md)).
 
-## Certbot issuance (no cert-manager)
+## Certificate issuance (cert-manager)
 
-Issue certificates on the operator host:
+cert-manager is the source of truth for ingress TLS:
 
-```bash
-sudo certbot certonly --standalone -d test.pd.lu.im.ntu.edu.tw
-sudo certbot certonly --standalone -d pd.lu.im.ntu.edu.tw
-```
+- ClusterIssuer: [`k8s/cert-manager/cluster-issuer-letsencrypt-prod.yaml`](../../k8s/cert-manager/cluster-issuer-letsencrypt-prod.yaml)
+- Certificates: [`k8s/cert-manager/`](../../k8s/cert-manager/)
 
-Create namespace TLS secrets from certbot outputs:
+Apply once (or run bootstrap):
 
 ```bash
-kubectl create secret tls test-pd-lu-im-ntu-edu-tw-tls \
-  --cert=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/fullchain.pem \
-  --key=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/privkey.pem \
-  -n pd-care-dev
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+kubectl -n cert-manager rollout status deploy/cert-manager --timeout=300s
+kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=300s
+kubectl -n cert-manager rollout status deploy/cert-manager-cainjector --timeout=300s
 
-kubectl create secret tls pd-lu-im-ntu-edu-tw-tls \
-  --cert=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/fullchain.pem \
-  --key=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/privkey.pem \
-  -n pd-care-prod
+kubectl apply -k k8s/cert-manager
 ```
 
-Renewal refresh (run after `certbot renew`):
+Verify issuance:
 
 ```bash
-kubectl -n pd-care-dev delete secret test-pd-lu-im-ntu-edu-tw-tls --ignore-not-found
-kubectl create secret tls test-pd-lu-im-ntu-edu-tw-tls \
-  --cert=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/fullchain.pem \
-  --key=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/privkey.pem \
-  -n pd-care-dev
-
-kubectl -n pd-care-prod delete secret pd-lu-im-ntu-edu-tw-tls --ignore-not-found
-kubectl create secret tls pd-lu-im-ntu-edu-tw-tls \
-  --cert=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/fullchain.pem \
-  --key=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/privkey.pem \
-  -n pd-care-prod
+kubectl get certificate -A
+kubectl describe certificate test-pd-lu-im-ntu-edu-tw -n pd-care-dev
+kubectl describe certificate pd-lu-im-ntu-edu-tw -n pd-care-prod
+kubectl describe certificate argocd-pd-lu-im-ntu-edu-tw -n argocd
 ```
+
+Renewal is automatic while cert-manager and ingress remain healthy. No manual
+`kubectl create secret tls` sync is required.
 
 ## Cutover order
 

@@ -8,7 +8,8 @@ This runbook provides a minimal, maintainable Kubernetes workflow for two namesp
 **Preferred delivery path:** GitOps via Argo CD and GHCR image tags. The source
 repository (`ruby0322/pd-care-monorepo`) is **public**, so Argo CD does not need
 a Git PAT. See [`argocd-cd.md`](argocd-cd.md) for CI/CD promotion, `ghcr-pull-secret`
-setup, and the end-to-end dry-run checklist.
+setup, and the end-to-end dry-run checklist. For the Argo CD web UI, see
+[`argocd-dashboard.md`](argocd-dashboard.md) (port-forward or `argocd.pd.lu.im.ntu.edu.tw`).
 
 The sections below still document manual Minikube operations (local image builds,
 `kubectl apply`, scoped rollouts). Overlays now reference `ghcr.io/ruby0322/...` with
@@ -74,9 +75,8 @@ What the administrator must do (no sudo needed from your side):
 1. Point DNS records to the operator host public IP (same host that runs minikube).
    - `pd.lu.im.ntu.edu.tw` — required for production
    - `test.pd.lu.im.ntu.edu.tw` — required for dev; site returns 200 via ingress when resolved to the host IP
-2. Issue Let's Encrypt certificates with certbot for both domains.
-3. Create the TLS secrets in each namespace (next section).
-4. Start the HTTPS ingress bridge only (minikube docker driver does not bind :443 on the public NIC; leave :80 free for certbot):
+2. Install cert-manager and apply `k8s/cert-manager` resources (next section).
+3. Start the HTTPS ingress bridge only (minikube docker driver does not bind :443 on the public NIC):
 
 ```bash
 docker compose -f docker-compose.ingress-bridge.yml up -d
@@ -116,52 +116,41 @@ minikube ip
 kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}{"\n"}'
 ```
 
-**Port 80 is intentionally not bridged** so `certbot certonly --standalone` can bind `:80` during renewal.
+**Port 80 is intentionally not bridged** so ACME HTTP-01 challenge paths remain reachable.
 
 **Do not run both** the ingress bridge and Docker Compose `frontend` on host `:443` at the same time — only one process can listen on that port. After K8s cutover, stop Compose HTTPS routing (see §6) and keep the bridge.
 
-## 3) TLS secrets for ingress (certbot only)
+## 3) TLS certificates for ingress (cert-manager)
 
-Issue/renew certs on the operator host with certbot, then sync into namespace TLS secrets.
-
-Example issue commands:
+Install cert-manager once as a platform dependency:
 
 ```bash
-sudo certbot certonly --standalone -d test.pd.lu.im.ntu.edu.tw
-sudo certbot certonly --standalone -d pd.lu.im.ntu.edu.tw
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+kubectl -n cert-manager rollout status deploy/cert-manager --timeout=300s
+kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=300s
+kubectl -n cert-manager rollout status deploy/cert-manager-cainjector --timeout=300s
 ```
 
-Create Kubernetes TLS secrets from certbot outputs:
+Apply the PD Care ClusterIssuer and Certificate resources:
 
 ```bash
-kubectl create secret tls test-pd-lu-im-ntu-edu-tw-tls \
-  --cert=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/fullchain.pem \
-  --key=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/privkey.pem \
-  -n pd-care-dev
-
-kubectl create secret tls pd-lu-im-ntu-edu-tw-tls \
-  --cert=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/fullchain.pem \
-  --key=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/privkey.pem \
-  -n pd-care-prod
+kubectl apply -k k8s/cert-manager
 ```
 
-If namespaces do not exist yet, apply overlays first, then create the TLS secrets.
+This creates/maintains TLS secrets used by ingress:
 
-After certbot renewal, refresh both TLS secrets:
+- `test-pd-lu-im-ntu-edu-tw-tls` in `pd-care-dev`
+- `pd-lu-im-ntu-edu-tw-tls` in `pd-care-prod`
+- `argocd-pd-lu-im-ntu-edu-tw-tls` in `argocd`
+
+Verify certificates are issued:
 
 ```bash
-kubectl -n pd-care-dev delete secret test-pd-lu-im-ntu-edu-tw-tls --ignore-not-found
-kubectl create secret tls test-pd-lu-im-ntu-edu-tw-tls \
-  --cert=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/fullchain.pem \
-  --key=/etc/letsencrypt/live/test.pd.lu.im.ntu.edu.tw/privkey.pem \
-  -n pd-care-dev
-
-kubectl -n pd-care-prod delete secret pd-lu-im-ntu-edu-tw-tls --ignore-not-found
-kubectl create secret tls pd-lu-im-ntu-edu-tw-tls \
-  --cert=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/fullchain.pem \
-  --key=/etc/letsencrypt/live/pd.lu.im.ntu.edu.tw/privkey.pem \
-  -n pd-care-prod
+kubectl get certificate -A
+kubectl get challenge -A
 ```
+
+Renewal is automatic. No manual `kubectl create secret tls` sync is required.
 
 ## 4) Deploy
 

@@ -57,5 +57,5 @@ kubectl kustomize k8s/overlays/prod | grep -E 'path:|name: (frontend|backend)'
 
 - Kubernetes dual-namespace runtime is healthy for dev and prod.
 - Data has been copied into `pd-care-prod` while leaving Docker Compose source data intact.
-- TLS secrets are still pending certbot sync; this is expected to be completed in the later cutover step.
+- TLS certificates are now managed by cert-manager; verify Certificate resources become Ready during cutover.
 - Deferred cutover items are tracked in [`k8s-followups.md`](k8s-followups.md).

@@ -1,13 +1,23 @@
-# Host port bridge: public 443 -> minikube ingress HTTPS NodePort.
-# Port 80 is intentionally not bridged so certbot standalone/http-01 renewal can bind :80.
+# Host port bridge:
+# - public 443 -> minikube ingress HTTPS NodePort
+# - public 80  -> minikube ingress HTTP NodePort (required for ACME HTTP-01)
 #
 # Usage: docker compose -f docker-compose.ingress-bridge.yml up -d
 # MINIKUBE_IP defaults to `minikube ip` output (192.168.49.2).
 
 services:
+  ingress-bridge-http:
+    image: alpine/socat
+    container_name: pd-care-ingress-bridge-http
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - TCP-LISTEN:80,fork,reuseaddr
+      - TCP:${MINIKUBE_IP:-192.168.49.2}:${INGRESS_HTTP_NODEPORT:-30940}
+
   ingress-bridge-https:
     image: alpine/socat
-    container_name: pd-care-ingress-bridge
+    container_name: pd-care-ingress-bridge-https
     network_mode: host
     restart: unless-stopped
     command:
