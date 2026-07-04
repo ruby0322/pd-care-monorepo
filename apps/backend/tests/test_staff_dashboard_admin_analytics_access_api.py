@@ -77,6 +77,9 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         today_response = client.get("/v1/staff/admin/analytics/suspected-infections/today", headers=headers)
         assert today_response.status_code == 200
         today_payload = today_response.json()
+        taipei_tz = timezone(timedelta(hours=8))
+        taipei_today_key = datetime.now(tz=timezone.utc).astimezone(taipei_tz).date().isoformat()
+        assert today_payload["date"] == taipei_today_key
         assert today_payload["total_uploads"] == 2
         assert today_payload["suspected_uploads"] == 1
         assert today_payload["normal_uploads"] == 1
@@ -106,7 +109,7 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         daily_payload = daily_response.json()
         assert daily_payload["lookback_days"] == 30
         assert len(daily_payload["items"]) == 30
-        today_key = datetime.now(tz=timezone.utc).date().isoformat()
+        today_key = datetime.now(tz=timezone.utc).astimezone(taipei_tz).date().isoformat()
         today_item = next(item for item in daily_payload["items"] if item["date"] == today_key)
         assert today_item["total_uploads"] == 2
         assert today_item["suspected_uploads"] == 1

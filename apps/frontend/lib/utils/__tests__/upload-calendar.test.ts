@@ -1,12 +1,22 @@
 import {
   buildTaipeiMonthGrid,
   getMonthKeyFromDateKey,
+  parseTaipeiDateKey,
   getRelativeMonthKey,
 } from "@/lib/utils/upload-calendar";
 
 describe("upload-calendar month helpers", () => {
   test("getMonthKeyFromDateKey returns YYYY-MM", () => {
     expect(getMonthKeyFromDateKey("2026-05-25")).toBe("2026-05");
+    expect(getMonthKeyFromDateKey("2026-07-01")).toBe("2026-07");
+  });
+
+  test("parseTaipeiDateKey extracts numeric year month day", () => {
+    expect(parseTaipeiDateKey("2026-07-01")).toEqual({ year: 2026, month: 7, day: 1 });
+  });
+
+  test("parseTaipeiDateKey rejects invalid calendar dates", () => {
+    expect(() => parseTaipeiDateKey("2026-02-30")).toThrow("Invalid Taipei date key");
   });
 
   test("getRelativeMonthKey shifts month keys correctly", () => {

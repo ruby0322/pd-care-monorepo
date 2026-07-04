@@ -22,6 +22,12 @@ export type TaipeiMonthGrid = {
   cells: TaipeiMonthGridCell[];
 };
 
+export type TaipeiDateKeyParts = {
+  year: number;
+  month: number;
+  day: number;
+};
+
 const taipeiDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Taipei",
   year: "numeric",
@@ -88,8 +94,31 @@ function parseMonthKey(monthKey: string): { year: number; month: number } {
   return { year, month };
 }
 
+export function parseTaipeiDateKey(dateKey: string): TaipeiDateKeyParts {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) {
+    throw new Error(`Invalid Taipei date key: ${dateKey}`);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    throw new Error(`Invalid Taipei date key: ${dateKey}`);
+  }
+  const validated = new Date(Date.UTC(year, month - 1, day));
+  if (
+    validated.getUTCFullYear() !== year ||
+    validated.getUTCMonth() + 1 !== month ||
+    validated.getUTCDate() !== day
+  ) {
+    throw new Error(`Invalid Taipei date key: ${dateKey}`);
+  }
+  return { year, month, day };
+}
+
 export function getMonthKeyFromDateKey(dateKey: string): string {
-  return dateKey.slice(0, 7);
+  const { year, month } = parseTaipeiDateKey(dateKey);
+  return formatMonthKey(year, month);
 }
 
 export function getRelativeMonthKey(monthKey: string, offset: number): string {
