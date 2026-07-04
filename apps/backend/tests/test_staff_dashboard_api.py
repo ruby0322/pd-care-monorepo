@@ -1080,3 +1080,37 @@ def test_staff_history_overview_endpoints_return_expected_shape(tmp_path: Path) 
         assert day_0529_calendar["has_infection_risk"] is True
 
 
+def test_staff_history_overview_uses_linked_admin_identity_profile(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-history-overview-admin-profile.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        seeded = _seed_history_overview_data(client, staff_identity_id=staff_identity_id)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=seeded["patient_a_id"])
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=seeded["patient_b_id"])
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            linked_identity = session.query(LiffIdentity).filter(LiffIdentity.line_user_id == "U_HISTORY_A").one()
+            linked_identity.role = "admin"
+            session.commit()
+
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+        overview_response = client.get(
+            "/v1/staff/uploads/history-overview",
+            headers=headers,
+            params={
+                "local_date": "2026-05-29",
+                "sort_by": "risk",
+                "group_by_user": "true",
+                "group_sort_by": "infection_risk",
+            },
+        )
+        assert overview_response.status_code == 200
+        groups = overview_response.json()["groups"]
+        history_a_group = next(group for group in groups if group["case_number"] == "HX-001")
+        assert history_a_group["line_display_name"] == "History Display A"
+        assert history_a_group["picture_url"] == "https://example.com/a.jpg"
+
+

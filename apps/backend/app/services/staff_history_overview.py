@@ -125,10 +125,7 @@ def _load_identity_by_patient(session: Session, *, patient_ids: set[int]) -> dic
     rows = session.execute(
         select(LiffIdentity)
         .where(
-            and_(
-                LiffIdentity.patient_id.in_(patient_ids),
-                LiffIdentity.role == "patient",
-            )
+            LiffIdentity.patient_id.in_(patient_ids)
         )
         .order_by(LiffIdentity.patient_id.asc(), LiffIdentity.id.asc())
     ).scalars()
