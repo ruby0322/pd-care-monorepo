@@ -10,8 +10,7 @@ from sqlalchemy import Select, and_, case, delete, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
-
-TAIPEI_TIMEZONE = timezone(timedelta(hours=8))
+from app.services.taipei_dates import TAIPEI_TIMEZONE, resolve_taipei_day_bounds, to_taipei_date
 
 
 class DuplicatePatientError(ValueError):
@@ -34,24 +33,6 @@ def calculate_age(birth_date: str) -> int | None:
     if (today.month, today.day) < (parsed.month, parsed.day):
         years -= 1
     return max(years, 0)
-
-
-def _normalize_datetime(raw_dt: datetime) -> datetime:
-    if raw_dt.tzinfo is not None:
-        return raw_dt
-    return raw_dt.replace(tzinfo=timezone.utc)
-
-
-def _to_taipei_date(raw_dt: datetime) -> date:
-    return _normalize_datetime(raw_dt).astimezone(TAIPEI_TIMEZONE).date()
-
-
-def _resolve_taipei_day_bounds(reference_dt: datetime | None = None) -> tuple[date, datetime, datetime]:
-    resolved_reference = reference_dt if reference_dt is not None else datetime.now(tz=timezone.utc)
-    local_day = _normalize_datetime(resolved_reference).astimezone(TAIPEI_TIMEZONE).date()
-    local_start = datetime.combine(local_day, time.min, tzinfo=TAIPEI_TIMEZONE)
-    local_end = local_start + timedelta(days=1)
-    return local_day, local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
 
 
 @dataclass
@@ -787,7 +768,7 @@ def get_today_suspected_summary(
     *,
     accessible_patient_ids: set[int] | None = None,
 ) -> tuple[date, int, int]:
-    today, today_start, tomorrow_start = _resolve_taipei_day_bounds()
+    today, today_start, tomorrow_start = resolve_taipei_day_bounds()
     base_query: Select = (
         select(
             func.count(Upload.id),
@@ -842,7 +823,7 @@ def get_active_users_series(
     interval: str,
     accessible_patient_ids: set[int] | None = None,
 ) -> list[tuple[str, int]]:
-    end_date, _, _ = _resolve_taipei_day_bounds()
+    end_date, _, _ = resolve_taipei_day_bounds()
     start_date = end_date - timedelta(days=lookback_days - 1)
     query_start_date = start_date - timedelta(days=active_window_days - 1)
     query_start = datetime.combine(query_start_date, time.min, tzinfo=TAIPEI_TIMEZONE).astimezone(timezone.utc)
@@ -859,7 +840,7 @@ def get_active_users_series(
     rows = session.execute(query).all()
     uploads_by_patient: dict[int, set[date]] = defaultdict(set)
     for patient_id, upload_created_at in rows:
-        uploads_by_patient[int(patient_id)].add(_to_taipei_date(upload_created_at))
+        uploads_by_patient[int(patient_id)].add(to_taipei_date(upload_created_at))
 
     points: list[tuple[str, int]] = []
     cursor = start_date
@@ -891,7 +872,7 @@ def get_daily_suspected_series(
     lookback_days: int,
     accessible_patient_ids: set[int] | None = None,
 ) -> list[tuple[str, int, int]]:
-    end_date, _, _ = _resolve_taipei_day_bounds()
+    end_date, _, _ = resolve_taipei_day_bounds()
     start_date = end_date - timedelta(days=lookback_days - 1)
     start_dt = datetime.combine(start_date, time.min, tzinfo=TAIPEI_TIMEZONE).astimezone(timezone.utc)
     query: Select = (
@@ -910,7 +891,7 @@ def get_daily_suspected_series(
     rows = session.execute(query).all()
     by_day: dict[str, tuple[int, int]] = {}
     for created_at, screening_result in rows:
-        day_key = _to_taipei_date(created_at).isoformat()
+        day_key = to_taipei_date(created_at).isoformat()
         total, suspected = by_day.get(day_key, (0, 0))
         by_day[day_key] = (
             total + 1,
