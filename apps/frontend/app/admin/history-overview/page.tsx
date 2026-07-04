@@ -16,6 +16,7 @@ import {
   StaffHistoryOverviewUploadItem,
   upsertUploadAnnotation,
 } from "@/lib/api/staff";
+import { buildTaipeiMonthGrid, getMonthKeyFromDateKey, parseTaipeiDateKey } from "@/lib/utils/upload-calendar";
 
 type SortBy = "timeline" | "risk";
 type GroupSortBy = "uploads" | "age" | "infection_risk";
@@ -172,9 +173,7 @@ export default function AdminHistoryOverviewPage() {
     if (!selectedDate) {
       return;
     }
-    const dateValue = new Date(`${selectedDate}T00:00:00+08:00`);
-    const year = dateValue.getUTCFullYear();
-    const month = dateValue.getUTCMonth() + 1;
+    const { year, month } = parseTaipeiDateKey(selectedDate);
     const timer = window.setTimeout(() => {
       setCalendarLoading(true);
       void fetchHistoryOverviewCalendar({ year, month })
@@ -343,21 +342,12 @@ export default function AdminHistoryOverviewPage() {
     if (!selectedDate) {
       return [] as Array<{ day: number; localDate: string | null }>;
     }
-    const current = new Date(`${selectedDate}T00:00:00+08:00`);
-    const year = current.getUTCFullYear();
-    const month = current.getUTCMonth();
-    const firstDay = new Date(Date.UTC(year, month, 1));
-    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-    const offset = firstDay.getUTCDay();
-    const result: Array<{ day: number; localDate: string | null }> = [];
-    for (let i = 0; i < offset; i += 1) {
-      result.push({ day: 0, localDate: null });
-    }
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const localDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      result.push({ day, localDate });
-    }
-    return result;
+    const monthKey = getMonthKeyFromDateKey(selectedDate);
+    const grid = buildTaipeiMonthGrid(monthKey);
+    return grid.cells.map((cell) => ({
+      day: cell.dayOfMonth,
+      localDate: cell.isCurrentMonth ? cell.dateKey : null,
+    }));
   }, [selectedDate]);
 
   const monthRiskMax = useMemo(() => {

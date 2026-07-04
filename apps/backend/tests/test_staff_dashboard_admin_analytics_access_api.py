@@ -77,6 +77,9 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         today_response = client.get("/v1/staff/admin/analytics/suspected-infections/today", headers=headers)
         assert today_response.status_code == 200
         today_payload = today_response.json()
+        taipei_tz = timezone(timedelta(hours=8))
+        taipei_today_key = datetime.now(tz=timezone.utc).astimezone(taipei_tz).date().isoformat()
+        assert today_payload["date"] == taipei_today_key
         assert today_payload["total_uploads"] == 2
         assert today_payload["suspected_uploads"] == 1
         assert today_payload["normal_uploads"] == 1
@@ -106,12 +109,74 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         daily_payload = daily_response.json()
         assert daily_payload["lookback_days"] == 30
         assert len(daily_payload["items"]) == 30
-        today_key = datetime.now(tz=timezone.utc).date().isoformat()
+        today_key = datetime.now(tz=timezone.utc).astimezone(taipei_tz).date().isoformat()
         today_item = next(item for item in daily_payload["items"] if item["date"] == today_key)
         assert today_item["total_uploads"] == 2
         assert today_item["suspected_uploads"] == 1
         assert today_item["suspected_ratio"] == 0.5
         assert any(item["total_uploads"] == 0 and item["suspected_ratio"] == 0 for item in daily_payload["items"])
+
+
+def test_admin_analytics_buckets_uploads_by_taipei_local_date_boundary(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-analytics-tz-boundary.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ANALYTICS_TZ", role="admin")
+        taipei_tz = timezone(timedelta(hours=8))
+        taipei_today = datetime.now(tz=timezone.utc).astimezone(taipei_tz).date()
+        taipei_day_start = datetime.combine(taipei_today, datetime.min.time(), tzinfo=taipei_tz).astimezone(timezone.utc)
+        taipei_today_key = taipei_today.isoformat()
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            patient = Patient(
+                case_number="TZ-BOUNDARY",
+                birth_date="1990-01-01",
+                full_name="Tz Boundary Patient",
+                gender="male",
+                is_active=True,
+            )
+            session.add(patient)
+            session.flush()
+            # Midnight Taipei is still the previous UTC calendar day.
+            upload = Upload(
+                patient_id=patient.id,
+                object_key="patients/tz/uploads/midnight-taipei.jpg",
+                content_type="image/jpeg",
+                created_at=taipei_day_start,
+            )
+            session.add(upload)
+            session.flush()
+            session.add(AIResult(upload_id=upload.id, screening_result="suspected", probability=0.9, threshold=0.5))
+            session.commit()
+
+        assert taipei_day_start.date().isoformat() != taipei_today_key
+
+        token = _login_staff_token(client, "U_ADMIN_ANALYTICS_TZ")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        today_response = client.get("/v1/staff/admin/analytics/suspected-infections/today", headers=headers)
+        assert today_response.status_code == 200
+        today_payload = today_response.json()
+        assert today_payload["date"] == taipei_today_key
+        assert today_payload["total_uploads"] == 1
+        assert today_payload["suspected_uploads"] == 1
+
+        daily_response = client.get("/v1/staff/admin/analytics/daily-suspected-series?lookback_days=30", headers=headers)
+        assert daily_response.status_code == 200
+        daily_payload = daily_response.json()
+        today_item = next(item for item in daily_payload["items"] if item["date"] == taipei_today_key)
+        assert today_item["total_uploads"] == 1
+        assert today_item["suspected_uploads"] == 1
+
+        active_response = client.get(
+            "/v1/staff/admin/analytics/active-users?active_window_days=7&lookback_days=30&interval=day",
+            headers=headers,
+        )
+        assert active_response.status_code == 200
+        active_payload = active_response.json()
+        assert active_payload["items"][-1]["date"] == taipei_today_key
+        assert active_payload["items"][-1]["active_users"] == 1
 
 
 def test_admin_analytics_endpoints_apply_patient_filters(tmp_path: Path) -> None:

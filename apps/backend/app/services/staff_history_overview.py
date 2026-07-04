@@ -8,8 +8,7 @@ from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, Upload
-
-TAIPEI_TIMEZONE = timezone(timedelta(hours=8))
+from app.services.taipei_dates import normalize_datetime, to_taipei_date
 RISKY_ANNOTATION_LABELS = {"suspected", "confirmed_infection"}
 
 
@@ -106,16 +105,6 @@ class _RawUploadRow:
     annotation_label: str | None
     annotation_comment: str | None
     local_date: date
-
-
-def _normalize_datetime(raw_dt: datetime) -> datetime:
-    if getattr(raw_dt, "tzinfo", None) is not None:
-        return raw_dt
-    return raw_dt.replace(tzinfo=timezone.utc)
-
-
-def _to_local_date(raw_dt: datetime) -> date:
-    return _normalize_datetime(raw_dt).astimezone(TAIPEI_TIMEZONE).date()
 
 
 def _calculate_age(birth_date: str) -> int | None:
@@ -231,7 +220,7 @@ def _raw_rows(session: Session, *, accessible_patient_ids: set[int] | None = Non
                 symptom_pus=upload.symptom_pus,
                 annotation_label=annotation.label if annotation else None,
                 annotation_comment=annotation.comment if annotation else None,
-                local_date=_to_local_date(upload.created_at),
+                local_date=to_taipei_date(upload.created_at),
             )
         )
     return result
@@ -303,17 +292,17 @@ def _sort_uploads(items: list[HistoryOverviewUploadItemData], *, sort_by: str) -
             key=lambda item: (
                 item.risk_rank,
                 -(item.probability or -1),
-                -_normalize_datetime(item.created_at).timestamp(),
+                -normalize_datetime(item.created_at).timestamp(),
             ),
         )
-    return sorted(items, key=lambda item: _normalize_datetime(item.created_at), reverse=True)
+    return sorted(items, key=lambda item: normalize_datetime(item.created_at), reverse=True)
 
 
 def _sort_groups(groups: list[HistoryOverviewUserGroupData], *, group_sort_by: str) -> list[HistoryOverviewUserGroupData]:
     if group_sort_by == "uploads":
         return sorted(
             groups,
-            key=lambda group: (group.upload_count, _normalize_datetime(group.latest_upload_at).timestamp() if group.latest_upload_at else -1),
+            key=lambda group: (group.upload_count, normalize_datetime(group.latest_upload_at).timestamp() if group.latest_upload_at else -1),
             reverse=True,
         )
     if group_sort_by == "age":
@@ -327,7 +316,7 @@ def _sort_groups(groups: list[HistoryOverviewUserGroupData], *, group_sort_by: s
         key=lambda group: (
             group.highest_risk_rank,
             -group.highest_risk_count,
-            -(_normalize_datetime(group.latest_upload_at).timestamp() if group.latest_upload_at else -1),
+            -(normalize_datetime(group.latest_upload_at).timestamp() if group.latest_upload_at else -1),
         ),
     )
 

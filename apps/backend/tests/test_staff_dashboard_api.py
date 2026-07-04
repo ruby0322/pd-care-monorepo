@@ -143,7 +143,9 @@ def _seed_patient_with_custom_uploads(
 
 
 def _seed_admin_analytics_data(client: TestClient) -> None:
-    now = datetime.now(tz=timezone.utc)
+    taipei_tz = timezone(timedelta(hours=8))
+    taipei_today = datetime.now(tz=timezone.utc).astimezone(taipei_tz).date()
+    taipei_day_start = datetime.combine(taipei_today, datetime.min.time(), tzinfo=taipei_tz).astimezone(timezone.utc)
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
         patient_male = Patient(
@@ -175,31 +177,31 @@ def _seed_admin_analytics_data(client: TestClient) -> None:
                 patient_id=patient_male.id,
                 object_key="patients/a1001/uploads/today-1.jpg",
                 content_type="image/jpeg",
-                created_at=now - timedelta(hours=1),
+                created_at=taipei_day_start + timedelta(hours=1),
             ),
             Upload(
                 patient_id=patient_female.id,
                 object_key="patients/a1002/uploads/today-2.jpg",
                 content_type="image/jpeg",
-                created_at=now - timedelta(hours=2),
+                created_at=taipei_day_start + timedelta(hours=2),
             ),
             Upload(
                 patient_id=patient_female.id,
                 object_key="patients/a1002/uploads/today-rejected.jpg",
                 content_type="image/jpeg",
-                created_at=now - timedelta(minutes=30),
+                created_at=taipei_day_start + timedelta(hours=3),
             ),
             Upload(
                 patient_id=patient_male.id,
                 object_key="patients/a1001/uploads/day-3.jpg",
                 content_type="image/jpeg",
-                created_at=now - timedelta(days=3),
+                created_at=taipei_day_start - timedelta(days=3) + timedelta(hours=1),
             ),
             Upload(
                 patient_id=patient_unknown.id,
                 object_key="patients/a1003/uploads/day-5.jpg",
                 content_type="image/jpeg",
-                created_at=now - timedelta(days=5),
+                created_at=taipei_day_start - timedelta(days=5) + timedelta(hours=1),
             ),
         ]
         session.add_all(uploads)
