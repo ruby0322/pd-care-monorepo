@@ -76,7 +76,7 @@ What the administrator must do (no sudo needed from your side):
    - `pd.lu.im.ntu.edu.tw` — required for production
    - `test.pd.lu.im.ntu.edu.tw` — required for dev; site returns 200 via ingress when resolved to the host IP
 2. Install cert-manager and apply `k8s/cert-manager` resources (next section).
-3. Start the HTTPS ingress bridge only (minikube docker driver does not bind :443 on the public NIC):
+3. Start the ingress bridge (minikube docker driver does not bind :443/:80 on the public NIC):
 
 ```bash
 docker compose -f docker-compose.ingress-bridge.yml up -d
@@ -91,32 +91,37 @@ See [`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.ym
 | Layer | What it is | Role |
 | --- | --- | --- |
 | **Ingress addon** | nginx ingress controller inside Minikube | Reads `Ingress` manifests, routes by host (`test.pd...` vs `pd...`), terminates TLS, forwards to cluster services |
-| **Ingress bridge** | host-network `socat` container ([`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml)) | Publishes ingress on the host public NIC: `host:443` → `minikube-ip:30793` |
+| **Ingress bridge** | host-network `socat` containers ([`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml)) | Publishes ingress on the host public NIC: `host:443` → Minikube HTTPS NodePort; `host:80` → HTTP NodePort (ACME HTTP-01) |
 
 With the Minikube **docker** driver, ingress listens on the Minikube VM IP (for example `192.168.49.2`), not on the host's public interface. DNS points at the host, so the bridge is required for browsers to reach K8s ingress.
 
 ```mermaid
 flowchart LR
-  Internet["Public DNS / host :443"] --> Bridge["ingress-bridge socat"]
-  Bridge --> NodePort["Minikube IP :30793"]
-  NodePort --> IngressCtrl["nginx ingress controller"]
+  InternetHTTPS["Public DNS / host :443"] --> BridgeHTTPS["ingress-bridge-https"]
+  InternetHTTP["Public DNS / host :80"] --> BridgeHTTP["ingress-bridge-http"]
+  BridgeHTTPS --> NodePortHTTPS["Minikube IP :30793"]
+  BridgeHTTP --> NodePortHTTP["Minikube IP :30940"]
+  NodePortHTTPS --> IngressCtrl["nginx ingress controller"]
+  NodePortHTTP --> IngressCtrl
   IngressCtrl --> Frontend["frontend service"]
   Frontend --> Backend["backend via /api rewrite"]
 ```
 
-Default bridge target (override with env vars in the compose file):
+Default bridge targets (override with env vars in the compose file):
 
 - `MINIKUBE_IP` — from `minikube ip` (default `192.168.49.2`)
 - `INGRESS_HTTPS_NODEPORT` — from `kubectl get svc -n ingress-nginx ingress-nginx-controller` (default `30793`)
+- `INGRESS_HTTP_NODEPORT` — same Service, port 80 (default `30940`)
 
-Confirm the NodePort before starting the bridge:
+Confirm NodePorts before starting the bridge:
 
 ```bash
 minikube ip
 kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}{"\n"}'
+kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}{"\n"}'
 ```
 
-**Port 80 is intentionally not bridged** so ACME HTTP-01 challenge paths remain reachable.
+**Keep both `:80` and `:443` bridged** while cert-manager manages TLS. HTTP-01 renewal requires public reachability on `:80` through this path.
 
 **Do not run both** the ingress bridge and Docker Compose `frontend` on host `:443` at the same time — only one process can listen on that port. After K8s cutover, stop Compose HTTPS routing (see §6) and keep the bridge.
 
@@ -211,9 +216,9 @@ kubectl kustomize k8s/overlays/prod | grep -E 'path:|name: (frontend|backend)'
 
 ## 4.2) Observability / Grafana (deferred)
 
-Grafana is **not** part of the K8s manifests. It still lives in [`docker-compose.observability.yml`](../../docker-compose.observability.yml) (see [`docs/observability.md`](../observability.md)).
+Grafana is **not** part of the K8s manifests. It still lives in [`docker-compose.observability.yml`](../../docker-compose.observability.yml) (see [`observability.md`](../ops/observability.md)).
 
-On K8s-hosted domains, `/grafana` and `/admin/monitoring` will fail until observability is migrated or `GRAFANA_INTERNAL_URL` is set to a reachable host-side endpoint. This is intentionally deferred; do not block app cutover on it.
+On K8s-hosted domains, `/grafana` and `/admin/monitoring` will fail until observability is migrated or `GRAFANA_INTERNAL_URL` is set to a reachable host-side endpoint. This is intentionally deferred ([PROD-001](../backlog/product.md#prod-001-observability-on-kubernetes)); do not block app cutover on it.
 
 ## 5) Verify
 
@@ -409,7 +414,9 @@ Build a separate image per environment:
 
 Both use `NEXT_PUBLIC_API_BASE_URL=/api`. See §1 and §7 for build commands.
 
-Deferred cutover items (Compose env parity, registry/GPU): [`k8s-followups.md`](k8s-followups.md).
+Deferred work: [`backlog/`](../backlog/README.md) (K8s cutover →
+[`k8s-infrastructure.md`](../backlog/k8s-infrastructure.md); platform →
+[`platform-gitops.md`](../backlog/platform-gitops.md)).
 
 ## 10) Troubleshooting
 

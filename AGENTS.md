@@ -87,6 +87,8 @@ See [.cursor/rules/maintain-ship-deploy-skill.mdc](.cursor/rules/maintain-ship-d
 ## Further reading
 
 - [README.md](README.md) — features, architecture, local startup
+- [docs/README.md](docs/README.md) — documentation index (product, backlog, deploy, ops)
+- [docs/architecture/README.md](docs/architecture/README.md) — system architecture (Markdown)
 - [apps/backend/README.md](apps/backend/README.md) — API, migrations, model bake
 - [docs/deploy/k8s-minikube.md](docs/deploy/k8s-minikube.md) — K8s deploy and verification
 - [docs/deploy/k8s-zero-downtime-rollout.md](docs/deploy/k8s-zero-downtime-rollout.md) — prod rolling upgrades

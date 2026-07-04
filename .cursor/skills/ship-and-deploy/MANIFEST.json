@@ -1,8 +1,8 @@
 {
   "skill": "ship-and-deploy",
-  "version": "1.5.1",
-  "last_audited_commit": "cea9e69",
-  "last_audited_at": "2026-07-02",
+  "version": "1.5.2",
+  "last_audited_commit": "d20d28a",
+  "last_audited_at": "2026-07-04",
   "sources": [
     {
       "path": "package.json",
@@ -31,7 +31,7 @@
     },
     {
       "path": "docker-compose.ingress-bridge.yml",
-      "sections": ["host :443 to ingress NodePort bridge"],
+      "sections": ["host :443 and :80 to ingress NodePort bridge (ACME HTTP-01)"],
       "skill_files": ["SKILL.md", "reference.md"]
     },
     {

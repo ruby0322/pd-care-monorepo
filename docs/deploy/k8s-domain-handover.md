@@ -17,14 +17,14 @@ Ingress host mappings are defined in:
 ## Required preconditions
 
 1. DNS records are set:
-   - **Minikube (this repo):** `pd.lu.im.ntu.edu.tw`, `test.pd.lu.im.ntu.edu.tw`, and `argocd.pd.lu.im.ntu.edu.tw` → **operator host public IP**; start [`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml) to forward host `:443` to ingress NodePort (see [`k8s-minikube.md` §2.1](k8s-minikube.md#21-ingress-architecture-two-layers)).
+   - **Minikube (this repo):** `pd.lu.im.ntu.edu.tw`, `test.pd.lu.im.ntu.edu.tw`, and `argocd.pd.lu.im.ntu.edu.tw` → **operator host public IP**; start [`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml) to forward host `:443` and `:80` to ingress NodePorts (see [`k8s-minikube.md` §2.1](k8s-minikube.md#21-ingress-architecture-two-layers)).
    - **Cloud LB (future):** DNS → Kubernetes ingress external IP/load balancer.
 2. Ingress controller class `nginx` is active.
 3. Namespace secrets are distinct and applied out-of-band (not committed to git):
    - Dev template: [`k8s/overlays/dev/secret.yaml.example`](../../k8s/overlays/dev/secret.yaml.example)
    - Prod template: [`k8s/overlays/prod/secret.yaml.example`](../../k8s/overlays/prod/secret.yaml.example)
    - Apply with `kubectl apply -f k8s/overlays/<env>/secret.yaml -n <namespace>` before overlay deploy (see [`k8s-minikube.md` §9](k8s-minikube.md#9-config-and-secret-management))
-4. Data migration prep is complete (see [`docs/deploy/k8s-migration.md`](k8s-migration.md)).
+4. Data migration prep is complete (see [`k8s-migration.md`](k8s-migration.md)).
 
 ## Certificate issuance (cert-manager)
 

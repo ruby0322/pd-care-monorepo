@@ -47,8 +47,8 @@ kubectl logs -n cert-manager deploy/cert-manager --tail=200
 kubectl get orders,challenges -A
 ```
 
-- ACME HTTP-01 requires public HTTP reachability. The ingress bridge only binds
-  `:443`, so `:80` remains available for challenge paths.
+- ACME HTTP-01 requires public HTTP reachability on host `:80` (see
+  [`docker-compose.ingress-bridge.yml`](../../docker-compose.ingress-bridge.yml)).
 
 ## Deprecated path
 
@@ -57,3 +57,9 @@ should not be used in normal operation:
 
 - `ops/deploy/sync-ingress-tls-secrets.sh`
 - `ops/deploy/sync-argocd-tls-secret.sh`
+
+Removal is tracked as [PLAT-004](../backlog/platform-gitops.md#plat-004-remove-deprecated-certbot-sync-scripts).
+
+## Project backlog
+
+Platform hardening and other deferred work: [`backlog/`](../backlog/README.md).

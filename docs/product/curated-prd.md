@@ -2,7 +2,7 @@
 
 ## Document Purpose
 
-This document refines the original PD Care brief in `docs/prd.md` into a clinical-pilot product requirement document. It preserves the original objective: help peritoneal dialysis patients capture consistent exit-site images, provide AI-assisted infection-risk alerts, and build a reviewable image database for care and research.
+This document refines the original PD Care brief in [`archive/prd.md`](../archive/prd.md) into a clinical-pilot product requirement document. It preserves the original objective: help peritoneal dialysis patients capture consistent exit-site images, provide AI-assisted infection-risk alerts, and build a reviewable image database for care and research.
 
 The first usable release is intentionally patient-flow-first and targeted for a one-week build. It must create the data foundation that staff workflows need, but it does not need to complete the full staff dashboard. Later phases complete staff review, AI quality gates, and operational hardening for the broader 200+ patient pilot.
 

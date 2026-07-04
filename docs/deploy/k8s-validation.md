@@ -40,7 +40,7 @@ kubectl exec -n pd-care-prod postgres-0 -- psql -U postgres -d pd_care -Atc "sel
 | Secret `pd-care-secrets` present | Pass | Pass |
 | PVCs bound | Pass | Pass |
 | Backend `/healthz` + `/readyz` (pod-local) | Pass | Pass |
-| TLS secret in namespace | Not present | Not present |
+| TLS secret in namespace | Pass (`test-pd-lu-im-ntu-edu-tw-tls` via cert-manager) | Pass (`pd-lu-im-ntu-edu-tw-tls` via cert-manager) |
 
 ## API ingress smoke tests
 
@@ -57,5 +57,5 @@ kubectl kustomize k8s/overlays/prod | grep -E 'path:|name: (frontend|backend)'
 
 - Kubernetes dual-namespace runtime is healthy for dev and prod.
 - Data has been copied into `pd-care-prod` while leaving Docker Compose source data intact.
-- TLS certificates are now managed by cert-manager; verify Certificate resources become Ready during cutover.
-- Deferred cutover items are tracked in [`k8s-followups.md`](k8s-followups.md).
+- TLS certificates are managed by cert-manager; all three host Certificates should be `READY=True` after cutover (verify with `kubectl get certificate -A`).
+- Deferred items are tracked in [`backlog/`](../backlog/README.md).

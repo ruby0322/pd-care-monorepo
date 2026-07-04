@@ -55,7 +55,7 @@ Never append `-v` on production-like hosts.
 | **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; single replica; migrations on pod start |
 | **K8s `pd-care-prod`** | build image; backend: migrate Job then rollout; frontend: rollout only | `curl https://pd.lu.im.ntu.edu.tw/api/healthz`; expect `2/2` replicas | **PVCs authoritative**; zero-downtime rolling (`maxUnavailable: 0`) |
 | **K8s GitOps (Argo CD)** | push image-tag changes into `k8s/overlays/*/kustomization.yaml`; Argo reconciles | Argo app health + ingress health checks | `pd-care-monorepo` is public (no Git PAT); require `ghcr-pull-secret` when GHCR packages are private; migration hook runs PreSync in prod |
-| **Ingress bridge** | `docker compose -f docker-compose.ingress-bridge.yml up -d` | public HTTPS smoke on prod/dev domains | Host `:443` only; leave `:80` for certbot |
+| **Ingress bridge** | `docker compose -f docker-compose.ingress-bridge.yml up -d` | public HTTPS smoke on prod/dev domains; `curl -s -o /dev/null -w '%{http_code}' http://<host>/` returns non-connection-refused | Host `:443` + `:80` → Minikube ingress (required for cert-manager HTTP-01) |
 | **Commit/push only** | skip deploy | — | — |
 
 Runbooks: [k8s-minikube.md](../../../docs/deploy/k8s-minikube.md), [k8s-zero-downtime-rollout.md](../../../docs/deploy/k8s-zero-downtime-rollout.md), [argocd-cd.md](../../../docs/deploy/argocd-cd.md).
@@ -170,7 +170,7 @@ Use `git diff --name-only <baseline>..HEAD` to pick services:
 | `docker-compose.observability.yml` | observability services only |
 | `k8s/**` | Apply overlay if manifests changed, then rollout affected deploy(s); ask namespace |
 | `docs/deploy/k8s-*.md` | No deploy unless manifests also changed |
-| `docker-compose.ingress-bridge.yml` | ingress bridge only (host :443) |
+| `docker-compose.ingress-bridge.yml` | ingress bridge only (host `:443` + `:80`) |
 | `docs/**`, `.cursor/**`, `**/*.md` | No deploy unless user requests doc-only ship |
 | `ops/security/**` | Ask user; default no deploy |
 
@@ -249,8 +249,8 @@ curl -fsS https://test.pd.lu.im.ntu.edu.tw/api/healthz
 
 ## TLS / frontend notes
 
-- Frontend container uses `tls-gateway.cjs` with certs from `/etc/letsencrypt` (host mount).
-- Default domain env: `LETSENCRYPT_DOMAIN` → `pd.lu.im.ntu.edu.tw`.
+- **Compose frontend:** `tls-gateway.cjs` with certs from `/etc/letsencrypt` (host mount). Default domain env: `LETSENCRYPT_DOMAIN` → `pd.lu.im.ntu.edu.tw`.
+- **K8s ingress:** cert-manager issues and renews TLS secrets; ingress bridge must forward host `:80` and `:443`. See [`docs/deploy/tls-renewal.md`](../../../docs/deploy/tls-renewal.md).
 - Client API base: `NEXT_PUBLIC_API_BASE_URL` defaults to `/api` in compose build args.
 
 ## Commit message patterns (recent)

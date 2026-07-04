@@ -86,58 +86,7 @@ flowchart LR
 
 ### Kubernetes Topology (Dual Namespace)
 
-On the operator host, DNS points at the public NIC; the HTTPS ingress bridge forwards host `:443` to the Minikube ingress NodePort (port `80` stays free for certbot).
-
-```mermaid
-flowchart TB
-    subgraph external["External"]
-        Internet([Internet])
-        DNS[DNS A/AAAA records]
-    end
-
-    Ingress[NGINX Ingress Controller<br/>ingressClass: nginx]
-
-    Internet --> DNS --> Ingress
-
-  subgraph dev["Namespace: pd-care-dev"]
-    direction TB
-    DevHost["test.pd.lu.im.ntu.edu.tw"]
-    DevIngress[Ingress + TLS secret]
-    DevFE[Frontend Next.js :3000]
-    DevBE[Backend FastAPI :8000]
-    DevPG[(Postgres PVC)]
-    DevSW[(SeaweedFS<br/>master → volume → filer → s3:8333)]
-    DevMC[(model-cache PVC)]
-
-    DevHost --> DevIngress
-    DevIngress -->|"/"| DevFE
-    DevFE -->|"/api/* rewrite"| DevBE
-    DevBE --> DevPG
-    DevBE --> DevSW
-    DevBE --> DevMC
-  end
-
-  subgraph prod["Namespace: pd-care-prod"]
-    direction TB
-    ProdHost["pd.lu.im.ntu.edu.tw"]
-    ProdIngress[Ingress + TLS secret]
-    ProdFE[Frontend Next.js :3000]
-    ProdBE[Backend FastAPI :8000]
-    ProdPG[(Postgres PVC)]
-    ProdSW[(SeaweedFS<br/>master → volume → filer → s3:8333)]
-    ProdMC[(model-cache PVC)]
-
-    ProdHost --> ProdIngress
-    ProdIngress -->|"/"| ProdFE
-    ProdFE -->|"/api/* rewrite"| ProdBE
-    ProdBE --> ProdPG
-    ProdBE --> ProdSW
-    ProdBE --> ProdMC
-  end
-
-    Ingress --> DevIngress
-    Ingress --> ProdIngress
-```
+On the operator host, DNS points at the public NIC; the ingress bridge forwards host `:443` and `:80` to Minikube ingress NodePorts. TLS is managed by cert-manager. See [`docs/architecture/platform.md`](docs/architecture/platform.md) for the current platform diagram and delivery path.
 
 ### Clinical Inference and Alert Flow
 
@@ -190,6 +139,7 @@ Compose brings up `frontend`, `backend`, `postgres`, and SeaweedFS services. By 
 
 For dual-namespace deployment (`pd-care-dev`, `pd-care-prod`), use:
 
+- [`docs/README.md`](docs/README.md) — documentation index
 - `docs/deploy/k8s-minikube.md` for full deploy + verify flow
 - `docs/deploy/k8s-domain-handover.md` for DNS/TLS cutover
 - `docs/deploy/k8s-migration.md` for data migration
@@ -248,6 +198,7 @@ Separate CD workflows handle image build and GitOps promotion:
 apps/
   backend/   FastAPI inference API
   frontend/  Next.js application
+docs/        Product, architecture, deploy runbooks, backlog
 docker-compose.yml
 package.json
 README.md
@@ -329,13 +280,13 @@ The root `docker-compose.yml` starts:
 - `postgres` on `127.0.0.1:5432` by default (override bind/port with `PDCARE_POSTGRES_PORT_BIND`)
 - SeaweedFS S3 on `http://localhost:8333`
 
-If Kubernetes is active on Minikube (docker driver) and production DNS points at the host, use the HTTPS bridge file to forward host `:443` to ingress NodePort:
+If Kubernetes is active on Minikube (docker driver) and production DNS points at the host, use the ingress bridge to forward host `:443` and `:80` to Minikube ingress NodePorts:
 
 ```bash
 docker compose -f docker-compose.ingress-bridge.yml up -d
 ```
 
-The bridge intentionally does **not** bind host `:80`, so Let's Encrypt `certbot --standalone` can still run.
+Both bridge services should stay running: `:443` for HTTPS traffic and `:80` for cert-manager HTTP-01 (automatic TLS issue and renewal). See [`docs/deploy/tls-renewal.md`](docs/deploy/tls-renewal.md).
 
 PostgreSQL network access modes:
 

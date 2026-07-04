@@ -19,6 +19,9 @@ This runbook defines the GitOps delivery path for PD Care with:
   (`pd-care-frontend:latest`, `pd-care-backend:latest`) until CD writes
   `dev-sha-...` / `sha-...` or `prod-sha-...` tags. Infra-only merges therefore
   do not point Argo CD at nonexistent registry tags.
+- **Platform layer** (cert-manager Issuer/Certificates, Argo CD ingress) is
+  bootstrap-applied today, not an Argo Application. Deferred improvements:
+  [`backlog/platform-gitops.md`](../backlog/platform-gitops.md).
 - Repository URL used by Argo CD:
   - `https://github.com/ruby0322/pd-care-monorepo.git` (**public** — no Git credential required for Argo CD sync)
 

@@ -1,42 +1,66 @@
-# Architecture Diagrams
+# Architecture documentation
 
-This directory stores versioned architecture diagrams for PD Care.
+Markdown architecture docs for the current PD Care monorepo. Product intent and
+roadmap live in [`../product/`](../product/); operational runbooks in
+[`../deploy/`](../deploy/).
 
-## Files
+| Doc | Scope |
+| --- | --- |
+| [`application.md`](application.md) | Clinical workflows, API surface, auth, AI pipeline, data model |
+| [`platform.md`](platform.md) | Runtimes (Compose / K8s), ingress, TLS, GitOps CD, observability |
 
-- `system-architecture.tex`: Primary container-level system architecture diagram in LaTeX/TikZ.
+## At a glance
 
-## Compile
+PD Care is a monorepo for peritoneal dialysis exit-site imaging: patients capture
+photos via LINE LIFF; the backend stores metadata in PostgreSQL and images in
+SeaweedFS; ML models screen uploads; staff review suspected cases in an admin UI.
 
-From the repository root:
+```mermaid
+flowchart TB
+    subgraph clients["Clients"]
+        Patient[Patient LIFF / browser]
+        Staff[Staff / admin browser]
+    end
 
-```bash
-pdflatex -interaction=nonstopmode -halt-on-error -output-directory docs/architecture docs/architecture/system-architecture.tex
+    subgraph app["Application tier"]
+        FE[Next.js frontend]
+        BE[FastAPI backend]
+    end
+
+    subgraph data["Data tier"]
+        PG[(PostgreSQL)]
+        S3[SeaweedFS S3]
+        MC[Model cache PVC / volume]
+    end
+
+    Patient --> FE
+    Staff --> FE
+    FE -->|"/api/* rewrite"| BE
+    BE --> PG
+    BE --> S3
+    BE --> MC
 ```
 
-Expected output:
+**Production path today:** GitHub Actions builds images → GHCR → Argo CD syncs
+`k8s/overlays/dev` and `k8s/overlays/prod` on a Minikube cluster with cert-manager
+TLS and NGINX ingress.
 
-- `docs/architecture/system-architecture.pdf`
-- `docs/architecture/system-architecture.log`
+## Repository map
 
-## Scope Assumptions
+| Path | Role |
+| --- | --- |
+| `apps/frontend/` | Next.js App Router (patient + `/admin`) |
+| `apps/backend/` | FastAPI API, Alembic migrations, inference |
+| `k8s/base/` | Shared K8s manifests (Kustomize) |
+| `k8s/overlays/dev`, `k8s/overlays/prod` | Environment overlays and image tags |
+| `k8s/argocd/` | Argo CD project and Applications |
+| `k8s/cert-manager/` | ClusterIssuer and Certificate CRs |
+| `ops/deploy/` | Bootstrap, verify, and operator scripts |
+| `docker-compose.yml` | Local integrated stack |
+| `docker-compose.observability.yml` | Prometheus / Loki / Grafana (Compose only) |
 
-- Diagram captures deployed runtime topology for the monorepo stack.
-- Focuses on container/service boundaries and critical data/auth flows.
-- Shows frontend `/api/*` rewrite boundary to FastAPI backend.
-- Shows backend dependencies on PostgreSQL, SeaweedFS S3, LINE token verify endpoint, and startup model artifact download.
+## Related docs
 
-## Update Checklist
-
-Update `system-architecture.tex` when any of these change:
-
-- Service composition in `docker-compose.yml`
-- Frontend proxy behavior in `apps/frontend/next.config.mjs`
-- Backend startup dependencies in `apps/backend/app/main.py`
-- Backend API domain boundaries in `apps/backend/app/api/router.py`
-
-After updates:
-
-1. Rebuild with `pdflatex`.
-2. Confirm labels and flows still match source-of-truth files.
-3. Keep terminology aligned with repository docs (`patient`, `staff/admin`, `predict`, `upload`, `identity`).
+- [`../product/curated-prd.md`](../product/curated-prd.md) — product baseline
+- [`../deploy/argocd-cd.md`](../deploy/argocd-cd.md) — CD runbook
+- [`../backlog/README.md`](../backlog/README.md) — deferred work

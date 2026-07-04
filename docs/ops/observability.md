@@ -41,7 +41,7 @@ If you change the proxy path, update both Grafana env settings and `apps/fronten
 
 ## Kubernetes cutover (deferred)
 
-Grafana, Prometheus, Loki, and Promtail are defined in [`docker-compose.observability.yml`](../docker-compose.observability.yml) only. They are **not** deployed in `k8s/` yet.
+Grafana, Prometheus, Loki, and Promtail are defined in [`docker-compose.observability.yml`](../../docker-compose.observability.yml) only. They are **not** deployed in `k8s/` yet.
 
 After moving app traffic to Kubernetes:
 
@@ -49,4 +49,4 @@ After moving app traffic to Kubernetes:
 - `npm run docker:up:obs` still starts the Compose observability stack on the host, but it will not be reachable from K8s frontends until `GRAFANA_INTERNAL_URL` points at a reachable endpoint (or observability is migrated into K8s).
 - Prometheus in the Compose stack scrapes `backend:8000` on the **Compose** network (`ops/observability/prometheus/prometheus.yml`). After app cutover to K8s, host-side observability does not collect metrics from K8s backends until scrape targets are reconfigured or the stack is migrated.
 
-**Deferred follow-up:** add Grafana (+ Prometheus/Loki) to K8s, or run observability as a host-side Compose stack and wire `GRAFANA_INTERNAL_URL` in frontend ConfigMaps for dev/prod. Until then, treat monitoring as unavailable on K8s-hosted domains.
+**Deferred follow-up:** tracked as [PROD-001](../backlog/product.md#prod-001-observability-on-kubernetes) in [`backlog/`](../backlog/README.md) — add Grafana (+ Prometheus/Loki) to K8s, or run observability as a host-side Compose stack and wire `GRAFANA_INTERNAL_URL` in frontend ConfigMaps for dev/prod. Until then, treat monitoring as unavailable on K8s-hosted domains.

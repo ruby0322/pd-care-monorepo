@@ -30,8 +30,8 @@ Objective: make the current branch safe to build on.
 
 Tasks:
 
-- Preserve `docs/prd.md` as the original human brief.
-- Use `docs/curated-prd.md` as the product baseline.
+- Preserve [`archive/prd.md`](../archive/prd.md) as the original human brief.
+- Use [`curated-prd.md`](curated-prd.md) as the product baseline.
 - Use this file as the implementation roadmap.
 - Confirm current uncommitted changes before code work begins.
 - Run the existing frontend lint/build and backend tests to establish a baseline once implementation starts.
@@ -40,7 +40,7 @@ Acceptance criteria:
 
 - The planning docs distinguish current implemented behavior from planned pilot behavior.
 - The week-1 task list is narrow enough for a fast release.
-- Known deferred work is explicitly listed under later phases.
+- Known deferred work is listed under later phases and in [`backlog/README.md`](../backlog/README.md).
 
 ## Phase 1: Week-1 Patient-Flow Release
 

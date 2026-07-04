@@ -249,7 +249,7 @@ kubectl rollout restart deploy/backend -n pd-care-dev
 | Backend only | `pd-care-dev` | build backend image → `rollout restart deploy/backend` |
 | Backend only | `pd-care-prod` | build backend image → migrate Job → `rollout restart deploy/backend` → `rollout status` |
 | `k8s/**` manifests | either | `kubectl apply -k k8s/overlays/<env>` then service rollout as above |
-| Ingress bridge only | host | `docker compose -f docker-compose.ingress-bridge.yml up -d` |
+| Ingress bridge only | host | `docker compose -f docker-compose.ingress-bridge.yml up -d` (publishes `:443` + `:80` for ingress and ACME) |
 | Docs/skills only | — | Skip deploy |
 
 Runbooks: [k8s-minikube.md](../../../docs/deploy/k8s-minikube.md), [k8s-zero-downtime-rollout.md](../../../docs/deploy/k8s-zero-downtime-rollout.md).
