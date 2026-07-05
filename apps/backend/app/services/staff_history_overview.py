@@ -8,6 +8,7 @@ from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, Upload
+from app.services.staff_dashboard import calculate_age
 from app.services.taipei_dates import normalize_datetime, to_taipei_date
 RISKY_ANNOTATION_LABELS = {"suspected", "confirmed_infection"}
 
@@ -34,9 +35,12 @@ class HistoryOverviewUploadItemData:
     line_display_name: str | None
     real_name: str | None
     picture_url: str | None
+    age: int | None
     created_at: datetime
     screening_result: str
     probability: float | None
+    threshold: float | None
+    model_version: str | None
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
@@ -99,24 +103,14 @@ class _RawUploadRow:
     created_at: datetime
     screening_result: str
     probability: float | None
+    threshold: float | None
+    model_version: str | None
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
     annotation_label: str | None
     annotation_comment: str | None
     local_date: date
-
-
-def _calculate_age(birth_date: str) -> int | None:
-    try:
-        parsed = datetime.strptime(birth_date, "%Y-%m-%d").date()
-    except ValueError:
-        return None
-    today = datetime.now(tz=timezone.utc).date()
-    years = today.year - parsed.year
-    if (today.month, today.day) < (parsed.month, parsed.day):
-        years -= 1
-    return max(years, 0)
 
 
 def _load_identity_by_patient(session: Session, *, patient_ids: set[int]) -> dict[int, LiffIdentity]:
@@ -212,6 +206,8 @@ def _raw_rows(session: Session, *, accessible_patient_ids: set[int] | None = Non
                 created_at=upload.created_at,
                 screening_result=ai_result.screening_result,
                 probability=ai_result.probability,
+                threshold=ai_result.threshold,
+                model_version=ai_result.model_version,
                 symptom_pain=upload.symptom_pain,
                 symptom_discharge=upload.symptom_discharge,
                 symptom_pus=upload.symptom_pus,
@@ -270,9 +266,12 @@ def _to_upload_item(row: _RawUploadRow) -> HistoryOverviewUploadItemData:
         line_display_name=row.line_display_name,
         real_name=row.real_name,
         picture_url=row.picture_url,
+        age=calculate_age(row.birth_date),
         created_at=row.created_at,
         screening_result=row.screening_result,
         probability=row.probability,
+        threshold=row.threshold,
+        model_version=row.model_version,
         symptom_pain=row.symptom_pain,
         symptom_discharge=row.symptom_discharge,
         symptom_pus=row.symptom_pus,
@@ -351,7 +350,7 @@ def get_history_overview(
         highest_risk_rank = min(item.risk_rank for item in patient_item_list)
         highest_risk_count = sum(1 for item in patient_item_list if item.risk_rank == highest_risk_rank)
         latest_upload_at = max((item.created_at for item in patient_item_list), default=None)
-        age = next((_calculate_age(row.birth_date) for row in rows if row.patient_id == first.patient_id), None)
+        age = next((calculate_age(row.birth_date) for row in rows if row.patient_id == first.patient_id), None)
         groups.append(
             HistoryOverviewUserGroupData(
                 patient_id=first.patient_id,

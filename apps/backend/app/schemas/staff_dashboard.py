@@ -108,9 +108,12 @@ class StaffHistoryOverviewUploadItem(BaseModel):
     line_display_name: str | None
     real_name: str | None
     picture_url: str | None
+    age: int | None
     created_at: datetime
     screening_result: str
     probability: float | None
+    threshold: float | None
+    model_version: str | None
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool

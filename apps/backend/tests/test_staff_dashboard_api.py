@@ -12,6 +12,7 @@ from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Pati
 from app.main import create_app
 from tests.db_test_utils import migrated_sqlite_database_url
 from app.services.auth.token_service import AuthTokenService
+from app.services.staff_dashboard import calculate_age
 
 
 def make_settings(db_path: Path) -> Settings:
@@ -1065,8 +1066,12 @@ def test_staff_history_overview_endpoints_return_expected_shape(tmp_path: Path) 
         assert overview_payload["group_by_user"] is True
         assert len(overview_payload["groups"]) == 2
         first_group_upload = overview_payload["groups"][0]["uploads"][0]
+        expected_age = calculate_age("1980-01-01")
         assert first_group_upload["risk_rank"] == 0
         assert first_group_upload["annotation_label"] == "confirmed_infection"
+        assert first_group_upload["age"] == expected_age
+        assert first_group_upload["threshold"] == 0.5
+        assert "model_version" in first_group_upload
 
         calendar_response = client.get(
             "/v1/staff/uploads/history-overview/calendar",

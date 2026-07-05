@@ -125,9 +125,12 @@ export type StaffHistoryOverviewUploadItem = {
   line_display_name: string | null;
   real_name: string | null;
   picture_url: string | null;
+  age: number | null;
   created_at: string;
   screening_result: "normal" | "suspected" | "rejected" | "technical_error";
   probability: number | null;
+  threshold: number | null;
+  model_version: string | null;
   symptom_pain: boolean;
   symptom_discharge: boolean;
   symptom_pus: boolean;

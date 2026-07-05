@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -616,9 +617,7 @@ export default function AdminHistoryOverviewPage() {
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-100 bg-white px-4 py-3">
               <div>
                 <p className="text-sm font-medium text-zinc-900">{selectedUpload.patient_full_name ?? "未命名病患"}</p>
-                <p className="text-xs text-zinc-500">
-                  {selectedUpload.case_number} · {riskLabel(selectedUpload)}
-                </p>
+                <p className="font-mono text-xs text-zinc-500">{selectedUpload.case_number}</p>
               </div>
               <button
                 type="button"
@@ -629,7 +628,7 @@ export default function AdminHistoryOverviewPage() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_18rem]">
+            <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_22rem]">
               <div className="relative h-80 overflow-hidden rounded-xl bg-zinc-100">
                 {imageUrlByUploadId[selectedUpload.upload_id] ? (
                   <Image
@@ -644,6 +643,48 @@ export default function AdminHistoryOverviewPage() {
                 )}
               </div>
               <div className="flex flex-col gap-3">
+                <dl className="space-y-2 text-sm">
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">年齡</dt>
+                    <dd className="text-right text-zinc-900">{selectedUpload.age ?? "-"}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">上傳時間</dt>
+                    <dd className="text-right text-zinc-900">{new Date(selectedUpload.created_at).toLocaleString("zh-TW")}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">臨床風險</dt>
+                    <dd className="text-right text-zinc-900">{riskLabel(selectedUpload)}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">AI 原始結果</dt>
+                    <dd className="text-right text-zinc-900">{selectedUpload.screening_result}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">機率</dt>
+                    <dd className="text-right text-zinc-900">
+                      {selectedUpload.probability !== null ? `${(selectedUpload.probability * 100).toFixed(1)}%` : "-"}
+                    </dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">Threshold</dt>
+                    <dd className="text-right text-zinc-900">
+                      {selectedUpload.threshold !== null ? selectedUpload.threshold.toFixed(2) : "-"}
+                    </dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">Model</dt>
+                    <dd className="text-right text-zinc-900">{selectedUpload.model_version ?? "-"}</dd>
+                  </div>
+                </dl>
+                <div>
+                  <Link
+                    href={`/admin/patients/${selectedUpload.patient_id}`}
+                    className="text-xs text-zinc-500 hover:text-zinc-800"
+                  >
+                    開啟病患完整頁
+                  </Link>
+                </div>
                 <label className="flex flex-col gap-1 text-xs text-zinc-500">
                   標註標籤
                   <select
