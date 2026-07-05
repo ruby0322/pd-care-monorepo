@@ -75,7 +75,41 @@ describe("LoginPage", () => {
           lineUserId: "line-staff",
         })
       );
+      expect(setPatientSession).not.toHaveBeenCalled();
       expect(mockReplace).toHaveBeenCalledWith("/admin/patients");
+    });
+  });
+
+  it("stores both sessions when staff opens patient entry with matched identity", async () => {
+    mockSearchParams.set("next", "/patient");
+    (apiClient.post as jest.Mock).mockResolvedValue({
+      data: {
+        access_token: "staff-token",
+        expires_in: 3600,
+        role: "staff",
+        line_user_id: "line-staff",
+      },
+    });
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(setStaffSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: "staff-token",
+          role: "staff",
+          lineUserId: "line-staff",
+        })
+      );
+      expect(setPatientSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: "staff-token",
+          role: "staff",
+          lineUserId: "line-staff",
+        })
+      );
+      expect(mockReplace).toHaveBeenCalledWith("/patient");
     });
   });
 

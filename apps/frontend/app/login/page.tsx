@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Activity } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -46,7 +46,11 @@ function resolveNextPath(rawNext: string | null): string | null {
   return readSafeNextPath(rawNext);
 }
 
-export default function LoginPage() {
+function isPatientRoute(path: string | null): boolean {
+  return path === "/patient" || (path?.startsWith("/patient/") ?? false);
+}
+
+function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -69,13 +73,21 @@ export default function LoginPage() {
       const expiresAt = Date.now() + payload.expires_in * 1000;
 
       if (payload.role === "staff" || payload.role === "admin") {
-        setStaffSession({
+        const session = {
           accessToken: payload.access_token,
           expiresAt,
           role: payload.role,
           lineUserId: payload.line_user_id,
-        });
-        router.replace(nextPath ?? "/admin");
+        };
+        setStaffSession(session);
+        const destination = nextPath ?? "/admin";
+        if (isPatientRoute(destination)) {
+          const bindStatus = await fetchIdentityStatus(idToken);
+          if (bindStatus.status === "matched") {
+            setPatientSession(session);
+          }
+        }
+        router.replace(destination);
         router.refresh();
         return;
       }
@@ -173,5 +185,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageInner />
+    </Suspense>
   );
 }

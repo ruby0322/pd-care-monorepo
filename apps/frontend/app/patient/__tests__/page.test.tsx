@@ -6,10 +6,13 @@ import { fetchPatientMessages, fetchUploadHistoryByMonthWindow } from "@/lib/api
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 
+const mockRouter = {
+  push: jest.fn(),
+  replace: jest.fn(),
+};
+
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: jest.fn(),
-  }),
+  useRouter: () => mockRouter,
 }));
 
 jest.mock("@/lib/auth/patient-session", () => ({
