@@ -1,7 +1,7 @@
 "use client";
 
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
-import { apiClient, getApiErrorDetail } from "@/lib/api/client";
+import { getApiErrorDetail } from "@/lib/api/client";
 import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
 import {
     fetchPatientMessages,
@@ -11,8 +11,8 @@ import {
     UploadHistoryDay,
     UploadHistorySummary28d,
 } from "@/lib/api/upload-history";
-import { getLiffLoginProof } from "@/lib/auth/liff";
-import { clearPatientSession, getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
+import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
+import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
 import { Camera, MessageSquare, UserRound } from "lucide-react";
 import Image from "next/image";
@@ -23,13 +23,6 @@ import { getMonthKeyFromDateKey, getRelativeMonthKey, getTaipeiTodayKey } from "
 
 type LiffProfileState = {
   displayName: string;
-};
-
-type LoginResponse = {
-  access_token: string;
-  expires_in: number;
-  role: "patient" | "staff" | "admin";
-  line_user_id: string;
 };
 
 function getMessageLabelDotClass(label: string): string {
@@ -68,7 +61,7 @@ export default function PatientPage() {
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [messagePreviewError, setMessagePreviewError] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<LoginResponse["role"] | null>(null);
+  const [userRole, setUserRole] = useState<"patient" | "staff" | "admin" | null>(null);
   const [visibleCalendarMonth, setVisibleCalendarMonth] = useState<string | null>(null);
   const [oldestEdgeLoading, setOldestEdgeLoading] = useState(false);
   const [loadedCalendarBounds, setLoadedCalendarBounds] = useState<{
@@ -174,103 +167,22 @@ export default function PatientPage() {
       try {
         setLoading(true);
         setError(null);
-        const proof = await getLiffLoginProof();
-        const liffProfile = proof.profile;
-        if (cancelled) {
-          return;
-        }
-        const profileState: LiffProfileState = {
-          displayName: liffProfile.displayName,
-        };
-        setProfile(profileState);
-        const bindStatus = await fetchIdentityStatus(proof.idToken);
-        if (!cancelled) {
-          setStatus(bindStatus.status);
-        }
-        if (bindStatus.status === "matched") {
-          let tokenExp: number | null = null;
-          try {
-            const payloadSegment = proof.idToken.split(".")[1];
-            const payloadJson = JSON.parse(atob(payloadSegment));
-            tokenExp = typeof payloadJson?.exp === "number" ? payloadJson.exp : null;
-          } catch {
-            tokenExp = null;
-          }
-          const nowSec = Math.floor(Date.now() / 1000);
-          const tokenExpired = tokenExp !== null && tokenExp <= nowSec;
-          if (tokenExpired) {
-            window.liff?.login({ redirectUri: window.location.href });
-            throw new Error("LINE 登入憑證已過期，正在重新導向登入...");
-          }
-          const loginResponse = await apiClient.post<LoginResponse>("/v1/auth/login", {
-            line_id_token: proof.idToken,
-          });
+        const existingSession = getPatientSession();
+        if (!existingSession) {
+          const proof = await getLiffLoginProof();
+          const liffProfile = proof.profile;
           if (cancelled) {
             return;
           }
-          const loginPayload = loginResponse.data;
-          if (
-            loginPayload.role !== "patient" &&
-            loginPayload.role !== "staff" &&
-            loginPayload.role !== "admin"
-          ) {
-            throw new Error("目前 LINE 帳號角色無法使用病患端功能。");
-          }
-          const sessionExpiresAt = Date.now() + loginPayload.expires_in * 1000;
-          setPatientSession({
-            accessToken: loginPayload.access_token,
-            expiresAt: sessionExpiresAt,
-            role: loginPayload.role,
-            lineUserId: loginPayload.line_user_id,
-          });
-          if (loginPayload.role === "staff" || loginPayload.role === "admin") {
-            setStaffSession({
-              accessToken: loginPayload.access_token,
-              expiresAt: sessionExpiresAt,
-              role: loginPayload.role,
-              lineUserId: loginPayload.line_user_id,
-            });
-          }
-          setUserRole(loginPayload.role);
+          setProfile({ displayName: liffProfile.displayName });
+          const bindStatus = await fetchIdentityStatus(proof.idToken);
           if (!cancelled) {
-            setHistoryError(null);
-            setMessagePreviewError(null);
-            setVisibleCalendarMonth(currentMonthKey);
-            setOldestEdgeLoading(false);
-            setLoadedCalendarBounds({
-              oldestMonthKey: null,
-              newestMonthKey: null,
-            });
-            setInitialHistoryLoading(true);
-            setCalendarBackgroundLoading(false);
+            setStatus(bindStatus.status);
           }
-          loadedMonthWindowsRef.current.clear();
-          loadingMonthWindowsRef.current.clear();
-          initialHistoryInflightRef.current = 0;
-          backgroundHistoryInflightRef.current = 0;
-          if (!cancelled) {
-            setHistoryDays([]);
+          if (bindStatus.status === "matched") {
+            router.replace(buildLoginPath("/patient"));
+            return;
           }
-          try {
-            await loadHistoryWindow(currentMonthKey, { replace: true, mode: "initial" });
-          } catch {}
-          try {
-            const latest = await fetchPatientMessages({ limit: 1 });
-            if (!cancelled) {
-              setLatestMessage(latest.items[0] ?? null);
-              setUnreadMessageCount(latest.unread_count);
-            }
-          } catch (messageError) {
-            if (!cancelled) {
-              setMessagePreviewError(getApiErrorDetail(messageError) ?? "訊息預覽載入失敗，可前往訊息盒查看。");
-            }
-          } finally {
-            if (!cancelled) {
-              setInitialHistoryLoading(initialHistoryInflightRef.current > 0);
-              setCalendarBackgroundLoading(backgroundHistoryInflightRef.current > 0);
-            }
-          }
-        } else if (!cancelled) {
           clearPatientSession();
           setHistoryDays([]);
           setSummary28d({
@@ -294,6 +206,50 @@ export default function PatientPage() {
           loadingMonthWindowsRef.current.clear();
           initialHistoryInflightRef.current = 0;
           backgroundHistoryInflightRef.current = 0;
+          return;
+        }
+
+        setUserRole(existingSession.role);
+        const proof = await getLiffLoginProof();
+        if (!cancelled) {
+          setProfile({ displayName: proof.profile.displayName });
+          setStatus("matched");
+          setHistoryError(null);
+          setMessagePreviewError(null);
+          setVisibleCalendarMonth(currentMonthKey);
+          setOldestEdgeLoading(false);
+          setLoadedCalendarBounds({
+            oldestMonthKey: null,
+            newestMonthKey: null,
+          });
+          setInitialHistoryLoading(true);
+          setCalendarBackgroundLoading(false);
+        }
+        loadedMonthWindowsRef.current.clear();
+        loadingMonthWindowsRef.current.clear();
+        initialHistoryInflightRef.current = 0;
+        backgroundHistoryInflightRef.current = 0;
+        if (!cancelled) {
+          setHistoryDays([]);
+        }
+        try {
+          await loadHistoryWindow(currentMonthKey, { replace: true, mode: "initial" });
+        } catch {}
+        try {
+          const latest = await fetchPatientMessages({ limit: 1 });
+          if (!cancelled) {
+            setLatestMessage(latest.items[0] ?? null);
+            setUnreadMessageCount(latest.unread_count);
+          }
+        } catch (messageError) {
+          if (!cancelled) {
+            setMessagePreviewError(getApiErrorDetail(messageError) ?? "訊息預覽載入失敗，可前往訊息盒查看。");
+          }
+        } finally {
+          if (!cancelled) {
+            setInitialHistoryLoading(initialHistoryInflightRef.current > 0);
+            setCalendarBackgroundLoading(backgroundHistoryInflightRef.current > 0);
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -310,7 +266,7 @@ export default function PatientPage() {
     return () => {
       cancelled = true;
     };
-  }, [loadHistoryWindow]);
+  }, [loadHistoryWindow, router]);
 
   const submitBinding = async () => {
     if (!profile) {

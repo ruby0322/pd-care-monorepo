@@ -1,13 +1,13 @@
 "use client";
 
-import { apiClient, getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
+import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
 import { getPatientUploadResult } from "@/lib/api/predict";
-import { getLiffLoginProof } from "@/lib/auth/liff";
-import { getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
+import { buildLoginPath } from "@/lib/auth/liff";
+import { getPatientSession } from "@/lib/auth/patient-session";
 import clsx from "clsx";
 import { AlertTriangle, CalendarDays, CheckCircle, Home, RotateCcw, ShieldAlert, XCircle } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 type ResultState = "normal" | "suspected" | "rejected" | "technical_error";
@@ -19,6 +19,7 @@ const EDUCATION_MATERIALS = [
 
 function ResultPageInner() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const queryResult = searchParams.get("result");
   const pain = searchParams.get("pain") === "true";
   const discharge = searchParams.get("discharge") === "true";
@@ -58,25 +59,8 @@ function ResultPageInner() {
         setIsHydrating(true);
         setHydrateError(null);
         if (!getPatientSession()) {
-          const { idToken } = await getLiffLoginProof();
-          const response = await apiClient.post<{
-            access_token: string;
-            expires_in: number;
-            role: "patient" | "staff" | "admin";
-            line_user_id: string;
-          }>("/v1/auth/login", {
-            line_id_token: idToken,
-          });
-          const payload = response.data;
-          if (payload.role !== "patient" && payload.role !== "admin") {
-            throw new Error("目前 LINE 帳號角色無法讀取病患端判讀結果。");
-          }
-          setPatientSession({
-            accessToken: payload.access_token,
-            expiresAt: Date.now() + payload.expires_in * 1000,
-            role: payload.role,
-            lineUserId: payload.line_user_id,
-          });
+          window.location.replace(buildLoginPath(pathname || "/patient/result"));
+          return;
         }
         const payload = await getPatientUploadResult({
           uploadId: uploadId ?? undefined,
@@ -115,7 +99,7 @@ function ResultPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [aiResultId, hasDurableIds, uploadId]);
+  }, [aiResultId, hasDurableIds, pathname, uploadId]);
 
   const result = useMemo<ResultState>(() => {
     if (hydratedResult) {

@@ -17,7 +17,7 @@ export default function Home() {
 
         <div className="w-full flex flex-col gap-3">
           <Link
-            href="/patient"
+            href="/login?next=%2Fpatient"
             className="flex items-center justify-between w-full px-5 py-4 rounded-2xl bg-zinc-900 text-white hover:bg-zinc-800 transition-colors group"
           >
             <div>
@@ -30,7 +30,7 @@ export default function Home() {
           </Link>
 
           <Link
-            href="/admin"
+            href="/login?next=%2Fadmin"
             className="flex items-center justify-between w-full px-5 py-4 rounded-2xl border border-zinc-200 text-zinc-900 hover:bg-zinc-50 transition-colors group"
           >
             <div>

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, MessageSquare, RefreshCw } from "lucide-react";
 
@@ -12,19 +12,13 @@ import {
   markPatientMessageRead,
   PatientMessageItem,
 } from "@/lib/api/upload-history";
-import { apiClient, getReadableApiError } from "@/lib/api/client";
-import { getLiffLoginProof } from "@/lib/auth/liff";
-import { getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
-
-type LoginResponse = {
-  access_token: string;
-  expires_in: number;
-  role: "patient" | "staff" | "admin";
-  line_user_id: string;
-};
+import { getReadableApiError } from "@/lib/api/client";
+import { buildLoginPath } from "@/lib/auth/liff";
+import { getPatientSession } from "@/lib/auth/patient-session";
 
 export default function PatientMessagesPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const [items, setItems] = useState<PatientMessageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
@@ -37,21 +31,9 @@ export default function PatientMessagesPage() {
     if (existing) {
       return;
     }
-    const proof = await getLiffLoginProof();
-    const response = await apiClient.post<LoginResponse>("/v1/auth/login", {
-      line_id_token: proof.idToken,
-    });
-    const payload = response.data;
-    if (payload.role !== "patient" && payload.role !== "admin") {
-      throw new Error("目前 LINE 帳號角色無法讀取病患端訊息。");
-    }
-    setPatientSession({
-      accessToken: payload.access_token,
-      expiresAt: Date.now() + payload.expires_in * 1000,
-      role: payload.role,
-      lineUserId: payload.line_user_id,
-    });
-  }, []);
+    router.replace(buildLoginPath(pathname || "/patient/messages"));
+    throw new Error("正在導向登入頁面...");
+  }, [pathname, router]);
 
   const loadMessages = useCallback(async () => {
     try {

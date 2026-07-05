@@ -23,13 +23,13 @@ import { AdminNotificationBell } from "@/app/admin/_components/admin-notificatio
 import { AdminNotificationProvider } from "@/app/admin/_components/admin-notification-context";
 import { AdminSessionActions } from "@/app/admin/_components/admin-session-actions";
 import { apiClient } from "@/lib/api/client";
+import { buildLoginPath } from "@/lib/auth/liff";
 import { clearStaffSession, getStaffSession } from "@/lib/auth/staff-session";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const isLoginRoute = pathname === "/admin/login";
-  const hasSession = isLoginRoute ? true : Boolean(getStaffSession());
+  const hasSession = Boolean(getStaffSession());
   const [isVerified, setIsVerified] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") {
@@ -40,11 +40,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
-    if (isLoginRoute) {
-      return;
-    }
     if (!hasSession) {
-      router.replace("/admin/login");
+      const nextPath = pathname === "/admin/login" ? "/admin" : pathname;
+      router.replace(buildLoginPath(nextPath));
       return;
     }
 
@@ -59,7 +57,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         clearStaffSession();
         if (!cancelled) {
           setIsVerified(false);
-          router.replace("/admin/login");
+          const nextPath = pathname === "/admin/login" ? "/admin" : pathname;
+          router.replace(buildLoginPath(nextPath));
         }
       }
     }
@@ -68,7 +67,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return () => {
       cancelled = true;
     };
-  }, [hasSession, isLoginRoute, router]);
+  }, [hasSession, pathname, router]);
 
   useEffect(() => {
     if (!isMobileSidebarOpen) {
@@ -90,10 +89,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   function closeMobileSidebar() {
     setIsMobileSidebarOpen(false);
-  }
-
-  if (isLoginRoute) {
-    return <>{children}</>;
   }
 
   if (!hasSession || !isVerified) {
