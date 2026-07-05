@@ -162,7 +162,7 @@ def summarize_patient_upload_metrics_28d(
         .order_by(Upload.created_at.asc())
     ).all()
 
-    local_today = today or date.today()
+    local_today = today or datetime.now(tz=timezone.utc).astimezone(local_timezone).date()
     window_start = local_today - timedelta(days=27)
     uploads_by_date: dict[date, int] = {}
     all_upload_count_28d = 0
