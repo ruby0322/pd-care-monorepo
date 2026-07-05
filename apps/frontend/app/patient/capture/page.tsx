@@ -1,13 +1,12 @@
 "use client";
 
 import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
-import { apiClient } from "@/lib/api/client";
 import { uploadPatientExitSiteImage } from "@/lib/api/predict";
-import { getLiffLoginProof } from "@/lib/auth/liff";
-import { getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
+import { buildLoginPath } from "@/lib/auth/liff";
+import { getPatientSession } from "@/lib/auth/patient-session";
 import { AlignCenter, Camera, ChevronLeft, Eye, Sun } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 type CameraFacingMode = "environment" | "user";
@@ -138,6 +137,7 @@ function CameraView({
 
 function CapturePageInner() {
   const router = useRouter();
+  const pathname = usePathname();
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [cameraKey, setCameraKey] = useState(0);
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
@@ -156,31 +156,13 @@ function CapturePageInner() {
     pus: false,
   });
 
-  const ensurePatientToken = async () => {
+  const ensurePatientToken = () => {
     const existingSession = getPatientSession();
     if (existingSession) {
-      return;
+      return true;
     }
-
-    const { idToken } = await getLiffLoginProof();
-    const response = await apiClient.post<{
-      access_token: string;
-      expires_in: number;
-      role: "patient" | "staff" | "admin";
-      line_user_id: string;
-    }>("/v1/auth/login", {
-      line_id_token: idToken,
-    });
-    const payload = response.data;
-    if (payload.role !== "patient" && payload.role !== "admin") {
-      throw new Error("目前 LINE 帳號角色無法使用病患端上傳功能。");
-    }
-    setPatientSession({
-      accessToken: payload.access_token,
-      expiresAt: Date.now() + payload.expires_in * 1000,
-      role: payload.role,
-      lineUserId: payload.line_user_id,
-    });
+    router.replace(buildLoginPath(pathname || "/patient/capture"));
+    return false;
   };
 
   const handleCapture = (dataUrl: string) => {
@@ -280,7 +262,10 @@ function CapturePageInner() {
     setSubmitError(null);
 
     try {
-      await ensurePatientToken();
+      if (!ensurePatientToken()) {
+        setIsSubmitting(false);
+        return;
+      }
       const file = await dataUrlToJpegFile(capturedImage);
       const payload = await uploadPatientExitSiteImage(file, symptoms);
       const result = payload.screening_result;

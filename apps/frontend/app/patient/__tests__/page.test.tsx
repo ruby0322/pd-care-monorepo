@@ -1,21 +1,23 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import PatientPage from "@/app/patient/page";
-import { apiClient } from "@/lib/api/client";
 import { fetchIdentityStatus } from "@/lib/api/identity";
 import { fetchPatientMessages, fetchUploadHistoryByMonthWindow } from "@/lib/api/upload-history";
-import { getLiffLoginProof } from "@/lib/auth/liff";
+import { getLiffLoginProof, buildLoginPath } from "@/lib/auth/liff";
+import { getPatientSession } from "@/lib/auth/patient-session";
+
+const mockRouter = {
+  push: jest.fn(),
+  replace: jest.fn(),
+};
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: jest.fn(),
-  }),
+  useRouter: () => mockRouter,
 }));
 
 jest.mock("@/lib/auth/patient-session", () => ({
   clearPatientSession: jest.fn(),
   getPatientSession: jest.fn(),
-  setPatientSession: jest.fn(),
 }));
 
 jest.mock("@/lib/auth/staff-session", () => ({
@@ -43,9 +45,6 @@ jest.mock("@/components/patient-daily-calendar", () => ({
 }));
 
 jest.mock("@/lib/api/client", () => ({
-  apiClient: {
-    post: jest.fn(),
-  },
   getApiErrorDetail: jest.fn(() => null),
 }));
 
@@ -56,6 +55,7 @@ jest.mock("@/lib/api/identity", () => ({
 
 jest.mock("@/lib/auth/liff", () => ({
   getLiffLoginProof: jest.fn(),
+  buildLoginPath: jest.fn((next?: string) => `/login?next=${encodeURIComponent(next ?? "/patient")}`),
 }));
 
 jest.mock("@/lib/api/upload-history", () => ({
@@ -78,21 +78,15 @@ describe("PatientPage month window prefetch flow", () => {
   };
 
   function mockMatchedSession() {
-    const fakeTokenPayload = { exp: Math.floor(Date.now() / 1000) + 3600 };
-    const idToken = `header.${btoa(JSON.stringify(fakeTokenPayload))}.signature`;
-
-    (getLiffLoginProof as jest.Mock).mockResolvedValue({
-      idToken,
-      profile: { displayName: "Patient A" },
+    (getPatientSession as jest.Mock).mockReturnValue({
+      accessToken: "token",
+      expiresAt: Date.now() + 3600 * 1000,
+      role: "patient",
+      lineUserId: "line-id",
     });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "token",
-        expires_in: 3600,
-        role: "patient",
-        line_user_id: "line-id",
-      },
+    (getLiffLoginProof as jest.Mock).mockResolvedValue({
+      idToken: "id.token.value",
+      profile: { displayName: "Patient A" },
     });
     (fetchPatientMessages as jest.Mock).mockResolvedValue({
       items: [],
@@ -103,7 +97,30 @@ describe("PatientPage month window prefetch flow", () => {
     });
   }
 
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("redirects matched users without patient session to unified login", async () => {
+    (getPatientSession as jest.Mock).mockReturnValue(null);
+    (getLiffLoginProof as jest.Mock).mockResolvedValue({
+      idToken: "id.token.value",
+      profile: { displayName: "Matched User" },
+    });
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
+
+    render(<PatientPage />);
+
+    await waitFor(() => {
+      expect(buildLoginPath).toHaveBeenCalledWith("/patient");
+      expect(mockRouter.replace).toHaveBeenCalledWith("/login?next=%2Fpatient");
+    });
+    expect(fetchUploadHistoryByMonthWindow).not.toHaveBeenCalled();
+    expect(fetchPatientMessages).not.toHaveBeenCalled();
+  });
+
   test("loads current month window and progressively prefetches older windows", async () => {
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
     jest.useFakeTimers();
     jest.setSystemTime(new Date("2026-05-25T08:00:00+08:00"));
 
@@ -142,6 +159,7 @@ describe("PatientPage month window prefetch flow", () => {
   });
 
   test("keeps initial LINE loading state before first history window resolves", async () => {
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
     jest.useFakeTimers();
     jest.setSystemTime(new Date("2026-05-25T08:00:00+08:00"));
 
@@ -170,6 +188,7 @@ describe("PatientPage month window prefetch flow", () => {
   });
 
   test("keeps calendar mounted across consecutive prefetch windows", async () => {
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
     jest.useFakeTimers();
     jest.setSystemTime(new Date("2026-05-25T08:00:00+08:00"));
 

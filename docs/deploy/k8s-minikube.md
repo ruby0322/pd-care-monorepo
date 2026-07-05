@@ -414,6 +414,8 @@ Build a separate image per environment:
 
 Both use `NEXT_PUBLIC_API_BASE_URL=/api`. See §1 and §7 for build commands.
 
+LIFF Endpoint URL in LINE Developers Console should be set to `https://<host>/login` for both prod and dev LIFF apps. After deploying a frontend build that includes unified login, update both LIFF app configs (`1657724367-uzPg8SgK` and `1657724367-B0JCWwiu`) from `/patient` to `/login`.
+
 Deferred work: [`backlog/`](../backlog/README.md) (K8s cutover →
 [`k8s-infrastructure.md`](../backlog/k8s-infrastructure.md); platform →
 [`platform-gitops.md`](../backlog/platform-gitops.md)).

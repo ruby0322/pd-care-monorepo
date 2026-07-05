@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 
+import { buildLoginPath } from "@/lib/auth/liff";
 import { clearStaffSession, getStaffRole } from "@/lib/auth/staff-session";
 
 export function AdminSessionActions() {
@@ -11,7 +12,7 @@ export function AdminSessionActions() {
 
   function handleSignOut() {
     clearStaffSession();
-    router.replace("/admin/login");
+    router.replace(buildLoginPath("/admin"));
     router.refresh();
   }
 

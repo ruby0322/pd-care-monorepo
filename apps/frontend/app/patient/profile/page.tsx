@@ -3,23 +3,17 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ChevronLeft, CircleUserRound } from "lucide-react";
 
-import { apiClient, getReadableApiError } from "@/lib/api/client";
+import { getReadableApiError } from "@/lib/api/client";
 import { fetchPatientProfile, PatientProfileResponse } from "@/lib/api/identity";
-import { getLiffLoginProof } from "@/lib/auth/liff";
-import { getPatientSession, setPatientSession } from "@/lib/auth/patient-session";
-
-type LoginResponse = {
-  access_token: string;
-  expires_in: number;
-  role: "patient" | "staff" | "admin";
-  line_user_id: string;
-};
+import { buildLoginPath } from "@/lib/auth/liff";
+import { getPatientSession } from "@/lib/auth/patient-session";
 
 export default function PatientProfilePage() {
   const router = useRouter();
+  const pathname = usePathname();
   const [profile, setProfile] = useState<PatientProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,20 +25,8 @@ export default function PatientProfilePage() {
       setError(null);
       try {
         if (!getPatientSession()) {
-          const { idToken } = await getLiffLoginProof();
-          const response = await apiClient.post<LoginResponse>("/v1/auth/login", {
-            line_id_token: idToken,
-          });
-          const payload = response.data;
-          if (payload.role !== "patient" && payload.role !== "admin") {
-            throw new Error("目前 LINE 帳號角色無法讀取病患端資料。");
-          }
-          setPatientSession({
-            accessToken: payload.access_token,
-            expiresAt: Date.now() + payload.expires_in * 1000,
-            role: payload.role,
-            lineUserId: payload.line_user_id,
-          });
+          router.replace(buildLoginPath(pathname || "/patient/profile"));
+          return;
         }
 
         const data = await fetchPatientProfile();
@@ -65,7 +47,7 @@ export default function PatientProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [pathname, router]);
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-white px-6 pt-10 pb-[calc(env(safe-area-inset-bottom)+1rem)]">

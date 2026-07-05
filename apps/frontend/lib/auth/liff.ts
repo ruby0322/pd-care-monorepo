@@ -25,6 +25,55 @@ type LiffProfile = {
 
 const DEV_LINE_USER_STORAGE_KEY = "pdCare.devLineUserId";
 const EXPIRED_TOKEN_REFRESH_KEY = "pdCare.liffExpiredTokenRefreshExp";
+export const LIFF_ENTRY_PATH = "/login";
+
+function normalizeNextPath(rawNext: string | null | undefined): string | null {
+  if (!rawNext) {
+    return null;
+  }
+  const next = rawNext.trim();
+  if (!next.startsWith("/") || next.startsWith("//")) {
+    return null;
+  }
+  if (next === LIFF_ENTRY_PATH || next.startsWith(`${LIFF_ENTRY_PATH}?`)) {
+    return null;
+  }
+  return next;
+}
+
+export function readSafeNextPath(rawNext: string | null | undefined): string | null {
+  return normalizeNextPath(rawNext);
+}
+
+function getCurrentPathWithQuery(): string {
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+export function buildLoginPath(nextPath?: string | null): string {
+  const safeNext = normalizeNextPath(nextPath);
+  if (!safeNext) {
+    return LIFF_ENTRY_PATH;
+  }
+  return `${LIFF_ENTRY_PATH}?next=${encodeURIComponent(safeNext)}`;
+}
+
+export function isLiffEntryPage(pathname: string = window.location.pathname): boolean {
+  return pathname === LIFF_ENTRY_PATH;
+}
+
+export function redirectToLiffLogin(nextPath?: string | null): never {
+  window.location.replace(buildLoginPath(nextPath));
+  throw new Error("正在導向登入頁面...");
+}
+
+export function buildLiffLoginRedirectUri(): string {
+  const url = new URL(window.location.origin + LIFF_ENTRY_PATH);
+  const safeNext = normalizeNextPath(new URLSearchParams(window.location.search).get("next"));
+  if (safeNext) {
+    url.searchParams.set("next", safeNext);
+  }
+  return url.toString();
+}
 
 /**
  * Dev-only: when NEXT_PUBLIC_LIFF_ID is unset and NODE_ENV is development,
@@ -134,7 +183,10 @@ export async function getLiffProfile(): Promise<LiffProfile> {
 
   await window.liff.init({ liffId });
   if (!window.liff.isLoggedIn()) {
-    window.liff.login({ redirectUri: window.location.href });
+    if (!isLiffEntryPage()) {
+      redirectToLiffLogin(getCurrentPathWithQuery());
+    }
+    window.liff.login({ redirectUri: buildLiffLoginRedirectUri() });
     throw new Error("正在導向 LINE 登入...");
   }
 
@@ -175,7 +227,10 @@ export async function getLiffLoginProof(): Promise<{ profile: LiffProfile; idTok
           // no-op
         }
       }
-      window.liff?.login({ redirectUri: window.location.href });
+      if (!isLiffEntryPage()) {
+        redirectToLiffLogin(getCurrentPathWithQuery());
+      }
+      window.liff?.login({ redirectUri: buildLiffLoginRedirectUri() });
       throw new Error("LINE 登入憑證已過期，正在重新導向登入...");
     }
     throw new Error("LINE 登入憑證已過期，且重新登入後仍未刷新。請在 LINE App 內重新開啟頁面或稍後再試。");
