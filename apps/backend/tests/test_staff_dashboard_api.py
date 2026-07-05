@@ -1065,8 +1065,12 @@ def test_staff_history_overview_endpoints_return_expected_shape(tmp_path: Path) 
         assert overview_payload["group_by_user"] is True
         assert len(overview_payload["groups"]) == 2
         first_group_upload = overview_payload["groups"][0]["uploads"][0]
+        expected_age = datetime.now(tz=timezone.utc).year - 1980
         assert first_group_upload["risk_rank"] == 0
         assert first_group_upload["annotation_label"] == "confirmed_infection"
+        assert first_group_upload["age"] == expected_age
+        assert first_group_upload["threshold"] == 0.5
+        assert "model_version" in first_group_upload
 
         calendar_response = client.get(
             "/v1/staff/uploads/history-overview/calendar",

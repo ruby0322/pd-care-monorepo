@@ -34,9 +34,12 @@ class HistoryOverviewUploadItemData:
     line_display_name: str | None
     real_name: str | None
     picture_url: str | None
+    age: int | None
     created_at: datetime
     screening_result: str
     probability: float | None
+    threshold: float | None
+    model_version: str | None
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
@@ -99,6 +102,8 @@ class _RawUploadRow:
     created_at: datetime
     screening_result: str
     probability: float | None
+    threshold: float | None
+    model_version: str | None
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
@@ -212,6 +217,8 @@ def _raw_rows(session: Session, *, accessible_patient_ids: set[int] | None = Non
                 created_at=upload.created_at,
                 screening_result=ai_result.screening_result,
                 probability=ai_result.probability,
+                threshold=ai_result.threshold,
+                model_version=ai_result.model_version,
                 symptom_pain=upload.symptom_pain,
                 symptom_discharge=upload.symptom_discharge,
                 symptom_pus=upload.symptom_pus,
@@ -270,9 +277,12 @@ def _to_upload_item(row: _RawUploadRow) -> HistoryOverviewUploadItemData:
         line_display_name=row.line_display_name,
         real_name=row.real_name,
         picture_url=row.picture_url,
+        age=_calculate_age(row.birth_date),
         created_at=row.created_at,
         screening_result=row.screening_result,
         probability=row.probability,
+        threshold=row.threshold,
+        model_version=row.model_version,
         symptom_pain=row.symptom_pain,
         symptom_discharge=row.symptom_discharge,
         symptom_pus=row.symptom_pus,
