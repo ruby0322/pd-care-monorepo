@@ -617,9 +617,7 @@ export default function AdminHistoryOverviewPage() {
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-100 bg-white px-4 py-3">
               <div>
                 <p className="text-sm font-medium text-zinc-900">{selectedUpload.patient_full_name ?? "未命名病患"}</p>
-                <p className="text-xs text-zinc-500">
-                  {selectedUpload.case_number} · {riskLabel(selectedUpload)}
-                </p>
+                <p className="font-mono text-xs text-zinc-500">{selectedUpload.case_number}</p>
               </div>
               <button
                 type="button"
@@ -647,14 +645,6 @@ export default function AdminHistoryOverviewPage() {
               <div className="flex flex-col gap-3">
                 <dl className="space-y-2 text-sm">
                   <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">姓名</dt>
-                    <dd className="text-right text-zinc-900">{selectedUpload.patient_full_name ?? "未命名"}</dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">病例號</dt>
-                    <dd className="font-mono text-right text-zinc-900">{selectedUpload.case_number}</dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-4">
                     <dt className="text-zinc-400">年齡</dt>
                     <dd className="text-right text-zinc-900">{selectedUpload.age ?? "-"}</dd>
                   </div>
@@ -663,7 +653,11 @@ export default function AdminHistoryOverviewPage() {
                     <dd className="text-right text-zinc-900">{new Date(selectedUpload.created_at).toLocaleString("zh-TW")}</dd>
                   </div>
                   <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">AI 結果</dt>
+                    <dt className="text-zinc-400">臨床風險</dt>
+                    <dd className="text-right text-zinc-900">{riskLabel(selectedUpload)}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">AI 原始結果</dt>
                     <dd className="text-right text-zinc-900">{selectedUpload.screening_result}</dd>
                   </div>
                   <div className="flex items-start justify-between gap-4">

@@ -8,6 +8,7 @@ from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, Upload
+from app.services.staff_dashboard import calculate_age
 from app.services.taipei_dates import normalize_datetime, to_taipei_date
 RISKY_ANNOTATION_LABELS = {"suspected", "confirmed_infection"}
 
@@ -110,18 +111,6 @@ class _RawUploadRow:
     annotation_label: str | None
     annotation_comment: str | None
     local_date: date
-
-
-def _calculate_age(birth_date: str) -> int | None:
-    try:
-        parsed = datetime.strptime(birth_date, "%Y-%m-%d").date()
-    except ValueError:
-        return None
-    today = datetime.now(tz=timezone.utc).date()
-    years = today.year - parsed.year
-    if (today.month, today.day) < (parsed.month, parsed.day):
-        years -= 1
-    return max(years, 0)
 
 
 def _load_identity_by_patient(session: Session, *, patient_ids: set[int]) -> dict[int, LiffIdentity]:
@@ -277,7 +266,7 @@ def _to_upload_item(row: _RawUploadRow) -> HistoryOverviewUploadItemData:
         line_display_name=row.line_display_name,
         real_name=row.real_name,
         picture_url=row.picture_url,
-        age=_calculate_age(row.birth_date),
+        age=calculate_age(row.birth_date),
         created_at=row.created_at,
         screening_result=row.screening_result,
         probability=row.probability,
@@ -361,7 +350,7 @@ def get_history_overview(
         highest_risk_rank = min(item.risk_rank for item in patient_item_list)
         highest_risk_count = sum(1 for item in patient_item_list if item.risk_rank == highest_risk_rank)
         latest_upload_at = max((item.created_at for item in patient_item_list), default=None)
-        age = next((_calculate_age(row.birth_date) for row in rows if row.patient_id == first.patient_id), None)
+        age = next((calculate_age(row.birth_date) for row in rows if row.patient_id == first.patient_id), None)
         groups.append(
             HistoryOverviewUserGroupData(
                 patient_id=first.patient_id,
