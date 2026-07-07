@@ -2,33 +2,48 @@
 
 import { Activity, LayoutDashboard } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 import { buildLoginPath } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import { getStaffSession } from "@/lib/auth/staff-session";
 
+type AppAccessSnapshot = "loading" | "unauthenticated" | "patient-only" | "ready:admin-only" | "ready:with-patient";
+
+function getAppAccessSnapshot(): AppAccessSnapshot {
+  const staffSession = getStaffSession();
+  if (!staffSession) {
+    if (getPatientSession()) {
+      return "patient-only";
+    }
+    return "unauthenticated";
+  }
+
+  if (getPatientSession()) {
+    return "ready:with-patient";
+  }
+  return "ready:admin-only";
+}
+
+function subscribeToAppAccess() {
+  return () => {};
+}
+
 export default function AppSelectionPage() {
   const router = useRouter();
-  const [{ checked, hasStaffSession, hasPatientSession }] = useState(() => {
-    if (typeof window === "undefined") {
-      return { checked: false, hasStaffSession: false, hasPatientSession: false };
-    }
-    const staffSession = getStaffSession();
-    return {
-      checked: true,
-      hasStaffSession: Boolean(staffSession),
-      hasPatientSession: Boolean(staffSession && getPatientSession()),
-    };
-  });
+  const access = useSyncExternalStore(subscribeToAppAccess, getAppAccessSnapshot, () => "loading");
 
   useEffect(() => {
-    if (checked && !hasStaffSession) {
+    if (access === "unauthenticated") {
       router.replace(buildLoginPath("/apps"));
+      return;
     }
-  }, [checked, hasStaffSession, router]);
+    if (access === "patient-only") {
+      router.replace("/patient");
+    }
+  }, [access, router]);
 
-  if (!checked || !hasStaffSession) {
+  if (!access.startsWith("ready:")) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
         <p className="text-sm text-zinc-500">正在載入可用應用程式...</p>
@@ -57,7 +72,7 @@ export default function AppSelectionPage() {
             </div>
           </button>
 
-          {hasPatientSession ? (
+          {access === "ready:with-patient" ? (
             <button
               type="button"
               onClick={() => router.push("/patient")}

@@ -49,10 +49,12 @@ describe("Home landing page", () => {
     });
   });
 
-  it("shows intro content for new users and navigates to role selection", () => {
+  it("shows intro content for new users and navigates to role selection", async () => {
     render(<Home />);
 
-    expect(screen.getByText("PD Care")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("PD Care")).toBeInTheDocument();
+    });
     const cta = screen.getByRole("button", { name: "開始使用" });
     fireEvent.click(cta);
     expect(mockPush).toHaveBeenCalledWith("/role-select");

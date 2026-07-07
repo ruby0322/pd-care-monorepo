@@ -3,17 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Activity, Camera, ShieldCheck, Stethoscope } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 import { getPatientSession } from "@/lib/auth/patient-session";
 import { getStaffSession } from "@/lib/auth/staff-session";
 
 type EntryState = "checking" | "intro" | "redirect-apps" | "redirect-patient";
 
-function resolveEntryState(): EntryState {
-  if (typeof window === "undefined") {
-    return "checking";
-  }
+function getEntryState(): EntryState {
   if (getStaffSession()) {
     return "redirect-apps";
   }
@@ -23,9 +20,13 @@ function resolveEntryState(): EntryState {
   return "intro";
 }
 
+function subscribeToEntryState() {
+  return () => {};
+}
+
 export default function Home() {
   const router = useRouter();
-  const [entryState] = useState<EntryState>(() => resolveEntryState());
+  const entryState = useSyncExternalStore(subscribeToEntryState, getEntryState, () => "checking");
 
   useEffect(() => {
     if (entryState === "redirect-apps") {

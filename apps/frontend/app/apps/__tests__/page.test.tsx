@@ -36,6 +36,7 @@ describe("AppSelectionPage", () => {
 
   it("redirects users without staff session to login", async () => {
     (getStaffSession as jest.Mock).mockReturnValue(null);
+    (getPatientSession as jest.Mock).mockReturnValue(null);
 
     render(<AppSelectionPage />);
 
@@ -43,6 +44,18 @@ describe("AppSelectionPage", () => {
       expect(buildLoginPath).toHaveBeenCalledWith("/apps");
       expect(mockReplace).toHaveBeenCalledWith("/login?next=%2Fapps");
     });
+  });
+
+  it("redirects patient-only users to patient app", async () => {
+    (getStaffSession as jest.Mock).mockReturnValue(null);
+    (getPatientSession as jest.Mock).mockReturnValue({ role: "patient" });
+
+    render(<AppSelectionPage />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/patient");
+    });
+    expect(buildLoginPath).not.toHaveBeenCalled();
   });
 
   it("shows only admin card when patient session is unavailable", async () => {
