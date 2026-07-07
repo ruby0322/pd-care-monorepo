@@ -8,6 +8,7 @@ spec:
     spec:
       containers:
         - name: backend
+          imagePullPolicy: IfNotPresent
           startupProbe:
             httpGet:
               path: /readyz

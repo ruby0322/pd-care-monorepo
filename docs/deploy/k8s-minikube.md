@@ -13,7 +13,8 @@ setup, and the end-to-end dry-run checklist. For the Argo CD web UI, see
 
 The sections below still document manual Minikube operations (local image builds,
 `kubectl apply`, scoped rollouts). Overlays now reference `ghcr.io/ruby0322/...` with
-`imagePullPolicy: Always` and `ghcr-pull-secret`. Manual deploys require either:
+`ghcr-pull-secret`. Pull policy: **dev** uses `IfNotPresent` (overlay patch); **prod**
+uses `Always` (base). Manual deploys require either:
 
 - following the Argo CD path in [`argocd-cd.md`](argocd-cd.md), or
 - creating `ghcr-pull-secret` in the target namespace and using the GHCR tags from
