@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 import {
   createHealthcareAccessRequest,
@@ -12,7 +12,7 @@ import {
 import { getApiErrorDetail } from "@/lib/api/client";
 import { buildLoginPath, getLiffLoginProof, readSafeNextPath } from "@/lib/auth/liff";
 
-export default function NoPermissionPage() {
+function NoPermissionPageInner() {
   const searchParams = useSearchParams();
   const nextPath = useMemo(() => readSafeNextPath(searchParams.get("next")) ?? "/admin", [searchParams]);
   const [status, setStatus] = useState<HealthcareAccessStatus>("none");
@@ -119,5 +119,13 @@ export default function NoPermissionPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function NoPermissionPage() {
+  return (
+    <Suspense>
+      <NoPermissionPageInner />
+    </Suspense>
   );
 }
