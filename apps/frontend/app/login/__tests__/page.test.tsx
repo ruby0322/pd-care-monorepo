@@ -238,7 +238,39 @@ describe("LoginPage", () => {
     expect(setStaffSession).not.toHaveBeenCalled();
   });
 
+  it("routes staff to app selection when next is absent", async () => {
+    (apiClient.post as jest.Mock).mockResolvedValue({
+      data: {
+        access_token: "staff-token",
+        expires_in: 3600,
+        role: "staff",
+        line_user_id: "line-staff",
+      },
+    });
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(setStaffSession).toHaveBeenCalled();
+      expect(mockReplace).toHaveBeenCalledWith("/apps");
+    });
+  });
+
+  it("shows inline error when bare login hits permission error without next", async () => {
+    (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
+    });
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(setPatientSession).not.toHaveBeenCalled();
+    expect(setStaffSession).not.toHaveBeenCalled();
+  });
+
   it("redirects to no-permission when staff/admin-targeted login hits permission error", async () => {
+    mockSearchParams.set("next", "/admin");
     (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
 
     render(<LoginPage />);

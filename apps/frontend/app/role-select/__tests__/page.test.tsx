@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 
 import RoleSelectPage from "@/app/role-select/page";
+import { buildLoginPath } from "@/lib/auth/liff";
 
 const mockPush = jest.fn();
 
@@ -8,6 +9,10 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({
     push: mockPush,
   }),
+}));
+
+jest.mock("@/lib/auth/liff", () => ({
+  buildLoginPath: jest.fn((next: string) => `/login?next=${encodeURIComponent(next)}`),
 }));
 
 describe("RoleSelectPage", () => {
@@ -26,6 +31,7 @@ describe("RoleSelectPage", () => {
     render(<RoleSelectPage />);
 
     fireEvent.click(screen.getByRole("button", { name: /我是護理師/ }));
+    expect(buildLoginPath).toHaveBeenCalledWith("/admin");
     expect(mockPush).toHaveBeenCalledWith("/login?next=%2Fadmin");
   });
 });

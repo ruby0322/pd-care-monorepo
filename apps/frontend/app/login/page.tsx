@@ -48,7 +48,7 @@ function resolveNextPath(rawNext: string | null): string | null {
 
 function isStaffOrAdminRoute(path: string | null): boolean {
   if (!path) {
-    return true;
+    return false;
   }
   return path === "/apps" || path.startsWith("/admin");
 }
@@ -91,7 +91,7 @@ function LoginPageInner() {
           lineUserId: payload.line_user_id,
         };
         setStaffSession(session);
-        const destination = nextPath ?? "/admin";
+        const destination = nextPath ?? "/apps";
         try {
           const bindStatus = await fetchIdentityStatus(idToken);
           if (bindStatus.status === "matched") {

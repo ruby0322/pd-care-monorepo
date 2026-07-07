@@ -3,6 +3,8 @@
 import { Activity, LayoutDashboard } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { buildLoginPath } from "@/lib/auth/liff";
+
 export default function RoleSelectPage() {
   const router = useRouter();
 
@@ -31,7 +33,7 @@ export default function RoleSelectPage() {
 
           <button
             type="button"
-            onClick={() => router.push("/login?next=%2Fadmin")}
+            onClick={() => router.push(buildLoginPath("/admin"))}
             className="group flex w-full items-center justify-between rounded-2xl border border-zinc-200 px-5 py-4 text-zinc-900 transition-colors hover:bg-zinc-50"
           >
             <div className="text-left">
