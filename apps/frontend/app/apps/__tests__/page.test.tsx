@@ -1,0 +1,84 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+import AppSelectionPage from "@/app/apps/page";
+import { buildLoginPath } from "@/lib/auth/liff";
+import { getPatientSession } from "@/lib/auth/patient-session";
+import { getStaffSession } from "@/lib/auth/staff-session";
+
+const mockReplace = jest.fn();
+const mockPush = jest.fn();
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({
+    replace: mockReplace,
+    push: mockPush,
+  }),
+}));
+
+jest.mock("@/lib/auth/liff", () => ({
+  buildLoginPath: jest.fn(() => "/login?next=%2Fapps"),
+}));
+
+jest.mock("@/lib/auth/staff-session", () => ({
+  getStaffSession: jest.fn(),
+}));
+
+jest.mock("@/lib/auth/patient-session", () => ({
+  getPatientSession: jest.fn(),
+}));
+
+describe("AppSelectionPage", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getStaffSession as jest.Mock).mockReturnValue({ role: "staff" });
+    (getPatientSession as jest.Mock).mockReturnValue(null);
+  });
+
+  it("redirects users without staff session to login", async () => {
+    (getStaffSession as jest.Mock).mockReturnValue(null);
+    (getPatientSession as jest.Mock).mockReturnValue(null);
+
+    render(<AppSelectionPage />);
+
+    await waitFor(() => {
+      expect(buildLoginPath).toHaveBeenCalledWith("/apps");
+      expect(mockReplace).toHaveBeenCalledWith("/login?next=%2Fapps");
+    });
+  });
+
+  it("redirects patient-only users to patient app", async () => {
+    (getStaffSession as jest.Mock).mockReturnValue(null);
+    (getPatientSession as jest.Mock).mockReturnValue({ role: "patient" });
+
+    render(<AppSelectionPage />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/patient");
+    });
+    expect(buildLoginPath).not.toHaveBeenCalled();
+  });
+
+  it("shows only admin card when patient session is unavailable", async () => {
+    render(<AppSelectionPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /護理師後台/ })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /病患 App/ })).not.toBeInTheDocument();
+  });
+
+  it("shows both cards when patient session exists and routes correctly", async () => {
+    (getPatientSession as jest.Mock).mockReturnValue({ role: "patient" });
+    render(<AppSelectionPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /病患 App/ })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /護理師後台/ }));
+    fireEvent.click(screen.getByRole("button", { name: /病患 App/ }));
+
+    expect(mockPush).toHaveBeenNthCalledWith(1, "/admin");
+    expect(mockPush).toHaveBeenNthCalledWith(2, "/patient");
+  });
+});

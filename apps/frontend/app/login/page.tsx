@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AxiosError } from "axios";
 
 import { apiClient, getApiErrorDetail } from "@/lib/api/client";
-import { createHealthcareAccessRequest, fetchIdentityStatus } from "@/lib/api/identity";
+import { fetchIdentityStatus } from "@/lib/api/identity";
 import { getLiffLoginProof, readSafeNextPath } from "@/lib/auth/liff";
 import { setPatientSession } from "@/lib/auth/patient-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
@@ -46,23 +46,34 @@ function resolveNextPath(rawNext: string | null): string | null {
   return readSafeNextPath(rawNext);
 }
 
-function isPatientRoute(path: string | null): boolean {
-  return path === "/patient" || (path?.startsWith("/patient/") ?? false);
+function isStaffOrAdminRoute(path: string | null): boolean {
+  if (!path) {
+    return false;
+  }
+  return path === "/apps" || path.startsWith("/admin");
+}
+
+function isPermissionDeniedError(error: unknown): boolean {
+  const detail = getApiErrorDetail(error);
+  if (detail?.includes("尚未開通") || detail?.includes("角色無法登入")) {
+    return true;
+  }
+  if (error instanceof AxiosError) {
+    return error.response?.status === 403;
+  }
+  return false;
 }
 
 function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isRequestingAccess, setIsRequestingAccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const nextPath = useMemo(() => resolveNextPath(searchParams.get("next")), [searchParams]);
 
   const completeLogin = useCallback(async () => {
     setErrorMessage(null);
-    setSuccessMessage(null);
     setIsSubmitting(true);
     try {
       const { idToken } = await getLiffLoginProof();
@@ -80,12 +91,14 @@ function LoginPageInner() {
           lineUserId: payload.line_user_id,
         };
         setStaffSession(session);
-        const destination = nextPath ?? "/admin";
-        if (isPatientRoute(destination)) {
+        const destination = nextPath ?? "/apps";
+        try {
           const bindStatus = await fetchIdentityStatus(idToken);
           if (bindStatus.status === "matched") {
             setPatientSession(session);
           }
+        } catch {
+          // Keep staff/admin login available even if patient bind status lookup fails.
         }
         router.replace(destination);
         router.refresh();
@@ -107,6 +120,12 @@ function LoginPageInner() {
       router.replace(destination);
       router.refresh();
     } catch (error) {
+      if (isStaffOrAdminRoute(nextPath) && isPermissionDeniedError(error)) {
+        const redirectNext = encodeURIComponent(nextPath ?? "/admin");
+        router.replace(`/no-permission?next=${redirectNext}`);
+        router.refresh();
+        return;
+      }
       setErrorMessage(getLoginErrorMessage(error));
     } finally {
       setIsSubmitting(false);
@@ -119,27 +138,6 @@ function LoginPageInner() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [completeLogin]);
-
-  async function handleRequestHealthcareAccess() {
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    setIsRequestingAccess(true);
-    try {
-      const { idToken } = await getLiffLoginProof();
-      const result = await createHealthcareAccessRequest({
-        line_id_token: idToken,
-      });
-      if (result.status === "pending") {
-        setSuccessMessage("已送出「我是醫護人員」權限申請，請等待管理員審核。");
-      } else {
-        setSuccessMessage("權限申請已送出。");
-      }
-    } catch (error) {
-      setErrorMessage(getApiErrorDetail(error) ?? "送出權限申請失敗，請稍後再試。");
-    } finally {
-      setIsRequestingAccess(false);
-    }
-  }
 
   return (
     <div className="min-h-screen bg-zinc-50 px-4 py-10 sm:px-6">
@@ -163,17 +161,7 @@ function LoginPageInner() {
           {isSubmitting ? "登入中..." : "使用 LINE 登入"}
         </button>
 
-        <button
-          type="button"
-          onClick={handleRequestHealthcareAccess}
-          disabled={isRequestingAccess || isSubmitting}
-          className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isRequestingAccess ? "送出申請中..." : "我是醫護人員，請求權限"}
-        </button>
-
         {errorMessage ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{errorMessage}</p> : null}
-        {successMessage ? <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMessage}</p> : null}
 
         <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
           <Link href="/privacy-policy" className="underline underline-offset-4 hover:text-zinc-800">
