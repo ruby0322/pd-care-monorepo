@@ -93,7 +93,7 @@ export default function Home() {
           開始使用
         </button>
 
-        <p className="text-center text-xs text-zinc-300">臺大醫院 · 腹膜透析出口影像感染警示系統 PoC</p>
+        <p className="text-center text-xs text-zinc-300">臺大醫院 · 腹膜透析出口影像感染警示系統</p>
         <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
           <Link href="/privacy-policy" className="underline underline-offset-4 hover:text-zinc-800">
             隱私權政策
