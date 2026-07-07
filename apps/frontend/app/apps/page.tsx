@@ -2,11 +2,12 @@
 
 import { Activity, LayoutDashboard } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
 
 import { buildLoginPath } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import { getStaffSession } from "@/lib/auth/staff-session";
+import { useClientSnapshot } from "@/lib/utils/use-client-snapshot";
 
 type AppAccessSnapshot = "loading" | "unauthenticated" | "patient-only" | "ready:admin-only" | "ready:with-patient";
 
@@ -25,13 +26,9 @@ function getAppAccessSnapshot(): AppAccessSnapshot {
   return "ready:admin-only";
 }
 
-function subscribeToAppAccess() {
-  return () => {};
-}
-
 export default function AppSelectionPage() {
   const router = useRouter();
-  const access = useSyncExternalStore(subscribeToAppAccess, getAppAccessSnapshot, () => "loading");
+  const access = useClientSnapshot(getAppAccessSnapshot, "loading");
 
   useEffect(() => {
     if (access === "unauthenticated") {
