@@ -1,0 +1,79 @@
+"use client";
+
+import { Activity, LayoutDashboard } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { buildLoginPath } from "@/lib/auth/liff";
+import { getPatientSession } from "@/lib/auth/patient-session";
+import { getStaffSession } from "@/lib/auth/staff-session";
+
+export default function AppSelectionPage() {
+  const router = useRouter();
+  const [{ checked, hasStaffSession, hasPatientSession }] = useState(() => {
+    if (typeof window === "undefined") {
+      return { checked: false, hasStaffSession: false, hasPatientSession: false };
+    }
+    const staffSession = getStaffSession();
+    return {
+      checked: true,
+      hasStaffSession: Boolean(staffSession),
+      hasPatientSession: Boolean(staffSession && getPatientSession()),
+    };
+  });
+
+  useEffect(() => {
+    if (checked && !hasStaffSession) {
+      router.replace(buildLoginPath("/apps"));
+    }
+  }, [checked, hasStaffSession, router]);
+
+  if (!checked || !hasStaffSession) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
+        <p className="text-sm text-zinc-500">正在載入可用應用程式...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
+      <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+        <h1 className="text-lg font-semibold text-zinc-900">選擇要進入的 App</h1>
+        <p className="mt-1 text-sm text-zinc-500">您可以依照目前需求進入護理師後台或病患端。</p>
+
+        <div className="mt-5 flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/admin")}
+            className="group flex w-full items-center justify-between rounded-2xl bg-zinc-900 px-5 py-4 text-white transition-colors hover:bg-zinc-800"
+          >
+            <div className="text-left">
+              <div className="text-sm font-medium">護理師後台</div>
+              <div className="mt-0.5 text-xs text-zinc-400">審核、追蹤與病患管理</div>
+            </div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 transition-colors group-hover:bg-white/20">
+              <LayoutDashboard className="h-4 w-4" strokeWidth={1.5} />
+            </div>
+          </button>
+
+          {hasPatientSession ? (
+            <button
+              type="button"
+              onClick={() => router.push("/patient")}
+              className="group flex w-full items-center justify-between rounded-2xl border border-zinc-200 px-5 py-4 text-zinc-900 transition-colors hover:bg-zinc-50"
+            >
+              <div className="text-left">
+                <div className="text-sm font-medium">病患 App</div>
+                <div className="mt-0.5 text-xs text-zinc-400">症狀回報與出口拍攝</div>
+              </div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-100 transition-colors group-hover:bg-zinc-200">
+                <Activity className="h-4 w-4 text-zinc-600" strokeWidth={1.5} />
+              </div>
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -225,6 +225,7 @@ describe("LoginPage", () => {
   });
 
   it("shows an error when automatic login fails on mount", async () => {
+    mockSearchParams.set("next", "/patient");
     (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
 
     render(<LoginPage />);
@@ -237,7 +238,20 @@ describe("LoginPage", () => {
     expect(setStaffSession).not.toHaveBeenCalled();
   });
 
+  it("redirects to no-permission when staff/admin-targeted login hits permission error", async () => {
+    (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/no-permission?next=%2Fadmin");
+    });
+    expect(setPatientSession).not.toHaveBeenCalled();
+    expect(setStaffSession).not.toHaveBeenCalled();
+  });
+
   it("retries login manually after an automatic login failure", async () => {
+    mockSearchParams.set("next", "/patient");
     (apiClient.post as jest.Mock)
       .mockRejectedValueOnce(mockForbiddenLoginError())
       .mockResolvedValueOnce({
@@ -273,6 +287,7 @@ describe("LoginPage", () => {
   });
 
   it("maps backend permission errors to a user-facing message", async () => {
+    mockSearchParams.set("next", "/patient");
     (getApiErrorDetail as jest.Mock).mockReturnValue("尚未開通此角色");
     (apiClient.post as jest.Mock).mockRejectedValue(new Error("尚未開通此角色"));
 
