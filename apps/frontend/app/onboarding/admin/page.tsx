@@ -1,20 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import {
   createHealthcareAccessRequest,
+  fetchAuthBootstrap,
   fetchHealthcareAccessRequestStatus,
   HealthcareAccessStatus,
 } from "@/lib/api/identity";
 import { getApiErrorDetail } from "@/lib/api/client";
-import { buildLoginPath, getLiffLoginProof, readSafeNextPath } from "@/lib/auth/liff";
+import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
 
-function NoPermissionPageInner() {
-  const searchParams = useSearchParams();
-  const nextPath = useMemo(() => readSafeNextPath(searchParams.get("next")) ?? "/admin", [searchParams]);
+export default function AdminOnboardingPage() {
+  const router = useRouter();
   const [status, setStatus] = useState<HealthcareAccessStatus>("none");
   const [rejectReason, setRejectReason] = useState<string | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
@@ -28,6 +28,23 @@ function NoPermissionPageInner() {
       try {
         setIsLoadingStatus(true);
         const { idToken } = await getLiffLoginProof();
+        const bootstrap = await fetchAuthBootstrap(idToken);
+        if (cancelled) {
+          return;
+        }
+        if (bootstrap.next_step === "app_selection") {
+          router.replace(buildLoginPath("/apps"));
+          return;
+        }
+        if (bootstrap.next_step === "patient_app") {
+          router.replace(buildLoginPath("/patient"));
+          return;
+        }
+        if (bootstrap.next_step === "onboarding_patient") {
+          router.replace("/onboarding/patient");
+          return;
+        }
+
         const response = await fetchHealthcareAccessRequestStatus(idToken);
         if (cancelled) {
           return;
@@ -35,7 +52,7 @@ function NoPermissionPageInner() {
         setStatus(response.status);
         setRejectReason(response.reject_reason);
         if (response.status === "pending") {
-          setSuccessMessage("已送出「我是醫護人員」權限申請，請等待管理員審核。");
+          setSuccessMessage("已送出醫護權限申請，請等待管理員審核。");
         }
       } catch (error) {
         if (!cancelled) {
@@ -51,7 +68,7 @@ function NoPermissionPageInner() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [router]);
 
   async function handleRequestHealthcareAccess() {
     setErrorMessage(null);
@@ -63,7 +80,7 @@ function NoPermissionPageInner() {
       if (result.status === "pending") {
         setStatus("pending");
         setRejectReason(null);
-        setSuccessMessage("已送出「我是醫護人員」權限申請，請等待管理員審核。");
+        setSuccessMessage("已送出醫護權限申請，請等待管理員審核。");
       } else {
         setStatus(result.status);
         setSuccessMessage("權限申請已送出。");
@@ -81,9 +98,9 @@ function NoPermissionPageInner() {
     <div className="min-h-screen bg-zinc-50 px-4 py-10 sm:px-6">
       <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm sm:p-8">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-900">此帳號尚無護理師後台權限</h1>
+          <h1 className="text-lg font-semibold text-zinc-900">醫護後台 onboarding</h1>
           <p className="mt-2 text-sm leading-relaxed text-zinc-600">
-            若您是醫護人員，可在此送出權限申請，待管理員審核後再登入護理師後台。
+            若您是醫護人員，可在此送出後台權限申請，待管理員審核後即可進入後台。
           </p>
         </div>
 
@@ -113,19 +130,11 @@ function NoPermissionPageInner() {
           <Link href="/" className="underline underline-offset-4 hover:text-zinc-800">
             返回首頁
           </Link>
-          <Link href={buildLoginPath(nextPath)} className="underline underline-offset-4 hover:text-zinc-800">
+          <Link href={buildLoginPath("/admin")} className="underline underline-offset-4 hover:text-zinc-800">
             重新登入
           </Link>
         </div>
       </div>
     </div>
-  );
-}
-
-export default function NoPermissionPage() {
-  return (
-    <Suspense>
-      <NoPermissionPageInner />
-    </Suspense>
   );
 }

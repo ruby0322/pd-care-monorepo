@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import PatientPage from "@/app/patient/page";
 import { fetchIdentityStatus } from "@/lib/api/identity";
 import { fetchPatientMessages, fetchUploadHistoryByMonthWindow } from "@/lib/api/upload-history";
-import { getLiffLoginProof, buildLoginPath } from "@/lib/auth/liff";
+import { getLiffLoginProof } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 
 const mockRouter = {
@@ -55,7 +55,6 @@ jest.mock("@/lib/api/identity", () => ({
 
 jest.mock("@/lib/auth/liff", () => ({
   getLiffLoginProof: jest.fn(),
-  buildLoginPath: jest.fn((next?: string) => `/login?next=${encodeURIComponent(next ?? "/patient")}`),
 }));
 
 jest.mock("@/lib/api/upload-history", () => ({
@@ -101,19 +100,13 @@ describe("PatientPage month window prefetch flow", () => {
     jest.clearAllMocks();
   });
 
-  test("redirects matched users without patient session to unified login", async () => {
+  test("redirects users without patient session to patient onboarding", async () => {
     (getPatientSession as jest.Mock).mockReturnValue(null);
-    (getLiffLoginProof as jest.Mock).mockResolvedValue({
-      idToken: "id.token.value",
-      profile: { displayName: "Matched User" },
-    });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
 
     render(<PatientPage />);
 
     await waitFor(() => {
-      expect(buildLoginPath).toHaveBeenCalledWith("/patient");
-      expect(mockRouter.replace).toHaveBeenCalledWith("/login?next=%2Fpatient");
+      expect(mockRouter.replace).toHaveBeenCalledWith("/onboarding/patient");
     });
     expect(fetchUploadHistoryByMonthWindow).not.toHaveBeenCalled();
     expect(fetchPatientMessages).not.toHaveBeenCalled();

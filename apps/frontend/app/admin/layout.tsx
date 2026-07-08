@@ -23,7 +23,9 @@ import { AdminNotificationBell } from "@/app/admin/_components/admin-notificatio
 import { AdminNotificationProvider } from "@/app/admin/_components/admin-notification-context";
 import { AdminSessionActions } from "@/app/admin/_components/admin-session-actions";
 import { apiClient } from "@/lib/api/client";
-import { buildLoginPath } from "@/lib/auth/liff";
+import { fetchAuthBootstrap } from "@/lib/api/identity";
+import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
+import { clearPatientSession } from "@/lib/auth/patient-session";
 import { clearStaffSession, getStaffSession } from "@/lib/auth/staff-session";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -50,6 +52,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     async function verifySession() {
       try {
         await apiClient.get("/v1/staff/me");
+        const { idToken } = await getLiffLoginProof();
+        const bootstrap = await fetchAuthBootstrap(idToken);
+        if (bootstrap.next_step !== "app_selection") {
+          clearStaffSession();
+          clearPatientSession();
+          if (!cancelled) {
+            setIsVerified(false);
+            if (bootstrap.next_step === "onboarding_admin") {
+              router.replace("/onboarding/admin");
+            } else {
+              router.replace("/onboarding/patient");
+            }
+          }
+          return;
+        }
         if (!cancelled) {
           setIsVerified(true);
         }

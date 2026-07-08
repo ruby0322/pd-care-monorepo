@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import LiffIdentity, Patient
+from app.db.models import HealthcareAccessRequest, LiffIdentity, Patient, PendingBinding
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
 from tests.db_test_utils import migrated_sqlite_database_url
@@ -90,6 +90,37 @@ def _seed_patient(client: TestClient, *, line_user_id: str) -> None:
                 picture_url=None,
                 patient_id=patient.id,
                 role="patient",
+            )
+        )
+        session.commit()
+
+
+def _seed_pending_binding(client: TestClient, *, line_user_id: str) -> None:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        session.add(
+            PendingBinding(
+                line_user_id=line_user_id,
+                case_number=f"CASE-{line_user_id}",
+                birth_date="1980-01-02",
+                status="pending",
+            )
+        )
+        session.commit()
+
+
+def _seed_healthcare_request(
+    client: TestClient,
+    *,
+    requester_identity_id: int,
+    status: str,
+) -> None:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        session.add(
+            HealthcareAccessRequest(
+                requester_identity_id=requester_identity_id,
+                status=status,
             )
         )
         session.commit()
@@ -231,3 +262,56 @@ def test_patient_identity_can_login_and_access_own_patient_endpoint(tmp_path: Pa
         response = client.get("/v1/patient/upload-history", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
         assert response.json()["status"] == "matched"
+
+
+def test_auth_bootstrap_routes_new_user_to_role_select(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "auth-bootstrap-new-user.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        response = client.post("/v1/auth/bootstrap", json={"line_id_token": "stub:U_NEW"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["identity_exists"] is False
+        assert payload["next_step"] == "role_select"
+        assert payload["allowed_apps"] == []
+
+
+def test_auth_bootstrap_routes_pending_patient_to_patient_onboarding(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "auth-bootstrap-patient-pending.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_PENDING_PATIENT", role="patient")
+        _seed_pending_binding(client, line_user_id="U_PENDING_PATIENT")
+
+        response = client.post("/v1/auth/bootstrap", json={"line_id_token": "stub:U_PENDING_PATIENT"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["patient_binding_status"] == "pending"
+        assert payload["next_step"] == "onboarding_patient"
+
+
+def test_auth_bootstrap_routes_pending_healthcare_request_to_admin_onboarding(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "auth-bootstrap-admin-pending.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        identity_id = _seed_identity(client, line_user_id="U_ADMIN_PENDING", role="patient")
+        _seed_healthcare_request(client, requester_identity_id=identity_id, status="pending")
+
+        response = client.post("/v1/auth/bootstrap", json={"line_id_token": "stub:U_ADMIN_PENDING"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["healthcare_access_status"] == "pending"
+        assert payload["next_step"] == "onboarding_admin"
+
+
+def test_auth_login_rejects_user_still_in_onboarding(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "auth-login-onboarding-denied.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ONBOARDING", role="patient")
+        _seed_pending_binding(client, line_user_id="U_ONBOARDING")
+
+        response = client.post("/v1/auth/login", json={"line_id_token": "stub:U_ONBOARDING"})
+        assert response.status_code == 403
+        payload = response.json()
+        assert payload["detail"]["code"] == "ONBOARDING_REQUIRED"

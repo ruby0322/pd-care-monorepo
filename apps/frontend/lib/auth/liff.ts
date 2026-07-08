@@ -199,6 +199,13 @@ export async function getLiffProfile(): Promise<LiffProfile> {
 }
 
 export async function getLiffLoginProof(): Promise<{ profile: LiffProfile; idToken: string }> {
+  const bypass = devBypassProfile();
+  if (bypass) {
+    // Dev-only: backend accepts `stub:<line_user_id>` id tokens when LINE_VERIFY_MODE=stub,
+    // letting local role verification skip the real LIFF SDK and LINE login entirely.
+    return { profile: bypass, idToken: `stub:${bypass.userId}` };
+  }
+
   const profile = await getLiffProfile();
   const idToken = window.liff?.getIDToken?.();
   if (!idToken) {

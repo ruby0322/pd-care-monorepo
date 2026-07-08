@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -k -p \"[{name}]\" -c \"blue.bold,magenta.bold\" -n \"FRONTEND,BACKEND\" \"npm run dev:frontend\" \"npm run dev:backend\"",
-    "dev:frontend": "npm --prefix apps/frontend run dev",
+    "dev:frontend": "bash -lc 'cd apps/frontend && npm run dev'",
     "dev:backend": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && if [ -f .env ]; then set -a && . ./.env && set +a; fi && UVICORN_HOST=\"${UVICORN_HOST:-0.0.0.0}\" && UVICORN_PORT=\"${UVICORN_PORT:-8000}\" && \"$PYTHON_BIN\" -m alembic -c alembic.ini upgrade head && \"$PYTHON_BIN\" -m uvicorn app.main:app --reload --host \"$UVICORN_HOST\" --port \"$UVICORN_PORT\"'",
     "build": "npm run build:frontend",
     "build:frontend": "npm --prefix apps/frontend run build",
@@ -12,6 +12,7 @@
     "check:migrations": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && \"$PYTHON_BIN\" scripts/check_non_destructive_migrations.py'",
     "test": "npm run test:backend",
     "test:backend": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && \"$PYTHON_BIN\" -m pytest'",
+    "seed:dev-personas": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && \"$PYTHON_BIN\" sql/manual/seed_dev_personas.py'",
     "docker:up": "docker compose up --build",
     "docker:up:frontend": "docker compose up --build frontend",
     "docker:up:backend": "docker compose up --build backend",

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, MessageSquare, RefreshCw } from "lucide-react";
 
@@ -13,12 +13,10 @@ import {
   PatientMessageItem,
 } from "@/lib/api/upload-history";
 import { getReadableApiError } from "@/lib/api/client";
-import { buildLoginPath } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 
 export default function PatientMessagesPage() {
   const router = useRouter();
-  const pathname = usePathname();
   const [items, setItems] = useState<PatientMessageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
@@ -31,9 +29,9 @@ export default function PatientMessagesPage() {
     if (existing) {
       return;
     }
-    router.replace(buildLoginPath(pathname || "/patient/messages"));
+    router.replace("/onboarding/patient");
     throw new Error("正在導向登入頁面...");
-  }, [pathname, router]);
+  }, [router]);
 
   const loadMessages = useCallback(async () => {
     try {

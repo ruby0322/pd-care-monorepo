@@ -6,16 +6,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
-import { apiClient, getApiErrorDetail } from "@/lib/api/client";
-import { fetchIdentityStatus } from "@/lib/api/identity";
+import { apiClient, getApiErrorCode, getApiErrorDetail } from "@/lib/api/client";
+import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { getLiffLoginProof, readSafeNextPath } from "@/lib/auth/liff";
-import {
-  buildNoPermissionRedirect,
-  resolveLoginFailureRedirect,
-  resolvePatientLoginDestination,
-  resolveStaffLoginDestination,
-  shouldRedirectPatientToNoPermission,
-} from "@/lib/auth/login-redirect";
 import { setPatientSession } from "@/lib/auth/patient-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
 
@@ -27,8 +20,12 @@ type LoginResponse = {
 };
 
 function getLoginErrorMessage(error: unknown): string {
+  const code = getApiErrorCode(error);
   const detail = getApiErrorDetail(error);
-  if (detail?.includes("尚未開通") || detail?.includes("角色無法登入")) {
+  if (code === "ONBOARDING_REQUIRED") {
+    return "此 LINE 帳號仍在 onboarding 流程中，請先完成註冊或審核。";
+  }
+  if (code === "IDENTITY_NOT_FOUND" || code === "ROLE_NOT_ALLOWED" || code === "IDENTITY_INACTIVE") {
     return "此 LINE 帳號尚未開通對應權限，請聯絡系統管理員。";
   }
   if (detail === "Not Found") {
@@ -49,15 +46,28 @@ function getLoginErrorMessage(error: unknown): string {
   return detail ?? "登入失敗，請稍後再試。";
 }
 
-function isPermissionDeniedError(error: unknown): boolean {
-  const detail = getApiErrorDetail(error);
-  if (detail?.includes("尚未開通") || detail?.includes("角色無法登入")) {
-    return true;
+function isAdminIntent(path: string | null): boolean {
+  if (!path) {
+    return false;
   }
-  if (error instanceof AxiosError) {
-    return error.response?.status === 403;
+  return path === "/apps" || path.startsWith("/admin");
+}
+
+function isPatientRoute(path: string | null): boolean {
+  if (!path) {
+    return false;
   }
-  return false;
+  return path === "/patient" || path.startsWith("/patient/");
+}
+
+function resolveNewUserDestination(nextPath: string | null): string {
+  if (isPatientRoute(nextPath)) {
+    return "/onboarding/patient";
+  }
+  if (isAdminIntent(nextPath)) {
+    return "/onboarding/admin";
+  }
+  return "/";
 }
 
 function LoginPageInner() {
@@ -73,65 +83,66 @@ function LoginPageInner() {
     setIsSubmitting(true);
     try {
       const { idToken } = await getLiffLoginProof();
-      const response = await apiClient.post<LoginResponse>("/v1/auth/login", {
-        line_id_token: idToken,
-      });
-      const payload = response.data;
-      const expiresAt = Date.now() + payload.expires_in * 1000;
+      const bootstrap = await fetchAuthBootstrap(idToken);
 
-      if (shouldRedirectPatientToNoPermission(nextPath, payload.role)) {
-        router.replace(buildNoPermissionRedirect(nextPath));
+      if (bootstrap.next_step === "role_select") {
+        router.replace(resolveNewUserDestination(nextPath));
         router.refresh();
         return;
       }
 
-      if (payload.role === "staff" || payload.role === "admin") {
+      if (bootstrap.next_step === "onboarding_patient") {
+        router.replace("/onboarding/patient");
+        router.refresh();
+        return;
+      }
+
+      if (bootstrap.next_step === "onboarding_admin") {
+        router.replace("/onboarding/admin");
+        router.refresh();
+        return;
+      }
+
+      const loginResponse = await apiClient.post<LoginResponse>("/v1/auth/login", {
+        line_id_token: idToken,
+      });
+      const payload = loginResponse.data;
+      const expiresAt = Date.now() + payload.expires_in * 1000;
+
+      if (bootstrap.next_step === "app_selection") {
+        const staffRole: "staff" | "admin" = payload.role === "admin" ? "admin" : "staff";
         const session = {
           accessToken: payload.access_token,
           expiresAt,
-          role: payload.role,
+          role: staffRole,
           lineUserId: payload.line_user_id,
         };
         setStaffSession(session);
-        try {
-          const bindStatus = await fetchIdentityStatus(idToken);
-          if (bindStatus.status === "matched") {
-            setPatientSession(session);
-          }
-        } catch {
-          // Keep staff/admin login available even if patient bind status lookup fails.
+        if (bootstrap.allowed_apps.includes("patient")) {
+          setPatientSession(session);
         }
-        router.replace(resolveStaffLoginDestination(nextPath));
+        const destination = nextPath && isAdminIntent(nextPath) ? nextPath : "/apps";
+        router.replace(destination);
         router.refresh();
         return;
       }
 
-      const bindStatus = await fetchIdentityStatus(idToken);
-      if (bindStatus.status === "matched") {
+      if (bootstrap.next_step === "patient_app") {
         setPatientSession({
           accessToken: payload.access_token,
           expiresAt,
-          role: payload.role,
+          role: "patient",
           lineUserId: payload.line_user_id,
         });
+        const destination = nextPath && isPatientRoute(nextPath) ? nextPath : "/patient";
+        router.replace(destination);
+        router.refresh();
+        return;
       }
 
-      router.replace(resolvePatientLoginDestination(nextPath));
+      router.replace("/");
       router.refresh();
     } catch (error) {
-      if (isPermissionDeniedError(error)) {
-        const failureRedirect = resolveLoginFailureRedirect(nextPath);
-        if (failureRedirect.type === "home") {
-          router.replace("/");
-          router.refresh();
-          return;
-        }
-        if (failureRedirect.type === "no-permission") {
-          router.replace(failureRedirect.href);
-          router.refresh();
-          return;
-        }
-      }
       setErrorMessage(getLoginErrorMessage(error));
     } finally {
       setIsSubmitting(false);

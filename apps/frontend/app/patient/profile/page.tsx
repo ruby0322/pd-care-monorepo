@@ -3,17 +3,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, CircleUserRound } from "lucide-react";
 
 import { getReadableApiError } from "@/lib/api/client";
 import { fetchPatientProfile, PatientProfileResponse } from "@/lib/api/identity";
-import { buildLoginPath } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 
 export default function PatientProfilePage() {
   const router = useRouter();
-  const pathname = usePathname();
   const [profile, setProfile] = useState<PatientProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +23,7 @@ export default function PatientProfilePage() {
       setError(null);
       try {
         if (!getPatientSession()) {
-          router.replace(buildLoginPath(pathname || "/patient/profile"));
+          router.replace("/onboarding/patient");
           return;
         }
 
@@ -47,7 +45,7 @@ export default function PatientProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [pathname, router]);
+  }, [router]);
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-white px-6 pt-10 pb-[calc(env(safe-area-inset-bottom)+1rem)]">

@@ -2,6 +2,14 @@ import { apiClient } from "@/lib/api/client";
 
 export type IdentityStatus = "matched" | "pending" | "unbound";
 export type HealthcareAccessStatus = "none" | "pending" | "approved" | "rejected";
+export type AuthBootstrapNextStep =
+  | "role_select"
+  | "onboarding_patient"
+  | "onboarding_admin"
+  | "patient_app"
+  | "app_selection";
+export type AuthBootstrapRole = "patient" | "staff" | "admin" | null;
+export type AllowedApp = "patient" | "admin";
 
 export type IdentityStatusResponse = {
   status: IdentityStatus;
@@ -27,6 +35,17 @@ export type HealthcareAccessRequestStatusResponse = {
   decision_role: "patient" | "staff" | "admin" | null;
 };
 
+export type AuthBootstrapResponse = {
+  line_user_id: string;
+  identity_exists: boolean;
+  role: AuthBootstrapRole;
+  is_active: boolean;
+  patient_binding_status: IdentityStatus;
+  healthcare_access_status: HealthcareAccessStatus;
+  next_step: AuthBootstrapNextStep;
+  allowed_apps: AllowedApp[];
+};
+
 type BindIdentityPayload = {
   line_id_token: string;
   case_number: string;
@@ -35,6 +54,13 @@ type BindIdentityPayload = {
 
 export async function fetchIdentityStatus(lineIdToken: string): Promise<IdentityStatusResponse> {
   const { data } = await apiClient.post<IdentityStatusResponse>("/v1/identity/bind/status", {
+    line_id_token: lineIdToken,
+  });
+  return data;
+}
+
+export async function fetchAuthBootstrap(lineIdToken: string): Promise<AuthBootstrapResponse> {
+  const { data } = await apiClient.post<AuthBootstrapResponse>("/v1/auth/bootstrap", {
     line_id_token: lineIdToken,
   });
   return data;
