@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { AxiosError } from "axios";
 import { Activity } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AxiosError } from "axios";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiClient, getApiErrorDetail } from "@/lib/api/client";
 import { fetchIdentityStatus } from "@/lib/api/identity";
@@ -46,11 +46,18 @@ function resolveNextPath(rawNext: string | null): string | null {
   return readSafeNextPath(rawNext);
 }
 
-function isStaffOrAdminRoute(path: string | null): boolean {
+function isAdminRoute(path: string | null): boolean {
   if (!path) {
     return false;
   }
-  return path === "/apps" || path.startsWith("/admin");
+  return path.startsWith("/admin");
+}
+
+function isPatientRoute(path: string | null): boolean {
+  if (!path) {
+    return false;
+  }
+  return path === "/patient" || path.startsWith("/patient/");
 }
 
 function isPermissionDeniedError(error: unknown): boolean {
@@ -82,9 +89,9 @@ function LoginPageInner() {
       });
       const payload = response.data;
       const expiresAt = Date.now() + payload.expires_in * 1000;
-      const isStaffIntent = isStaffOrAdminRoute(nextPath);
+      const isAdminIntent = isAdminRoute(nextPath);
 
-      if (isStaffIntent && payload.role === "patient") {
+      if (isAdminIntent && payload.role === "patient") {
         const redirectNext = encodeURIComponent(nextPath ?? "/admin");
         router.replace(`/no-permission?next=${redirectNext}`);
         router.refresh();
@@ -124,11 +131,11 @@ function LoginPageInner() {
       }
 
       const fallbackPath = "/patient";
-      const destination = nextPath?.startsWith("/admin") ? fallbackPath : (nextPath ?? fallbackPath);
+      const destination = isPatientRoute(nextPath) ? nextPath : fallbackPath;
       router.replace(destination);
       router.refresh();
     } catch (error) {
-      if (isStaffOrAdminRoute(nextPath) && isPermissionDeniedError(error)) {
+      if (isAdminRoute(nextPath) && isPermissionDeniedError(error)) {
         const redirectNext = encodeURIComponent(nextPath ?? "/admin");
         router.replace(`/no-permission?next=${redirectNext}`);
         router.refresh();

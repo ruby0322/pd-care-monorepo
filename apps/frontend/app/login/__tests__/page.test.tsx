@@ -171,7 +171,7 @@ describe("LoginPage", () => {
     expect(setStaffSession).not.toHaveBeenCalled();
   });
 
-  it("redirects apps-intent patient login to no-permission request flow", async () => {
+  it("falls back patient login to /patient when next is /apps", async () => {
     mockSearchParams.set("next", "/apps");
     (apiClient.post as jest.Mock).mockResolvedValue({
       data: {
@@ -181,11 +181,12 @@ describe("LoginPage", () => {
         line_user_id: "line-patient",
       },
     });
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "pending" });
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/no-permission?next=%2Fapps");
+      expect(mockReplace).toHaveBeenCalledWith("/patient");
     });
     expect(setPatientSession).not.toHaveBeenCalled();
     expect(setStaffSession).not.toHaveBeenCalled();
@@ -262,6 +263,27 @@ describe("LoginPage", () => {
       expect(setPatientSession).not.toHaveBeenCalled();
       expect(mockReplace).toHaveBeenCalledWith("/patient");
     });
+  });
+
+  it("falls back patient login to /patient when next is /apps", async () => {
+    mockSearchParams.set("next", "/apps");
+    (apiClient.post as jest.Mock).mockResolvedValue({
+      data: {
+        access_token: "patient-token",
+        expires_in: 3600,
+        role: "patient",
+        line_user_id: "line-patient",
+      },
+    });
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "pending" });
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/patient");
+    });
+    expect(setPatientSession).not.toHaveBeenCalled();
+    expect(setStaffSession).not.toHaveBeenCalled();
   });
 
   it("shows an error when automatic login fails on mount", async () => {
