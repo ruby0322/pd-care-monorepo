@@ -24,7 +24,8 @@ describe("RoleSelectPage", () => {
     render(<RoleSelectPage />);
 
     fireEvent.click(screen.getByRole("button", { name: /我是病患/ }));
-    expect(mockPush).toHaveBeenCalledWith("/patient");
+    expect(buildLoginPath).toHaveBeenCalledWith("/patient");
+    expect(mockPush).toHaveBeenCalledWith("/login?next=%2Fpatient");
   });
 
   it("routes nurse choice to login with admin next path", () => {
