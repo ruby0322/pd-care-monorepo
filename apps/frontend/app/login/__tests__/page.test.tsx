@@ -171,6 +171,26 @@ describe("LoginPage", () => {
     expect(setStaffSession).not.toHaveBeenCalled();
   });
 
+  it("redirects apps-intent patient login to no-permission request flow", async () => {
+    mockSearchParams.set("next", "/apps");
+    (apiClient.post as jest.Mock).mockResolvedValue({
+      data: {
+        access_token: "patient-token",
+        expires_in: 3600,
+        role: "patient",
+        line_user_id: "line-patient",
+      },
+    });
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/no-permission?next=%2Fapps");
+    });
+    expect(setPatientSession).not.toHaveBeenCalled();
+    expect(setStaffSession).not.toHaveBeenCalled();
+  });
+
   it("stores both sessions when admin opens nested patient route with matched identity", async () => {
     mockSearchParams.set("next", "/patient/capture");
     (apiClient.post as jest.Mock).mockResolvedValue({
