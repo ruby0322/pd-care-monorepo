@@ -171,8 +171,13 @@ describe("LoginPage", () => {
     expect(setStaffSession).not.toHaveBeenCalled();
   });
 
-  it("redirects apps-intent patient login to no-permission request flow", async () => {
-    mockSearchParams.set("next", "/apps");
+  it.each([
+    { label: "without next", next: null },
+    { label: "when next is /apps", next: "/apps" },
+  ])("redirects unmatched patient to /patient $label", async ({ next }) => {
+    if (next) {
+      mockSearchParams.set("next", next);
+    }
     (apiClient.post as jest.Mock).mockResolvedValue({
       data: {
         access_token: "patient-token",
@@ -181,13 +186,14 @@ describe("LoginPage", () => {
         line_user_id: "line-patient",
       },
     });
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "pending" });
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/no-permission?next=%2Fapps");
+      expect(setPatientSession).not.toHaveBeenCalled();
+      expect(mockReplace).toHaveBeenCalledWith("/patient");
     });
-    expect(setPatientSession).not.toHaveBeenCalled();
     expect(setStaffSession).not.toHaveBeenCalled();
   });
 
@@ -245,26 +251,21 @@ describe("LoginPage", () => {
     });
   });
 
-  it("redirects unmatched patient without storing patient session", async () => {
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "patient-token",
-        expires_in: 3600,
-        role: "patient",
-        line_user_id: "line-patient",
-      },
-    });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "pending" });
+  it("shows inline error when apps-targeted login hits permission error", async () => {
+    mockSearchParams.set("next", "/apps");
+    (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(setPatientSession).not.toHaveBeenCalled();
-      expect(mockReplace).toHaveBeenCalledWith("/patient");
+      expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
     });
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(setPatientSession).not.toHaveBeenCalled();
+    expect(setStaffSession).not.toHaveBeenCalled();
   });
 
-  it("shows an error when automatic login fails on mount", async () => {
+  it("shows an error when patient-targeted login fails on mount", async () => {
     mockSearchParams.set("next", "/patient");
     (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
 
@@ -296,15 +297,14 @@ describe("LoginPage", () => {
     });
   });
 
-  it("shows inline error when bare login hits permission error without next", async () => {
+  it("redirects bare login permission errors back home", async () => {
     (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
+      expect(mockReplace).toHaveBeenCalledWith("/");
     });
-    expect(mockReplace).not.toHaveBeenCalled();
     expect(setPatientSession).not.toHaveBeenCalled();
     expect(setStaffSession).not.toHaveBeenCalled();
   });
