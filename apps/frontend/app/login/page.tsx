@@ -131,7 +131,7 @@ function LoginPageInner() {
       }
 
       const fallbackPath = "/patient";
-      const destination = isPatientRoute(nextPath) ? nextPath : fallbackPath;
+      const destination = nextPath && isPatientRoute(nextPath) ? nextPath : fallbackPath;
       router.replace(destination);
       router.refresh();
     } catch (error) {
