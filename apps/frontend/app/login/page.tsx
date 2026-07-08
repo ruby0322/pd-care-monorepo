@@ -82,6 +82,14 @@ function LoginPageInner() {
       });
       const payload = response.data;
       const expiresAt = Date.now() + payload.expires_in * 1000;
+      const isStaffIntent = isStaffOrAdminRoute(nextPath);
+
+      if (isStaffIntent && payload.role === "patient") {
+        const redirectNext = encodeURIComponent(nextPath ?? "/admin");
+        router.replace(`/no-permission?next=${redirectNext}`);
+        router.refresh();
+        return;
+      }
 
       if (payload.role === "staff" || payload.role === "admin") {
         const session = {
