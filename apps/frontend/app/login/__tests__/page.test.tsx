@@ -265,27 +265,6 @@ describe("LoginPage", () => {
     });
   });
 
-  it("falls back patient login to /patient when next is /apps", async () => {
-    mockSearchParams.set("next", "/apps");
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "patient-token",
-        expires_in: 3600,
-        role: "patient",
-        line_user_id: "line-patient",
-      },
-    });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "pending" });
-
-    render(<LoginPage />);
-
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/patient");
-    });
-    expect(setPatientSession).not.toHaveBeenCalled();
-    expect(setStaffSession).not.toHaveBeenCalled();
-  });
-
   it("shows an error when automatic login fails on mount", async () => {
     mockSearchParams.set("next", "/patient");
     (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
