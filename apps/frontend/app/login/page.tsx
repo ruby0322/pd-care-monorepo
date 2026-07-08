@@ -135,6 +135,11 @@ function LoginPageInner() {
       router.replace(destination);
       router.refresh();
     } catch (error) {
+      if (!nextPath && isPermissionDeniedError(error)) {
+        router.replace("/");
+        router.refresh();
+        return;
+      }
       if (isAdminRoute(nextPath) && isPermissionDeniedError(error)) {
         const redirectNext = encodeURIComponent(nextPath ?? "/admin");
         router.replace(`/no-permission?next=${redirectNext}`);

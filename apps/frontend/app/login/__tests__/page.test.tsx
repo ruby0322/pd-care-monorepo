@@ -318,15 +318,14 @@ describe("LoginPage", () => {
     });
   });
 
-  it("shows inline error when bare login hits permission error without next", async () => {
+  it("redirects bare login permission errors back home", async () => {
     (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
+      expect(mockReplace).toHaveBeenCalledWith("/");
     });
-    expect(mockReplace).not.toHaveBeenCalled();
     expect(setPatientSession).not.toHaveBeenCalled();
     expect(setStaffSession).not.toHaveBeenCalled();
   });
