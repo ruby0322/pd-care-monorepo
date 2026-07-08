@@ -19,7 +19,7 @@ export default function RoleSelectPage() {
         <div className="flex flex-col gap-3">
           <button
             type="button"
-            onClick={() => router.push("/patient")}
+            onClick={() => router.push(buildLoginPath("/patient"))}
             className="group flex w-full items-center justify-between rounded-2xl bg-zinc-900 px-5 py-4 text-white transition-colors hover:bg-zinc-800"
           >
             <div className="text-left">
