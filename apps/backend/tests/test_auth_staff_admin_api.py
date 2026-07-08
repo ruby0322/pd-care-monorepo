@@ -304,6 +304,65 @@ def test_auth_bootstrap_routes_pending_healthcare_request_to_admin_onboarding(tm
         assert payload["next_step"] == "onboarding_admin"
 
 
+def test_auth_bootstrap_routes_active_staff_to_app_selection(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "auth-bootstrap-staff-active.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ACTIVE_STAFF", role="staff")
+
+        response = client.post("/v1/auth/bootstrap", json={"line_id_token": "stub:U_ACTIVE_STAFF"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["next_step"] == "app_selection"
+        assert payload["allowed_apps"] == ["admin"]
+
+
+def test_auth_bootstrap_routes_active_patient_to_patient_app(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "auth-bootstrap-patient-active.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_patient(client, line_user_id="U_ACTIVE_PATIENT")
+
+        response = client.post("/v1/auth/bootstrap", json={"line_id_token": "stub:U_ACTIVE_PATIENT"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["next_step"] == "patient_app"
+        assert payload["allowed_apps"] == ["patient"]
+
+
+def test_auth_bootstrap_routes_dual_role_admin_to_app_selection_with_both_apps(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "auth-bootstrap-dual-role.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            patient = Patient(
+                case_number="CASE-DUAL-BOOTSTRAP",
+                birth_date="1981-02-03",
+                full_name="Dual Role Patient",
+                is_active=True,
+            )
+            session.add(patient)
+            session.flush()
+            session.add(
+                LiffIdentity(
+                    line_user_id="U_DUAL_ROLE",
+                    display_name="Dual Role Admin",
+                    picture_url=None,
+                    patient_id=patient.id,
+                    role="admin",
+                    is_active=True,
+                )
+            )
+            session.commit()
+
+        response = client.post("/v1/auth/bootstrap", json={"line_id_token": "stub:U_DUAL_ROLE"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["next_step"] == "app_selection"
+        assert payload["allowed_apps"] == ["admin", "patient"]
+
+
 def test_auth_login_rejects_user_still_in_onboarding(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "auth-login-onboarding-denied.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

@@ -52,20 +52,28 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     async function verifySession() {
       try {
         await apiClient.get("/v1/staff/me");
-        const { idToken } = await getLiffLoginProof();
-        const bootstrap = await fetchAuthBootstrap(idToken);
-        if (bootstrap.next_step !== "app_selection") {
-          clearStaffSession();
-          clearPatientSession();
-          if (!cancelled) {
-            setIsVerified(false);
-            if (bootstrap.next_step === "onboarding_admin") {
-              router.replace("/onboarding/admin");
-            } else {
-              router.replace("/onboarding/patient");
+        try {
+          const { idToken } = await getLiffLoginProof();
+          const bootstrap = await fetchAuthBootstrap(idToken);
+          if (bootstrap.next_step !== "app_selection") {
+            clearStaffSession();
+            clearPatientSession();
+            if (!cancelled) {
+              setIsVerified(false);
+              if (bootstrap.next_step === "onboarding_admin") {
+                router.replace("/onboarding/admin");
+              } else if (bootstrap.next_step === "onboarding_patient") {
+                router.replace("/onboarding/patient");
+              } else if (bootstrap.next_step === "patient_app") {
+                router.replace("/patient");
+              } else {
+                router.replace("/");
+              }
             }
+            return;
           }
-          return;
+        } catch {
+          // Staff token validation already succeeded; do not force logout on transient LIFF issues.
         }
         if (!cancelled) {
           setIsVerified(true);

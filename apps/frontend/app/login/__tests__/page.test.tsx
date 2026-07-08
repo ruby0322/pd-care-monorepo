@@ -117,6 +117,41 @@ describe("LoginPage", () => {
     });
   });
 
+  it("stores both sessions when app-selection allows patient app", async () => {
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "app_selection",
+      allowed_apps: ["admin", "patient"],
+    });
+    (apiClient.post as jest.Mock).mockResolvedValue({
+      data: {
+        access_token: "admin-token",
+        expires_in: 3600,
+        role: "admin",
+        line_user_id: "line-admin",
+      },
+    });
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(setStaffSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: "admin-token",
+          role: "admin",
+          lineUserId: "line-admin",
+        })
+      );
+      expect(setPatientSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: "admin-token",
+          role: "admin",
+          lineUserId: "line-admin",
+        })
+      );
+      expect(mockReplace).toHaveBeenCalledWith("/apps");
+    });
+  });
+
   it("stores patient session and redirects to patient app", async () => {
     mockSearchParams.set("next", "/patient/capture");
     (fetchAuthBootstrap as jest.Mock).mockResolvedValue({

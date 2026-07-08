@@ -3,10 +3,8 @@
 import { Activity, Camera, ShieldCheck, Stethoscope } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
-import { fetchAuthBootstrap } from "@/lib/api/identity";
-import { getLiffLoginProof } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import { getStaffSession } from "@/lib/auth/staff-session";
 import { useClientSnapshot } from "@/lib/utils/use-client-snapshot";
@@ -26,7 +24,6 @@ function getEntryState(): EntryState {
 export default function Home() {
   const router = useRouter();
   const entryState = useClientSnapshot(getEntryState, "checking");
-  const [isResolvingBootstrap, setIsResolvingBootstrap] = useState(false);
 
   useEffect(() => {
     if (entryState === "redirect-apps") {
@@ -38,49 +35,7 @@ export default function Home() {
     }
   }, [entryState, router]);
 
-  useEffect(() => {
-    if (entryState !== "intro") {
-      return;
-    }
-    let cancelled = false;
-    async function resolveBootstrap() {
-      try {
-        setIsResolvingBootstrap(true);
-        const { idToken } = await getLiffLoginProof();
-        const bootstrap = await fetchAuthBootstrap(idToken);
-        if (cancelled) {
-          return;
-        }
-        if (bootstrap.next_step === "app_selection") {
-          router.replace("/apps");
-          return;
-        }
-        if (bootstrap.next_step === "patient_app") {
-          router.replace("/patient");
-          return;
-        }
-        if (bootstrap.next_step === "onboarding_patient") {
-          router.replace("/onboarding/patient");
-          return;
-        }
-        if (bootstrap.next_step === "onboarding_admin") {
-          router.replace("/onboarding/admin");
-        }
-      } catch {
-        // Keep intro visible when bootstrap lookup fails.
-      } finally {
-        if (!cancelled) {
-          setIsResolvingBootstrap(false);
-        }
-      }
-    }
-    void resolveBootstrap();
-    return () => {
-      cancelled = true;
-    };
-  }, [entryState, router]);
-
-  if (entryState !== "intro" || isResolvingBootstrap) {
+  if (entryState !== "intro") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white px-6">
         <p className="text-sm text-zinc-500">正在整理您的入口...</p>

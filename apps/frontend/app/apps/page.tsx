@@ -55,11 +55,19 @@ export default function AppSelectionPage() {
           }
           clearStaffSession();
           clearPatientSession();
+          if (bootstrap.next_step === "role_select") {
+            router.replace("/role-select");
+            return;
+          }
           if (bootstrap.next_step === "onboarding_admin") {
             router.replace("/onboarding/admin");
             return;
           }
-          router.replace("/onboarding/patient");
+          if (bootstrap.next_step === "onboarding_patient") {
+            router.replace("/onboarding/patient");
+            return;
+          }
+          router.replace("/");
         } catch {
           router.replace(buildLoginPath("/apps"));
         } finally {
