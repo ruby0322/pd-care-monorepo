@@ -8,6 +8,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiClient, getApiErrorCode, getApiErrorDetail } from "@/lib/api/client";
 import { fetchAuthBootstrap } from "@/lib/api/identity";
+import { isAdminIntent, isPatientRoute, resolveBootstrapDestination, resolveRoleSelectDestination } from "@/lib/auth/bootstrap-routing";
 import { getLiffLoginProof, readSafeNextPath } from "@/lib/auth/liff";
 import { setPatientSession } from "@/lib/auth/patient-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
@@ -46,30 +47,6 @@ function getLoginErrorMessage(error: unknown): string {
   return detail ?? "登入失敗，請稍後再試。";
 }
 
-function isAdminIntent(path: string | null): boolean {
-  if (!path) {
-    return false;
-  }
-  return path === "/apps" || path.startsWith("/admin");
-}
-
-function isPatientRoute(path: string | null): boolean {
-  if (!path) {
-    return false;
-  }
-  return path === "/patient" || path.startsWith("/patient/");
-}
-
-function resolveNewUserDestination(nextPath: string | null): string {
-  if (isPatientRoute(nextPath)) {
-    return "/onboarding/patient";
-  }
-  if (isAdminIntent(nextPath)) {
-    return "/onboarding/admin";
-  }
-  return "/";
-}
-
 function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -84,21 +61,20 @@ function LoginPageInner() {
     try {
       const { idToken } = await getLiffLoginProof();
       const bootstrap = await fetchAuthBootstrap(idToken);
+      const roleSelectDestination = resolveRoleSelectDestination(nextPath);
+      const appSelectionDestination = nextPath && isAdminIntent(nextPath) ? nextPath : "/apps";
+      const patientAppDestination = nextPath && isPatientRoute(nextPath) ? nextPath : "/patient";
 
-      if (bootstrap.next_step === "role_select") {
-        router.replace(resolveNewUserDestination(nextPath));
-        router.refresh();
-        return;
-      }
-
-      if (bootstrap.next_step === "onboarding_patient") {
-        router.replace("/onboarding/patient");
-        router.refresh();
-        return;
-      }
-
-      if (bootstrap.next_step === "onboarding_admin") {
-        router.replace("/onboarding/admin");
+      if (
+        bootstrap.next_step === "role_select" ||
+        bootstrap.next_step === "onboarding_patient" ||
+        bootstrap.next_step === "onboarding_admin"
+      ) {
+        router.replace(
+          resolveBootstrapDestination(bootstrap.next_step, {
+            roleSelectDestination,
+          })
+        );
         router.refresh();
         return;
       }
@@ -121,7 +97,9 @@ function LoginPageInner() {
         if (bootstrap.allowed_apps.includes("patient")) {
           setPatientSession(session);
         }
-        const destination = nextPath && isAdminIntent(nextPath) ? nextPath : "/apps";
+        const destination = resolveBootstrapDestination(bootstrap.next_step, {
+          appSelectionDestination,
+        });
         router.replace(destination);
         router.refresh();
         return;
@@ -134,7 +112,9 @@ function LoginPageInner() {
           role: "patient",
           lineUserId: payload.line_user_id,
         });
-        const destination = nextPath && isPatientRoute(nextPath) ? nextPath : "/patient";
+        const destination = resolveBootstrapDestination(bootstrap.next_step, {
+          patientAppDestination,
+        });
         router.replace(destination);
         router.refresh();
         return;

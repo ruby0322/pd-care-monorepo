@@ -95,6 +95,18 @@ describe("LoginPage", () => {
     });
   });
 
+  it("routes returning pending patients to patient onboarding", async () => {
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "onboarding_patient",
+    });
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/onboarding/patient");
+    });
+  });
+
   it("stores staff session and redirects to apps for app-selection step", async () => {
     (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
       next_step: "app_selection",

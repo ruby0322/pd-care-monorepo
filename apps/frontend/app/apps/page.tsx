@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { fetchAuthBootstrap } from "@/lib/api/identity";
+import { resolveBootstrapDestination } from "@/lib/auth/bootstrap-routing";
 import { buildLoginPath } from "@/lib/auth/liff";
 import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
 import { clearStaffSession } from "@/lib/auth/staff-session";
@@ -45,29 +46,18 @@ export default function AppSelectionPage() {
           if (cancelled) {
             return;
           }
-          if (bootstrap.next_step === "app_selection") {
-            router.replace(buildLoginPath("/apps"));
-            return;
+
+          if (bootstrap.next_step !== "app_selection" && bootstrap.next_step !== "patient_app") {
+            clearStaffSession();
+            clearPatientSession();
           }
-          if (bootstrap.next_step === "patient_app") {
-            router.replace(buildLoginPath("/patient"));
-            return;
-          }
-          clearStaffSession();
-          clearPatientSession();
-          if (bootstrap.next_step === "role_select") {
-            router.replace("/role-select");
-            return;
-          }
-          if (bootstrap.next_step === "onboarding_admin") {
-            router.replace("/onboarding/admin");
-            return;
-          }
-          if (bootstrap.next_step === "onboarding_patient") {
-            router.replace("/onboarding/patient");
-            return;
-          }
-          router.replace("/");
+
+          const destination = resolveBootstrapDestination(bootstrap.next_step, {
+            roleSelectDestination: "/role-select",
+            patientAppDestination: buildLoginPath("/patient"),
+            appSelectionDestination: buildLoginPath("/apps"),
+          });
+          router.replace(destination);
         } catch {
           router.replace(buildLoginPath("/apps"));
         } finally {

@@ -3,8 +3,11 @@
 import { Activity, Camera, ShieldCheck, Stethoscope } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
+import { fetchAuthBootstrap } from "@/lib/api/identity";
+import { resolveBootstrapDestination } from "@/lib/auth/bootstrap-routing";
+import { getLiffLoginProof, isLiffLoggedInSilently } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import { getStaffSession } from "@/lib/auth/staff-session";
 import { useClientSnapshot } from "@/lib/utils/use-client-snapshot";
@@ -24,6 +27,7 @@ function getEntryState(): EntryState {
 export default function Home() {
   const router = useRouter();
   const entryState = useClientSnapshot(getEntryState, "checking");
+  const [isResolvingReturningUser, setIsResolvingReturningUser] = useState(false);
 
   useEffect(() => {
     if (entryState === "redirect-apps") {
@@ -35,7 +39,50 @@ export default function Home() {
     }
   }, [entryState, router]);
 
-  if (entryState !== "intro") {
+  useEffect(() => {
+    if (entryState !== "intro") {
+      return;
+    }
+
+    let cancelled = false;
+    async function resolveReturningUserEntry() {
+      setIsResolvingReturningUser(true);
+      try {
+        const isLiffLoggedIn = await isLiffLoggedInSilently();
+        if (!isLiffLoggedIn || cancelled) {
+          return;
+        }
+        const { idToken } = await getLiffLoginProof();
+        if (cancelled) {
+          return;
+        }
+        const bootstrap = await fetchAuthBootstrap(idToken);
+        if (cancelled) {
+          return;
+        }
+        const destination = resolveBootstrapDestination(bootstrap.next_step, {
+          roleSelectDestination: "/",
+        });
+        if (destination !== "/") {
+          router.replace(destination);
+          return;
+        }
+      } catch {
+        // Keep the intro for anonymous users or transient LIFF/bootstrap errors.
+      } finally {
+        if (!cancelled) {
+          setIsResolvingReturningUser(false);
+        }
+      }
+    }
+
+    void resolveReturningUserEntry();
+    return () => {
+      cancelled = true;
+    };
+  }, [entryState, router]);
+
+  if (entryState !== "intro" || isResolvingReturningUser) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white px-6">
         <p className="text-sm text-zinc-500">正在整理您的入口...</p>

@@ -198,6 +198,29 @@ export async function getLiffProfile(): Promise<LiffProfile> {
   };
 }
 
+export async function isLiffLoggedInSilently(): Promise<boolean> {
+  const bypass = devBypassProfile();
+  if (bypass) {
+    return true;
+  }
+
+  const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+  if (!liffId) {
+    return false;
+  }
+
+  try {
+    await loadLiffSdk();
+    if (!window.liff) {
+      return false;
+    }
+    await window.liff.init({ liffId });
+    return window.liff.isLoggedIn();
+  } catch {
+    return false;
+  }
+}
+
 export async function getLiffLoginProof(): Promise<{ profile: LiffProfile; idToken: string }> {
   const bypass = devBypassProfile();
   if (bypass) {
