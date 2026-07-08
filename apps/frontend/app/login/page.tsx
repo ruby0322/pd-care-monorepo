@@ -9,6 +9,13 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient, getApiErrorDetail } from "@/lib/api/client";
 import { fetchIdentityStatus } from "@/lib/api/identity";
 import { getLiffLoginProof, readSafeNextPath } from "@/lib/auth/liff";
+import {
+  buildNoPermissionRedirect,
+  resolveLoginFailureRedirect,
+  resolvePatientLoginDestination,
+  resolveStaffLoginDestination,
+  shouldRedirectPatientToNoPermission,
+} from "@/lib/auth/login-redirect";
 import { setPatientSession } from "@/lib/auth/patient-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
 
@@ -42,24 +49,6 @@ function getLoginErrorMessage(error: unknown): string {
   return detail ?? "登入失敗，請稍後再試。";
 }
 
-function resolveNextPath(rawNext: string | null): string | null {
-  return readSafeNextPath(rawNext);
-}
-
-function isAdminRoute(path: string | null): boolean {
-  if (!path) {
-    return false;
-  }
-  return path.startsWith("/admin");
-}
-
-function isPatientRoute(path: string | null): boolean {
-  if (!path) {
-    return false;
-  }
-  return path === "/patient" || path.startsWith("/patient/");
-}
-
 function isPermissionDeniedError(error: unknown): boolean {
   const detail = getApiErrorDetail(error);
   if (detail?.includes("尚未開通") || detail?.includes("角色無法登入")) {
@@ -77,7 +66,7 @@ function LoginPageInner() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const nextPath = useMemo(() => resolveNextPath(searchParams.get("next")), [searchParams]);
+  const nextPath = useMemo(() => readSafeNextPath(searchParams.get("next")), [searchParams]);
 
   const completeLogin = useCallback(async () => {
     setErrorMessage(null);
@@ -89,11 +78,9 @@ function LoginPageInner() {
       });
       const payload = response.data;
       const expiresAt = Date.now() + payload.expires_in * 1000;
-      const isAdminIntent = isAdminRoute(nextPath);
 
-      if (isAdminIntent && payload.role === "patient") {
-        const redirectNext = encodeURIComponent(nextPath ?? "/admin");
-        router.replace(`/no-permission?next=${redirectNext}`);
+      if (shouldRedirectPatientToNoPermission(nextPath, payload.role)) {
+        router.replace(buildNoPermissionRedirect(nextPath));
         router.refresh();
         return;
       }
@@ -106,7 +93,6 @@ function LoginPageInner() {
           lineUserId: payload.line_user_id,
         };
         setStaffSession(session);
-        const destination = nextPath ?? "/apps";
         try {
           const bindStatus = await fetchIdentityStatus(idToken);
           if (bindStatus.status === "matched") {
@@ -115,7 +101,7 @@ function LoginPageInner() {
         } catch {
           // Keep staff/admin login available even if patient bind status lookup fails.
         }
-        router.replace(destination);
+        router.replace(resolveStaffLoginDestination(nextPath));
         router.refresh();
         return;
       }
@@ -130,21 +116,21 @@ function LoginPageInner() {
         });
       }
 
-      const fallbackPath = "/patient";
-      const destination = nextPath && isPatientRoute(nextPath) ? nextPath : fallbackPath;
-      router.replace(destination);
+      router.replace(resolvePatientLoginDestination(nextPath));
       router.refresh();
     } catch (error) {
-      if (!nextPath && isPermissionDeniedError(error)) {
-        router.replace("/");
-        router.refresh();
-        return;
-      }
-      if (isAdminRoute(nextPath) && isPermissionDeniedError(error)) {
-        const redirectNext = encodeURIComponent(nextPath ?? "/admin");
-        router.replace(`/no-permission?next=${redirectNext}`);
-        router.refresh();
-        return;
+      if (isPermissionDeniedError(error)) {
+        const failureRedirect = resolveLoginFailureRedirect(nextPath);
+        if (failureRedirect.type === "home") {
+          router.replace("/");
+          router.refresh();
+          return;
+        }
+        if (failureRedirect.type === "no-permission") {
+          router.replace(failureRedirect.href);
+          router.refresh();
+          return;
+        }
       }
       setErrorMessage(getLoginErrorMessage(error));
     } finally {
