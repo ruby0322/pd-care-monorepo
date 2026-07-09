@@ -212,6 +212,7 @@ describe("LoginPage", () => {
   });
 
   it("redirects direct /login users to home when bootstrap returns not found", async () => {
+    (getApiErrorDetail as jest.Mock).mockReturnValue("HTTP 404");
     (fetchAuthBootstrap as jest.Mock).mockRejectedValue(
       new AxiosError("Not Found", undefined, undefined, undefined, {
         status: 404,
@@ -231,6 +232,7 @@ describe("LoginPage", () => {
 
   it("keeps next-intent login on page and shows error for not found", async () => {
     mockSearchParams.set("next", "/apps");
+    (getApiErrorDetail as jest.Mock).mockReturnValue("HTTP 404");
     (fetchAuthBootstrap as jest.Mock).mockRejectedValue(
       new AxiosError("Not Found", undefined, undefined, undefined, {
         status: 404,
