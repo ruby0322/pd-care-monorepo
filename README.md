@@ -240,7 +240,7 @@ The backend is a FastAPI inference service that serves the production PyTorch ch
 
 - Accepts `multipart/form-data` image uploads
 - Downloads the model on startup when `MODEL_PATH` is missing
-- Supports GPU-aware runtime with `DEVICE=auto`
+- Uses a CPU-only inference runtime (`DEVICE=cpu`)
 - Includes health and readiness probes
 - Returns both multiclass probabilities and binary infection screening output
 
@@ -264,7 +264,7 @@ Important backend environment variables:
 
 - `MODEL_URL`: checkpoint download URL
 - `MODEL_PATH`: local checkpoint path
-- `DEVICE`: `auto`, `cuda`, or `cpu`
+- `DEVICE`: must be `cpu` (GPU support is intentionally disabled)
 - `THRESHOLD`: infection screening threshold
 - `MAX_UPLOAD_MB`: maximum upload size
 - `MODEL_BACKBONE`: fallback backbone for `state_dict` reconstruction
@@ -377,7 +377,7 @@ TLS note:
 - Compose frontend uses `apps/frontend/tls-gateway.cjs` and expects valid cert files mounted from host `/etc/letsencrypt`.
 - If your certs are not present at the default domain path, set `LETSENCRYPT_DOMAIN` or provide your own TLS paths through env.
 
-The default compose file works on CPU-only hosts. The backend honors `DEVICE=auto`, so it uses CUDA when GPU access is available and falls back to CPU otherwise.
+The default compose file uses `DEVICE=cpu` and the backend image is CPU-only.
 
 If your host only has deprecated `docker-compose` v1 and you hit `KeyError: 'ContainerConfig'` while recreating containers, use the same fallback the npm scripts use:
 

@@ -141,6 +141,7 @@ services:
       PRESCREEN_REJECT_REASON: ${PDCARE_PRESCREEN_REJECT_REASON:-non_exit_site_or_random_photo}
       PRESCREEN_MODEL_CACHE_DIR: ${PDCARE_PRESCREEN_MODEL_CACHE_DIR:-/models/prescreen}
       HF_TOKEN: ${PDCARE_HF_TOKEN:-}
+      DEVICE: ${PDCARE_DEVICE:-cpu}
     ports:
       - "8000:8000"
     volumes:
