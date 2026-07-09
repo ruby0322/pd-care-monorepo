@@ -123,6 +123,14 @@ function LoginPageInner() {
       router.replace("/");
       router.refresh();
     } catch (error) {
+      const detail = getApiErrorDetail(error);
+      const status = error instanceof AxiosError ? error.response?.status : undefined;
+      const isNotFoundError = detail === "Not Found" || detail === "HTTP 404" || status === 404;
+      if (!nextPath && isNotFoundError) {
+        router.replace("/");
+        router.refresh();
+        return;
+      }
       setErrorMessage(getLoginErrorMessage(error));
     } finally {
       setIsSubmitting(false);

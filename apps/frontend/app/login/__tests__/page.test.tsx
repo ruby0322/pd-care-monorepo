@@ -210,4 +210,42 @@ describe("LoginPage", () => {
       expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
     });
   });
+
+  it("redirects direct /login users to home when bootstrap returns not found", async () => {
+    (fetchAuthBootstrap as jest.Mock).mockRejectedValue(
+      new AxiosError("Not Found", undefined, undefined, undefined, {
+        status: 404,
+        data: {},
+        statusText: "Not Found",
+        headers: {},
+        config: {},
+      })
+    );
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/");
+    });
+  });
+
+  it("keeps next-intent login on page and shows error for not found", async () => {
+    mockSearchParams.set("next", "/apps");
+    (fetchAuthBootstrap as jest.Mock).mockRejectedValue(
+      new AxiosError("Not Found", undefined, undefined, undefined, {
+        status: 404,
+        data: {},
+        statusText: "Not Found",
+        headers: {},
+        config: {},
+      })
+    );
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("登入服務目前不可用（404），請稍後再試或聯絡系統管理員。")).toBeInTheDocument();
+    });
+    expect(mockReplace).not.toHaveBeenCalledWith("/");
+  });
 });
