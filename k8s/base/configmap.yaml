@@ -12,7 +12,7 @@ data:
   MODEL_CACHE_DIR: "/models"
   HF_HOME: "/models/hf-cache"
   TRANSFORMERS_CACHE: "/models/hf-cache"
-  DEVICE: "auto"
+  DEVICE: "cpu"
   THRESHOLD: "0.5"
   IMAGE_SIZE: "384"
   MAX_UPLOAD_MB: "10"

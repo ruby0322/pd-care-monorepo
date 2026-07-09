@@ -10,7 +10,7 @@ import numpy as np
 
 from app.core.config import Settings
 from app.core.logging import get_logger
-from app.services.model_loader import decode_image
+from app.services.model_loader import decode_image, resolve_device
 
 
 LOGGER = get_logger(__name__)
@@ -100,7 +100,7 @@ def load_prescreen_model(settings: Settings) -> LoadedPrescreenModel:
     except Exception as exc:
         raise PrescreenLoadError(f"Failed to load linear probe from {model_path}: {exc}") from exc
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = resolve_device(settings.device)
     try:
         clip_processor = CLIPProcessor.from_pretrained(clip_model_name)
         clip_model = CLIPModel.from_pretrained(clip_model_name).to(device)

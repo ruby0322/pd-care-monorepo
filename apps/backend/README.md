@@ -13,7 +13,7 @@ The service is designed around the original training setup:
 
 - FastAPI API with `multipart/form-data` image upload
 - baked-model Docker build path (checkpoint + prescreen + CLIP cache under `/models`)
-- GPU-aware runtime with `DEVICE=auto` and a CUDA Docker base image
+- CPU-only runtime with `DEVICE=cpu` and a slim Python Docker base image
 - readiness probe that stays unhealthy until the model is loaded
 - fallback checkpoint reconstruction path for `state_dict`-style checkpoints
 - focused API smoke tests
@@ -111,7 +111,7 @@ Important settings:
 
 - `MODEL_URL`: direct download URL for the checkpoint
 - `MODEL_PATH`: local on-disk checkpoint location
-- `DEVICE`: `auto`, `cuda`, or `cpu`
+- `DEVICE`: must be `cpu` (GPU support is intentionally disabled)
 - `THRESHOLD`: infection probability threshold for screening output
 - `MAX_UPLOAD_MB`: maximum accepted upload size
 - `MODEL_BACKBONE`: fallback reconstruction backbone, default `mobilenet_v3_large`
@@ -138,7 +138,7 @@ docker build -t pd-exit-site-inference-api .
 npm run docker:up:backend
 ```
 
-The root compose file starts on CPU-only hosts by default. With `DEVICE=auto`, the app selects CUDA when GPU access is available.
+The root compose file pins `DEVICE=cpu` by default. This backend image intentionally does not include GPU support.
 
 If your machine only has `docker-compose` v1 and fails with `KeyError: 'ContainerConfig'` during recreate, reset the old stack first:
 
@@ -147,7 +147,7 @@ docker-compose down --remove-orphans
 docker-compose up --build backend
 ```
 
-The container uses a single Uvicorn worker by default so one process owns one GPU model copy.
+The container uses a single Uvicorn worker by default so one process owns one model copy.
 
 ## Notes on checkpoint compatibility
 

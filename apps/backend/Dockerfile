@@ -1,17 +1,13 @@
 # syntax=docker/dockerfile:1.7
-FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
+FROM python:3.12-slim
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONDONTWRITEBYTECODE=1 \
+ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     APP_HOME=/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    python3 \
-    python3-pip \
-    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --shell /bin/bash appuser
@@ -19,7 +15,7 @@ RUN useradd --create-home --shell /bin/bash appuser
 WORKDIR ${APP_HOME}
 
 COPY requirements.txt ./requirements.txt
-RUN python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt
+RUN python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
 COPY app ./app
 COPY migrations ./migrations
@@ -45,7 +41,7 @@ ENV MODEL_URL=${MODEL_URL} \
     HF_TOKEN=${HF_TOKEN}
 
 RUN mkdir -p /models "${HF_HOME}"
-RUN python3 ./scripts/bake_models.py && \
+RUN python ./scripts/bake_models.py && \
     chown -R appuser:appuser ${APP_HOME} /models
 
 USER appuser

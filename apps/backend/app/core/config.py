@@ -123,7 +123,7 @@ def get_settings() -> Settings:
         model_path=model_path,
         model_cache_dir=model_cache_dir,
         model_timeout_seconds=_parse_float("MODEL_TIMEOUT_SECONDS", 300.0),
-        device=os.getenv("DEVICE", "auto").strip().lower(),
+        device=os.getenv("DEVICE", "cpu").strip().lower(),
         model_backbone=os.getenv("MODEL_BACKBONE", "mobilenet_v3_large").strip().lower(),
         model_arch=os.getenv("MODEL_ARCH", "baseline").strip().lower(),
         transfer_dropout=_parse_float("TRANSFER_DROPOUT", 0.4),

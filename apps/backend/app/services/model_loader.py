@@ -39,11 +39,13 @@ class LoadedModel:
 
 
 def resolve_device(device_name: str) -> torch.device:
-    if device_name == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if device_name == "cuda" and not torch.cuda.is_available():
-        raise ModelLoadError("DEVICE=cuda was requested but CUDA is not available")
-    return torch.device(device_name)
+    normalized = device_name.strip().lower()
+    if normalized == "auto":
+        LOGGER.warning("DEVICE=auto is deprecated; using CPU. Set DEVICE=cpu explicitly.")
+        return torch.device("cpu")
+    if normalized in {"", "cpu"}:
+        return torch.device("cpu")
+    raise ModelLoadError("GPU support is disabled; set DEVICE=cpu")
 
 
 def ensure_model_file(settings: Settings) -> Path:
