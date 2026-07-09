@@ -26,19 +26,22 @@ function getLoginErrorMessage(error: unknown): string {
   if (code === "ONBOARDING_REQUIRED") {
     return "此 LINE 帳號仍在 onboarding 流程中，請先完成註冊或審核。";
   }
+  if (code === "BOOTSTRAP_UNAVAILABLE") {
+    return detail ?? "登入服務目前不可用，請稍後再試或聯絡系統管理員。";
+  }
   if (code === "IDENTITY_NOT_FOUND" || code === "ROLE_NOT_ALLOWED" || code === "IDENTITY_INACTIVE") {
     return "此 LINE 帳號尚未開通對應權限，請聯絡系統管理員。";
   }
   if (detail === "Not Found") {
-    return "登入服務目前不可用（路由不存在），請稍後再試或聯絡系統管理員。";
+    return "登入服務目前不可用，請稍後再試或聯絡系統管理員。";
   }
   if (error instanceof AxiosError) {
     const status = error.response?.status;
     if (status === 403) {
       return "此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。";
     }
-    if (status === 404) {
-      return "登入服務目前不可用（404），請稍後再試或聯絡系統管理員。";
+    if (status === 404 || status === 503) {
+      return "登入服務目前不可用，請稍後再試或聯絡系統管理員。";
     }
     if (status === 400) {
       return "LINE 登入憑證驗證失敗，請重新登入 LINE 後再試。";
@@ -123,14 +126,6 @@ function LoginPageInner() {
       router.replace("/");
       router.refresh();
     } catch (error) {
-      const detail = getApiErrorDetail(error);
-      const status = error instanceof AxiosError ? error.response?.status : undefined;
-      const isNotFoundError = detail === "Not Found" || detail === "HTTP 404" || status === 404;
-      if (!nextPath && isNotFoundError) {
-        router.replace("/");
-        router.refresh();
-        return;
-      }
       setErrorMessage(getLoginErrorMessage(error));
     } finally {
       setIsSubmitting(false);
