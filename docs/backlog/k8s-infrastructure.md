@@ -54,8 +54,8 @@ ConfigMaps as appropriate.
 | --- | --- |
 | **Priority** | P2 |
 | **Status** | `backlog` |
-| **Current** | `DEVICE: auto` in ConfigMap; no `nvidia.com/gpu` limits |
-| **Follow-up** | Add node selectors / GPU resource limits on clusters with GPU nodes |
+| **Current** | `DEVICE: cpu` in ConfigMap; no `nvidia.com/gpu` limits |
+| **Follow-up** | Re-enable GPU scheduling (node selectors / `nvidia.com/gpu` limits) if CPU latency becomes a bottleneck |
 
 ---
 

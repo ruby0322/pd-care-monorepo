@@ -40,7 +40,10 @@ class LoadedModel:
 
 def resolve_device(device_name: str) -> torch.device:
     normalized = device_name.strip().lower()
-    if normalized in {"", "auto", "cpu"}:
+    if normalized == "auto":
+        LOGGER.warning("DEVICE=auto is deprecated; using CPU. Set DEVICE=cpu explicitly.")
+        return torch.device("cpu")
+    if normalized in {"", "cpu"}:
         return torch.device("cpu")
     raise ModelLoadError("GPU support is disabled; set DEVICE=cpu")
 
