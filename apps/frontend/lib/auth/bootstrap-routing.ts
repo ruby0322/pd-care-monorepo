@@ -1,4 +1,5 @@
 import { AuthBootstrapNextStep } from "@/lib/api/identity";
+import { buildLoginPath } from "@/lib/auth/liff";
 
 export function isAdminIntent(path: string | null): boolean {
   if (!path) {
@@ -53,4 +54,29 @@ export function resolveBootstrapDestination(
     return options.appSelectionDestination ?? "/apps";
   }
   return options.fallbackDestination ?? "/";
+}
+
+export function resolveSessionlessBootstrapDestination(
+  nextStep: AuthBootstrapNextStep,
+  options: { roleSelectDestination?: string } = {}
+): string {
+  const sharedOptions = {
+    roleSelectDestination: options.roleSelectDestination ?? "/",
+  };
+
+  if (nextStep === "patient_app") {
+    return resolveBootstrapDestination(nextStep, {
+      ...sharedOptions,
+      patientAppDestination: buildLoginPath("/patient"),
+    });
+  }
+
+  if (nextStep === "app_selection") {
+    return resolveBootstrapDestination(nextStep, {
+      ...sharedOptions,
+      appSelectionDestination: buildLoginPath("/apps"),
+    });
+  }
+
+  return resolveBootstrapDestination(nextStep, sharedOptions);
 }

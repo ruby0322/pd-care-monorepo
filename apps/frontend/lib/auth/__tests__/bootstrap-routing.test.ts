@@ -3,7 +3,12 @@ import {
   isPatientRoute,
   resolveBootstrapDestination,
   resolveRoleSelectDestination,
+  resolveSessionlessBootstrapDestination,
 } from "@/lib/auth/bootstrap-routing";
+
+jest.mock("@/lib/auth/liff", () => ({
+  buildLoginPath: jest.fn((next: string) => `/login?next=${encodeURIComponent(next)}`),
+}));
 
 describe("bootstrap routing helpers", () => {
   it("detects admin and patient route intents", () => {
@@ -46,5 +51,17 @@ describe("bootstrap routing helpers", () => {
         appSelectionDestination: "/login?next=%2Fapps",
       })
     ).toBe("/login?next=%2Fapps");
+  });
+
+  it("routes login-eligible bootstrap steps through login when sessionless", () => {
+    expect(resolveSessionlessBootstrapDestination("role_select")).toBe("/");
+    expect(resolveSessionlessBootstrapDestination("onboarding_patient")).toBe("/onboarding/patient");
+    expect(resolveSessionlessBootstrapDestination("patient_app")).toBe("/login?next=%2Fpatient");
+    expect(resolveSessionlessBootstrapDestination("app_selection")).toBe("/login?next=%2Fapps");
+    expect(
+      resolveSessionlessBootstrapDestination("role_select", {
+        roleSelectDestination: "/role-select",
+      })
+    ).toBe("/role-select");
   });
 });

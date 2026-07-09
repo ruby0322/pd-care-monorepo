@@ -24,7 +24,7 @@ import { AdminNotificationProvider } from "@/app/admin/_components/admin-notific
 import { AdminSessionActions } from "@/app/admin/_components/admin-session-actions";
 import { apiClient } from "@/lib/api/client";
 import { fetchAuthBootstrap } from "@/lib/api/identity";
-import { resolveBootstrapDestination } from "@/lib/auth/bootstrap-routing";
+import { resolveSessionlessBootstrapDestination } from "@/lib/auth/bootstrap-routing";
 import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
 import { clearPatientSession } from "@/lib/auth/patient-session";
 import { clearStaffSession, getStaffSession } from "@/lib/auth/staff-session";
@@ -61,7 +61,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             clearPatientSession();
             if (!cancelled) {
               setIsVerified(false);
-              const destination = resolveBootstrapDestination(bootstrap.next_step, {
+              const destination = resolveSessionlessBootstrapDestination(bootstrap.next_step, {
                 roleSelectDestination: "/",
               });
               router.replace(destination);

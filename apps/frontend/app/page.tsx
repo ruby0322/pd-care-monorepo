@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { fetchAuthBootstrap } from "@/lib/api/identity";
-import { resolveBootstrapDestination } from "@/lib/auth/bootstrap-routing";
+import { resolveSessionlessBootstrapDestination } from "@/lib/auth/bootstrap-routing";
 import { getLiffLoginProof, isLiffLoggedInSilently } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import { getStaffSession } from "@/lib/auth/staff-session";
@@ -60,7 +60,7 @@ export default function Home() {
         if (cancelled) {
           return;
         }
-        const destination = resolveBootstrapDestination(bootstrap.next_step, {
+        const destination = resolveSessionlessBootstrapDestination(bootstrap.next_step, {
           roleSelectDestination: "/",
         });
         if (destination !== "/") {

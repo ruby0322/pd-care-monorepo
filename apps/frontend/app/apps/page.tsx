@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { fetchAuthBootstrap } from "@/lib/api/identity";
-import { resolveBootstrapDestination } from "@/lib/auth/bootstrap-routing";
+import { resolveSessionlessBootstrapDestination } from "@/lib/auth/bootstrap-routing";
 import { buildLoginPath } from "@/lib/auth/liff";
 import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
 import { clearStaffSession } from "@/lib/auth/staff-session";
@@ -52,10 +52,8 @@ export default function AppSelectionPage() {
             clearPatientSession();
           }
 
-          const destination = resolveBootstrapDestination(bootstrap.next_step, {
+          const destination = resolveSessionlessBootstrapDestination(bootstrap.next_step, {
             roleSelectDestination: "/role-select",
-            patientAppDestination: buildLoginPath("/patient"),
-            appSelectionDestination: buildLoginPath("/apps"),
           });
           router.replace(destination);
         } catch {

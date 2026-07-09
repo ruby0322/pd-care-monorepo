@@ -31,6 +31,7 @@ jest.mock("@/lib/api/identity", () => ({
 jest.mock("@/lib/auth/liff", () => ({
   getLiffLoginProof: jest.fn(),
   isLiffLoggedInSilently: jest.fn(),
+  buildLoginPath: jest.fn((next: string) => `/login?next=${encodeURIComponent(next)}`),
 }));
 
 describe("Home landing page", () => {
@@ -72,7 +73,7 @@ describe("Home landing page", () => {
     expect(mockPush).toHaveBeenCalledWith("/role-select");
   });
 
-  it("routes LIFF-authenticated returning users directly by bootstrap state", async () => {
+  it("routes LIFF-authenticated staff through login before app selection", async () => {
     (isLiffLoggedInSilently as jest.Mock).mockResolvedValue(true);
     (getLiffLoginProof as jest.Mock).mockResolvedValue({ idToken: "id.token.value" });
     (fetchAuthBootstrap as jest.Mock).mockResolvedValue({ next_step: "app_selection" });
@@ -80,7 +81,31 @@ describe("Home landing page", () => {
     render(<Home />);
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/apps");
+      expect(mockReplace).toHaveBeenCalledWith("/login?next=%2Fapps");
+    });
+  });
+
+  it("routes LIFF-authenticated patients through login before patient app", async () => {
+    (isLiffLoggedInSilently as jest.Mock).mockResolvedValue(true);
+    (getLiffLoginProof as jest.Mock).mockResolvedValue({ idToken: "id.token.value" });
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({ next_step: "patient_app" });
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/login?next=%2Fpatient");
+    });
+  });
+
+  it("routes LIFF-authenticated pending patients to onboarding", async () => {
+    (isLiffLoggedInSilently as jest.Mock).mockResolvedValue(true);
+    (getLiffLoginProof as jest.Mock).mockResolvedValue({ idToken: "id.token.value" });
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({ next_step: "onboarding_patient" });
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/onboarding/patient");
     });
   });
 
