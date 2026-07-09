@@ -210,4 +210,83 @@ describe("LoginPage", () => {
       expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
     });
   });
+
+  it("redirects direct /login new users to home when bootstrap returns role_select", async () => {
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "role_select",
+    });
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/");
+    });
+  });
+
+  it("shows error on bare /login when bootstrap is unavailable", async () => {
+    (getApiErrorCode as jest.Mock).mockReturnValue("BOOTSTRAP_UNAVAILABLE");
+    (getApiErrorDetail as jest.Mock).mockReturnValue("Database is not initialized");
+    (fetchAuthBootstrap as jest.Mock).mockRejectedValue(
+      new AxiosError("Service Unavailable", undefined, undefined, undefined, {
+        status: 503,
+        data: {
+          detail: {
+            code: "BOOTSTRAP_UNAVAILABLE",
+            message: "Database is not initialized",
+          },
+        },
+        statusText: "Service Unavailable",
+        headers: {},
+        config: {},
+      })
+    );
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Database is not initialized")).toBeInTheDocument();
+    });
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("shows error on bare /login when bootstrap returns not found", async () => {
+    (getApiErrorDetail as jest.Mock).mockReturnValue("HTTP 404");
+    (fetchAuthBootstrap as jest.Mock).mockRejectedValue(
+      new AxiosError("Not Found", undefined, undefined, undefined, {
+        status: 404,
+        data: {},
+        statusText: "Not Found",
+        headers: {},
+        config: {},
+      })
+    );
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("登入服務目前不可用，請稍後再試或聯絡系統管理員。")).toBeInTheDocument();
+    });
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("keeps next-intent login on page and shows error for not found", async () => {
+    mockSearchParams.set("next", "/apps");
+    (getApiErrorDetail as jest.Mock).mockReturnValue("HTTP 404");
+    (fetchAuthBootstrap as jest.Mock).mockRejectedValue(
+      new AxiosError("Not Found", undefined, undefined, undefined, {
+        status: 404,
+        data: {},
+        statusText: "Not Found",
+        headers: {},
+        config: {},
+      })
+    );
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("登入服務目前不可用，請稍後再試或聯絡系統管理員。")).toBeInTheDocument();
+    });
+    expect(mockReplace).not.toHaveBeenCalledWith("/");
+  });
 });

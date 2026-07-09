@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
+from sqlalchemy.orm import Session
 
 from app.api.deps.auth import get_session
 from app.schemas.auth import AuthBootstrapResponse, AuthTokenResponse, StaffLineLoginRequest
@@ -9,6 +10,23 @@ from app.services.auth.service import AuthFlowPermissionError
 
 
 router = APIRouter(tags=["Auth"])
+
+
+def _bootstrap_unavailable(message: str = "Auth bootstrap is temporarily unavailable") -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "code": "BOOTSTRAP_UNAVAILABLE",
+            "message": message,
+        },
+    )
+
+
+def _get_bootstrap_session(request: Request) -> Session:
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if session_factory is None:
+        raise _bootstrap_unavailable("Database is not initialized")
+    return session_factory()
 
 
 def _build_auth_service(request: Request) -> AuthService:
@@ -60,7 +78,7 @@ async def login_staff_or_admin(request: Request, payload: StaffLineLoginRequest)
 
 @router.post("/v1/auth/bootstrap", response_model=AuthBootstrapResponse)
 async def auth_bootstrap(request: Request, payload: StaffLineLoginRequest) -> AuthBootstrapResponse:
-    session = get_session(request)
+    session = _get_bootstrap_session(request)
     try:
         auth_service = _build_auth_service(request)
         try:

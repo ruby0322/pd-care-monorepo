@@ -276,6 +276,18 @@ def test_auth_bootstrap_routes_new_user_to_role_select(tmp_path: Path) -> None:
         assert payload["allowed_apps"] == []
 
 
+def test_auth_bootstrap_returns_unavailable_when_database_not_initialized(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "auth-bootstrap-no-db.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        client.app.state.db_session_factory = None
+
+        response = client.post("/v1/auth/bootstrap", json={"line_id_token": "stub:U_NEW"})
+        assert response.status_code == 503
+        payload = response.json()
+        assert payload["detail"]["code"] == "BOOTSTRAP_UNAVAILABLE"
+
+
 def test_auth_bootstrap_routes_pending_patient_to_patient_onboarding(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "auth-bootstrap-patient-pending.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
