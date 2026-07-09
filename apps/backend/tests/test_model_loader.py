@@ -1,6 +1,8 @@
 from __future__ import annotations
 # pyright: reportMissingImports=false
 
+from unittest.mock import patch
+
 import pytest
 import torch
 
@@ -28,9 +30,10 @@ def test_resolve_device_rejects_gpu(device_name: str) -> None:
         resolve_device(device_name)
 
 
-def test_resolve_device_auto_logs_deprecation_warning(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level("WARNING"):
+def test_resolve_device_auto_logs_deprecation_warning() -> None:
+    with patch("app.services.model_loader.LOGGER.warning") as warning:
         device = resolve_device("auto")
 
     assert device == torch.device("cpu")
-    assert any("DEVICE=auto is deprecated" in record.message for record in caplog.records)
+    warning.assert_called_once()
+    assert "DEVICE=auto is deprecated" in warning.call_args.args[0]
