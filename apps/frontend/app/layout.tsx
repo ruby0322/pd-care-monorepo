@@ -26,8 +26,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-TW">
-      <body className="antialiased font-sans bg-white">
+    <html lang="zh-TW" suppressHydrationWarning>
+      <body className="antialiased font-sans bg-white" suppressHydrationWarning>
         {children}
         <Toaster position="top-right" richColors closeButton />
       </body>

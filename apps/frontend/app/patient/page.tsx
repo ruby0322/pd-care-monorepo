@@ -2,7 +2,7 @@
 
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
 import { getApiErrorDetail } from "@/lib/api/client";
-import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
+import { bindIdentity, IdentityStatus } from "@/lib/api/identity";
 import {
     fetchPatientMessages,
     fetchUploadHistoryByMonthWindow,
@@ -11,7 +11,7 @@ import {
     UploadHistoryDay,
     UploadHistorySummary28d,
 } from "@/lib/api/upload-history";
-import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
+import { getLiffLoginProof } from "@/lib/auth/liff";
 import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
 import { Camera, MessageSquare, UserRound } from "lucide-react";
@@ -169,43 +169,8 @@ export default function PatientPage() {
         setError(null);
         const existingSession = getPatientSession();
         if (!existingSession) {
-          const proof = await getLiffLoginProof();
-          const liffProfile = proof.profile;
-          if (cancelled) {
-            return;
-          }
-          setProfile({ displayName: liffProfile.displayName });
-          const bindStatus = await fetchIdentityStatus(proof.idToken);
-          if (!cancelled) {
-            setStatus(bindStatus.status);
-          }
-          if (bindStatus.status === "matched") {
-            router.replace(buildLoginPath("/patient"));
-            return;
-          }
           clearPatientSession();
-          setHistoryDays([]);
-          setSummary28d({
-            all_upload_count_28d: 0,
-            suspected_upload_count_28d: 0,
-            continuous_upload_streak_days: 0,
-          });
-          setLatestMessage(null);
-          setUnreadMessageCount(0);
-          setInitialHistoryLoading(false);
-          setCalendarBackgroundLoading(false);
-          setHistoryError(null);
-          setMessagePreviewError(null);
-          setVisibleCalendarMonth(null);
-          setOldestEdgeLoading(false);
-          setLoadedCalendarBounds({
-            oldestMonthKey: null,
-            newestMonthKey: null,
-          });
-          loadedMonthWindowsRef.current.clear();
-          loadingMonthWindowsRef.current.clear();
-          initialHistoryInflightRef.current = 0;
-          backgroundHistoryInflightRef.current = 0;
+          router.replace("/onboarding/patient");
           return;
         }
 

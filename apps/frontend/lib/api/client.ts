@@ -70,12 +70,19 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+type ApiErrorPayload =
+  | {
+      detail?: string | { code?: string; message?: string };
+    }
+  | string
+  | null;
+
 export function getApiErrorDetail(error: unknown): string | null {
   if (!(error instanceof AxiosError)) {
     return null;
   }
   if (error.response) {
-    const payload = error.response.data as unknown;
+    const payload = error.response.data as ApiErrorPayload;
     if (
       typeof payload === "object" &&
       payload !== null &&
@@ -84,12 +91,42 @@ export function getApiErrorDetail(error: unknown): string | null {
     ) {
       return (payload as { detail: string }).detail;
     }
+    if (
+      typeof payload === "object" &&
+      payload !== null &&
+      "detail" in payload &&
+      typeof (payload as { detail?: unknown }).detail === "object" &&
+      (payload as { detail?: unknown }).detail !== null &&
+      "message" in (payload as { detail: { message?: unknown } }).detail &&
+      typeof (payload as { detail: { message?: unknown } }).detail.message === "string"
+    ) {
+      return ((payload as { detail: { message: string } }).detail.message).trim() || null;
+    }
 
     if (typeof payload === "string" && payload.trim()) {
       return payload.slice(0, 300);
     }
 
     return `HTTP ${error.response.status}`;
+  }
+  return null;
+}
+
+export function getApiErrorCode(error: unknown): string | null {
+  if (!(error instanceof AxiosError)) {
+    return null;
+  }
+  const payload = error.response?.data as ApiErrorPayload;
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "detail" in payload &&
+    typeof (payload as { detail?: unknown }).detail === "object" &&
+    (payload as { detail?: unknown }).detail !== null &&
+    "code" in ((payload as { detail: { code?: unknown } }).detail)
+  ) {
+    const code = (payload as { detail: { code?: unknown } }).detail.code;
+    return typeof code === "string" && code.trim() ? code : null;
   }
   return null;
 }

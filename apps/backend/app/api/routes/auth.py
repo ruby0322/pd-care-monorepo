@@ -3,8 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from app.api.deps.auth import get_session
-from app.schemas.auth import AuthTokenResponse, StaffLineLoginRequest
+from app.schemas.auth import AuthBootstrapResponse, AuthTokenResponse, StaffLineLoginRequest
 from app.services.auth import AuthService, AuthTokenService, LineIdentityProvider
+from app.services.auth.service import AuthFlowPermissionError
 
 
 router = APIRouter(tags=["Auth"])
@@ -36,6 +37,14 @@ async def login_staff_or_admin(request: Request, payload: StaffLineLoginRequest)
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except AuthFlowPermissionError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": exc.code,
+                    "message": exc.detail,
+                },
+            ) from exc
         except PermissionError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -44,6 +53,33 @@ async def login_staff_or_admin(request: Request, payload: StaffLineLoginRequest)
             expires_in=result.expires_in,
             role=result.role,
             line_user_id=result.line_user_id,
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/auth/bootstrap", response_model=AuthBootstrapResponse)
+async def auth_bootstrap(request: Request, payload: StaffLineLoginRequest) -> AuthBootstrapResponse:
+    session = get_session(request)
+    try:
+        auth_service = _build_auth_service(request)
+        try:
+            result = auth_service.bootstrap_by_line_identity(
+                session,
+                line_id_token=payload.line_id_token,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return AuthBootstrapResponse(
+            line_user_id=result.line_user_id,
+            identity_exists=result.identity_exists,
+            role=result.role,
+            is_active=result.is_active,
+            patient_binding_status=result.patient_binding_status,
+            healthcare_access_status=result.healthcare_access_status,
+            next_step=result.next_step,
+            allowed_apps=result.allowed_apps,  # type: ignore[arg-type]
         )
     finally:
         session.close()

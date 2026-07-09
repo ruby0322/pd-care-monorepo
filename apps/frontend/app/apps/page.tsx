@@ -2,10 +2,14 @@
 
 import { Activity, LayoutDashboard } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
+import { fetchAuthBootstrap } from "@/lib/api/identity";
+import { resolveSessionlessBootstrapDestination } from "@/lib/auth/bootstrap-routing";
 import { buildLoginPath } from "@/lib/auth/liff";
-import { getPatientSession } from "@/lib/auth/patient-session";
+import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
+import { clearStaffSession } from "@/lib/auth/staff-session";
+import { getLiffLoginProof } from "@/lib/auth/liff";
 import { getStaffSession } from "@/lib/auth/staff-session";
 import { useClientSnapshot } from "@/lib/utils/use-client-snapshot";
 
@@ -29,18 +33,49 @@ function getAppAccessSnapshot(): AppAccessSnapshot {
 export default function AppSelectionPage() {
   const router = useRouter();
   const access = useClientSnapshot(getAppAccessSnapshot, "loading");
+  const [isResolving, setIsResolving] = useState(false);
 
   useEffect(() => {
     if (access === "unauthenticated") {
-      router.replace(buildLoginPath("/apps"));
-      return;
+      let cancelled = false;
+      async function resolveAccess() {
+        try {
+          setIsResolving(true);
+          const { idToken } = await getLiffLoginProof();
+          const bootstrap = await fetchAuthBootstrap(idToken);
+          if (cancelled) {
+            return;
+          }
+
+          if (bootstrap.next_step !== "app_selection" && bootstrap.next_step !== "patient_app") {
+            clearStaffSession();
+            clearPatientSession();
+          }
+
+          const destination = resolveSessionlessBootstrapDestination(bootstrap.next_step, {
+            roleSelectDestination: "/role-select",
+          });
+          router.replace(destination);
+        } catch {
+          router.replace(buildLoginPath("/apps"));
+        } finally {
+          if (!cancelled) {
+            setIsResolving(false);
+          }
+        }
+      }
+      void resolveAccess();
+      return () => {
+        cancelled = true;
+      };
     }
     if (access === "patient-only") {
       router.replace("/patient");
+      return;
     }
   }, [access, router]);
 
-  if (!access.startsWith("ready:")) {
+  if (!access.startsWith("ready:") || isResolving) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
         <p className="text-sm text-zinc-500">正在載入可用應用程式...</p>

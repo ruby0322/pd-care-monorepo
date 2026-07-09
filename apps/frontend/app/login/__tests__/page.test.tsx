@@ -1,9 +1,9 @@
 import { AxiosError } from "axios";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 
 import LoginPage from "@/app/login/page";
-import { apiClient, getApiErrorDetail } from "@/lib/api/client";
-import { fetchIdentityStatus } from "@/lib/api/identity";
+import { apiClient, getApiErrorCode, getApiErrorDetail } from "@/lib/api/client";
+import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { setPatientSession } from "@/lib/auth/patient-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
@@ -24,12 +24,12 @@ jest.mock("@/lib/api/client", () => ({
   apiClient: {
     post: jest.fn(),
   },
+  getApiErrorCode: jest.fn(() => null),
   getApiErrorDetail: jest.fn(() => null),
 }));
 
 jest.mock("@/lib/api/identity", () => ({
-  createHealthcareAccessRequest: jest.fn(),
-  fetchIdentityStatus: jest.fn(),
+  fetchAuthBootstrap: jest.fn(),
 }));
 
 jest.mock("@/lib/auth/liff", () => ({
@@ -46,18 +46,9 @@ jest.mock("@/lib/auth/staff-session", () => ({
 }));
 
 describe("LoginPage", () => {
-  function mockForbiddenLoginError() {
-    return new AxiosError("Forbidden", undefined, undefined, undefined, {
-      status: 403,
-      data: {},
-      statusText: "Forbidden",
-      headers: {},
-      config: {},
-    });
-  }
-
   beforeEach(() => {
     jest.clearAllMocks();
+    (getApiErrorCode as jest.Mock).mockReturnValue(null);
     (getApiErrorDetail as jest.Mock).mockReturnValue(null);
     mockSearchParams.delete("next");
     (getLiffLoginProof as jest.Mock).mockResolvedValue({
@@ -66,220 +57,61 @@ describe("LoginPage", () => {
     });
   });
 
-  it("routes staff to requested admin page", async () => {
-    mockSearchParams.set("next", "/admin/patients");
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "staff-token",
-        expires_in: 3600,
-        role: "staff",
-        line_user_id: "line-staff",
-      },
-    });
-
-    render(<LoginPage />);
-
-    await waitFor(() => {
-      expect(setStaffSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          accessToken: "staff-token",
-          role: "staff",
-          lineUserId: "line-staff",
-        })
-      );
-      expect(setPatientSession).not.toHaveBeenCalled();
-      expect(mockReplace).toHaveBeenCalledWith("/admin/patients");
-    });
-  });
-
-  it("stores both sessions when staff opens patient entry with matched identity", async () => {
+  it("routes new patient-intent users to patient onboarding", async () => {
     mockSearchParams.set("next", "/patient");
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "staff-token",
-        expires_in: 3600,
-        role: "staff",
-        line_user_id: "line-staff",
-      },
-    });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
-
-    render(<LoginPage />);
-
-    await waitFor(() => {
-      expect(setStaffSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          accessToken: "staff-token",
-          role: "staff",
-          lineUserId: "line-staff",
-        })
-      );
-      expect(setPatientSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          accessToken: "staff-token",
-          role: "staff",
-          lineUserId: "line-staff",
-        })
-      );
-      expect(mockReplace).toHaveBeenCalledWith("/patient");
-    });
-  });
-
-  it("routes patient to patient page and stores session when matched", async () => {
-    mockSearchParams.set("next", "/patient");
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "patient-token",
-        expires_in: 3600,
-        role: "patient",
-        line_user_id: "line-patient",
-      },
-    });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
-
-    render(<LoginPage />);
-
-    await waitFor(() => {
-      expect(setPatientSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          accessToken: "patient-token",
-          role: "patient",
-          lineUserId: "line-patient",
-        })
-      );
-      expect(mockReplace).toHaveBeenCalledWith("/patient");
-    });
-  });
-
-  it("redirects staff-intent patient login to no-permission request flow", async () => {
-    mockSearchParams.set("next", "/admin");
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "patient-token",
-        expires_in: 3600,
-        role: "patient",
-        line_user_id: "line-patient",
-      },
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "role_select",
     });
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/no-permission?next=%2Fadmin");
-    });
-    expect(setPatientSession).not.toHaveBeenCalled();
-    expect(setStaffSession).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { label: "without next", next: null },
-    { label: "when next is /apps", next: "/apps" },
-  ])("redirects unmatched patient to /patient $label", async ({ next }) => {
-    if (next) {
-      mockSearchParams.set("next", next);
-    }
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "patient-token",
-        expires_in: 3600,
-        role: "patient",
-        line_user_id: "line-patient",
-      },
-    });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "pending" });
-
-    render(<LoginPage />);
-
-    await waitFor(() => {
-      expect(setPatientSession).not.toHaveBeenCalled();
-      expect(mockReplace).toHaveBeenCalledWith("/patient");
-    });
-    expect(setStaffSession).not.toHaveBeenCalled();
-  });
-
-  it("stores both sessions when admin opens nested patient route with matched identity", async () => {
-    mockSearchParams.set("next", "/patient/capture");
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "admin-token",
-        expires_in: 3600,
-        role: "admin",
-        line_user_id: "line-admin",
-      },
-    });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
-
-    render(<LoginPage />);
-
-    await waitFor(() => {
-      expect(setStaffSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          accessToken: "admin-token",
-          role: "admin",
-          lineUserId: "line-admin",
-        })
-      );
-      expect(setPatientSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          accessToken: "admin-token",
-          role: "admin",
-          lineUserId: "line-admin",
-        })
-      );
-      expect(mockReplace).toHaveBeenCalledWith("/patient/capture");
+      expect(mockReplace).toHaveBeenCalledWith("/onboarding/patient");
     });
   });
 
-  it("stores only staff session when staff opens patient entry without matched identity", async () => {
-    mockSearchParams.set("next", "/patient");
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: {
-        access_token: "staff-token",
-        expires_in: 3600,
-        role: "staff",
-        line_user_id: "line-staff",
-      },
-    });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "pending" });
-
-    render(<LoginPage />);
-
-    await waitFor(() => {
-      expect(setStaffSession).toHaveBeenCalled();
-      expect(setPatientSession).not.toHaveBeenCalled();
-      expect(mockReplace).toHaveBeenCalledWith("/patient");
-    });
-  });
-
-  it("shows inline error when apps-targeted login hits permission error", async () => {
+  it("routes new admin-intent users to admin onboarding", async () => {
     mockSearchParams.set("next", "/apps");
-    (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "role_select",
+    });
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
+      expect(mockReplace).toHaveBeenCalledWith("/onboarding/admin");
     });
-    expect(mockReplace).not.toHaveBeenCalled();
-    expect(setPatientSession).not.toHaveBeenCalled();
-    expect(setStaffSession).not.toHaveBeenCalled();
   });
 
-  it("shows an error when patient-targeted login fails on mount", async () => {
-    mockSearchParams.set("next", "/patient");
-    (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
+  it("routes pending admin permission state to admin onboarding", async () => {
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "onboarding_admin",
+    });
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
+      expect(mockReplace).toHaveBeenCalledWith("/onboarding/admin");
     });
-    expect(mockReplace).not.toHaveBeenCalled();
-    expect(setPatientSession).not.toHaveBeenCalled();
-    expect(setStaffSession).not.toHaveBeenCalled();
   });
 
-  it("routes staff to app selection when next is absent", async () => {
+  it("routes returning pending patients to patient onboarding", async () => {
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "onboarding_patient",
+    });
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/onboarding/patient");
+    });
+  });
+
+  it("stores staff session and redirects to apps for app-selection step", async () => {
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "app_selection",
+      allowed_apps: ["admin"],
+    });
     (apiClient.post as jest.Mock).mockResolvedValue({
       data: {
         access_token: "staff-token",
@@ -297,52 +129,57 @@ describe("LoginPage", () => {
     });
   });
 
-  it("redirects bare login permission errors back home", async () => {
-    (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
+  it("stores both sessions when app-selection allows patient app", async () => {
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "app_selection",
+      allowed_apps: ["admin", "patient"],
+    });
+    (apiClient.post as jest.Mock).mockResolvedValue({
+      data: {
+        access_token: "admin-token",
+        expires_in: 3600,
+        role: "admin",
+        line_user_id: "line-admin",
+      },
+    });
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/");
+      expect(setStaffSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: "admin-token",
+          role: "admin",
+          lineUserId: "line-admin",
+        })
+      );
+      expect(setPatientSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: "admin-token",
+          role: "admin",
+          lineUserId: "line-admin",
+        })
+      );
+      expect(mockReplace).toHaveBeenCalledWith("/apps");
     });
-    expect(setPatientSession).not.toHaveBeenCalled();
-    expect(setStaffSession).not.toHaveBeenCalled();
   });
 
-  it("redirects to no-permission when staff/admin-targeted login hits permission error", async () => {
-    mockSearchParams.set("next", "/admin");
-    (apiClient.post as jest.Mock).mockRejectedValue(mockForbiddenLoginError());
-
-    render(<LoginPage />);
-
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/no-permission?next=%2Fadmin");
+  it("stores patient session and redirects to patient app", async () => {
+    mockSearchParams.set("next", "/patient/capture");
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "patient_app",
+      allowed_apps: ["patient"],
     });
-    expect(setPatientSession).not.toHaveBeenCalled();
-    expect(setStaffSession).not.toHaveBeenCalled();
-  });
-
-  it("retries login manually after an automatic login failure", async () => {
-    mockSearchParams.set("next", "/patient");
-    (apiClient.post as jest.Mock)
-      .mockRejectedValueOnce(mockForbiddenLoginError())
-      .mockResolvedValueOnce({
-        data: {
-          access_token: "patient-token",
-          expires_in: 3600,
-          role: "patient",
-          line_user_id: "line-patient",
-        },
-      });
-    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
-
-    render(<LoginPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
+    (apiClient.post as jest.Mock).mockResolvedValue({
+      data: {
+        access_token: "patient-token",
+        expires_in: 3600,
+        role: "patient",
+        line_user_id: "line-patient",
+      },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "使用 LINE 登入" }));
+    render(<LoginPage />);
 
     await waitFor(() => {
       expect(setPatientSession).toHaveBeenCalledWith(
@@ -352,21 +189,25 @@ describe("LoginPage", () => {
           lineUserId: "line-patient",
         })
       );
-      expect(mockReplace).toHaveBeenCalledWith("/patient");
+      expect(mockReplace).toHaveBeenCalledWith("/patient/capture");
     });
-    expect(apiClient.post).toHaveBeenCalled();
-    expect((apiClient.post as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("maps backend permission errors to a user-facing message", async () => {
-    mockSearchParams.set("next", "/patient");
-    (getApiErrorDetail as jest.Mock).mockReturnValue("尚未開通此角色");
-    (apiClient.post as jest.Mock).mockRejectedValue(new Error("尚未開通此角色"));
+  it("shows an error when bootstrap fails", async () => {
+    (fetchAuthBootstrap as jest.Mock).mockRejectedValue(
+      new AxiosError("Forbidden", undefined, undefined, undefined, {
+        status: 403,
+        data: {},
+        statusText: "Forbidden",
+        headers: {},
+        config: {},
+      })
+    );
 
     render(<LoginPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("此 LINE 帳號尚未開通對應權限，請聯絡系統管理員。")).toBeInTheDocument();
+      expect(screen.getByText("此 LINE 帳號沒有系統權限，請聯絡系統管理員開通。")).toBeInTheDocument();
     });
   });
 });

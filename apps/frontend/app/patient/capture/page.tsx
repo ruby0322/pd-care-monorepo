@@ -2,11 +2,10 @@
 
 import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
 import { uploadPatientExitSiteImage } from "@/lib/api/predict";
-import { buildLoginPath } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import { AlignCenter, Camera, ChevronLeft, Eye, Sun } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 type CameraFacingMode = "environment" | "user";
@@ -137,7 +136,6 @@ function CameraView({
 
 function CapturePageInner() {
   const router = useRouter();
-  const pathname = usePathname();
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [cameraKey, setCameraKey] = useState(0);
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
@@ -161,7 +159,7 @@ function CapturePageInner() {
     if (existingSession) {
       return true;
     }
-    router.replace(buildLoginPath(pathname || "/patient/capture"));
+    router.replace("/onboarding/patient");
     return false;
   };
 

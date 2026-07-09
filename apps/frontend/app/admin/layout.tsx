@@ -23,7 +23,10 @@ import { AdminNotificationBell } from "@/app/admin/_components/admin-notificatio
 import { AdminNotificationProvider } from "@/app/admin/_components/admin-notification-context";
 import { AdminSessionActions } from "@/app/admin/_components/admin-session-actions";
 import { apiClient } from "@/lib/api/client";
-import { buildLoginPath } from "@/lib/auth/liff";
+import { fetchAuthBootstrap } from "@/lib/api/identity";
+import { resolveSessionlessBootstrapDestination } from "@/lib/auth/bootstrap-routing";
+import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
+import { clearPatientSession } from "@/lib/auth/patient-session";
 import { clearStaffSession, getStaffSession } from "@/lib/auth/staff-session";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -50,6 +53,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     async function verifySession() {
       try {
         await apiClient.get("/v1/staff/me");
+        try {
+          const { idToken } = await getLiffLoginProof();
+          const bootstrap = await fetchAuthBootstrap(idToken);
+          if (bootstrap.next_step !== "app_selection") {
+            clearStaffSession();
+            clearPatientSession();
+            if (!cancelled) {
+              setIsVerified(false);
+              const destination = resolveSessionlessBootstrapDestination(bootstrap.next_step, {
+                roleSelectDestination: "/",
+              });
+              router.replace(destination);
+            }
+            return;
+          }
+        } catch {
+          // Staff token validation already succeeded; do not force logout on transient LIFF issues.
+        }
         if (!cancelled) {
           setIsVerified(true);
         }

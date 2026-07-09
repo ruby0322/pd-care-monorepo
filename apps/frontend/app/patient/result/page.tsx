@@ -2,12 +2,11 @@
 
 import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
 import { getPatientUploadResult } from "@/lib/api/predict";
-import { buildLoginPath } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import clsx from "clsx";
 import { AlertTriangle, CalendarDays, CheckCircle, Home, RotateCcw, ShieldAlert, XCircle } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 type ResultState = "normal" | "suspected" | "rejected" | "technical_error";
@@ -19,7 +18,6 @@ const EDUCATION_MATERIALS = [
 
 function ResultPageInner() {
   const searchParams = useSearchParams();
-  const pathname = usePathname();
   const queryResult = searchParams.get("result");
   const pain = searchParams.get("pain") === "true";
   const discharge = searchParams.get("discharge") === "true";
@@ -59,7 +57,7 @@ function ResultPageInner() {
         setIsHydrating(true);
         setHydrateError(null);
         if (!getPatientSession()) {
-          window.location.replace(buildLoginPath(pathname || "/patient/result"));
+          window.location.replace("/onboarding/patient");
           return;
         }
         const payload = await getPatientUploadResult({
@@ -99,7 +97,7 @@ function ResultPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [aiResultId, hasDurableIds, pathname, uploadId]);
+  }, [aiResultId, hasDurableIds, uploadId]);
 
   const result = useMemo<ResultState>(() => {
     if (hydratedResult) {
