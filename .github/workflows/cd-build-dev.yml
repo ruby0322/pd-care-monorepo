@@ -41,11 +41,21 @@ jobs:
           CHANGED_FILES="$(git show -m --pretty='' --name-only "${SOURCE_SHA}" | sed '/^$/d' | sort -u)"
           echo "Changed files:"
           echo "${CHANGED_FILES}"
-          if echo "${CHANGED_FILES}" | grep -Eq '^(apps/frontend/|apps/backend/)'; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          FRONTEND_CHANGED=false
+          BACKEND_CHANGED=false
+          if echo "${CHANGED_FILES}" | grep -Eq '^apps/frontend/'; then
+            FRONTEND_CHANGED=true
           fi
+          if echo "${CHANGED_FILES}" | grep -Eq '^apps/backend/'; then
+            BACKEND_CHANGED=true
+          fi
+          SHOULD_RUN=false
+          if [[ "${FRONTEND_CHANGED}" == "true" || "${BACKEND_CHANGED}" == "true" ]]; then
+            SHOULD_RUN=true
+          fi
+          echo "frontend_changed=${FRONTEND_CHANGED}" >> "$GITHUB_OUTPUT"
+          echo "backend_changed=${BACKEND_CHANGED}" >> "$GITHUB_OUTPUT"
+          echo "should_run=${SHOULD_RUN}" >> "$GITHUB_OUTPUT"
 
       - name: Exit when app code unchanged
         if: steps.paths.outputs.should_run != 'true'
@@ -73,7 +83,7 @@ jobs:
           echo "PROD_FRONTEND_TAG=prod-sha-${SOURCE_SHA::12}" >> "$GITHUB_ENV"
 
       - name: Build and push backend image
-        if: steps.paths.outputs.should_run == 'true'
+        if: steps.paths.outputs.backend_changed == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./apps/backend
@@ -83,7 +93,7 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.BACKEND_IMAGE }}:${{ env.BACKEND_TAG }}
 
       - name: Build and push dev frontend image
-        if: steps.paths.outputs.should_run == 'true'
+        if: steps.paths.outputs.frontend_changed == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./apps/frontend
@@ -94,7 +104,7 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE }}:${{ env.DEV_FRONTEND_TAG }}
 
       - name: Build and push prod frontend image
-        if: steps.paths.outputs.should_run == 'true'
+        if: steps.paths.outputs.frontend_changed == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./apps/frontend
@@ -110,41 +120,33 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def upsert_ghcr_images(file_path: Path, frontend_tag: str, backend_tag: str) -> None:
+          def update_image_tag(file_path: Path, image_name: str, new_tag: str) -> None:
+              if not new_tag:
+                  return
+
               lines = file_path.read_text().splitlines()
-              block = [
-                  "images:",
-                  "  - name: pd-care-frontend",
-                  "    newName: ghcr.io/ruby0322/pd-care-frontend",
-                  f"    newTag: {frontend_tag}",
-                  "  - name: pd-care-backend",
-                  "    newName: ghcr.io/ruby0322/pd-care-backend",
-                  f"    newTag: {backend_tag}",
-              ]
+              current_name = None
+              updated = False
+              for index, line in enumerate(lines):
+                  stripped = line.strip()
+                  if stripped.startswith("- name:"):
+                      current_name = stripped.split(":", 1)[1].strip()
+                      continue
+                  if stripped.startswith("newTag:") and current_name == image_name:
+                      indent = line[: line.index("newTag:")]
+                      lines[index] = f"{indent}newTag: {new_tag}"
+                      updated = True
+                      current_name = None
 
-              images_start = next(
-                  (index for index, line in enumerate(lines) if line.strip() == "images:"),
-                  None,
-              )
-              if images_start is None:
-                  if lines and lines[-1].strip():
-                      lines.append("")
-                  lines.extend(block)
-              else:
-                  images_end = len(lines)
-                  for index in range(images_start + 1, len(lines)):
-                      if lines[index] and not lines[index][0].isspace():
-                          images_end = index
-                          break
-                  lines = lines[:images_start] + block + lines[images_end:]
-
+              if not updated:
+                  raise SystemExit(f"Could not find image entry for {image_name}")
               file_path.write_text("\n".join(lines) + "\n")
 
-          upsert_ghcr_images(
-              Path("k8s/overlays/dev/kustomization.yaml"),
-              "${{ env.DEV_FRONTEND_TAG }}",
-              "${{ env.BACKEND_TAG }}",
-          )
+          overlay_file = Path("k8s/overlays/dev/kustomization.yaml")
+          if "${{ steps.paths.outputs.frontend_changed }}" == "true":
+              update_image_tag(overlay_file, "pd-care-frontend", "${{ env.DEV_FRONTEND_TAG }}")
+          if "${{ steps.paths.outputs.backend_changed }}" == "true":
+              update_image_tag(overlay_file, "pd-care-backend", "${{ env.BACKEND_TAG }}")
           PY
 
       - name: Configure bot git identity
@@ -161,6 +163,13 @@ jobs:
             exit 0
           fi
           git add k8s/overlays/dev/kustomization.yaml
-          git commit -m "ci(cd): promote dev images ${BACKEND_TAG}"
+          CHANGED_COMPONENTS=()
+          if [[ "${{ steps.paths.outputs.frontend_changed }}" == "true" ]]; then
+            CHANGED_COMPONENTS+=("frontend")
+          fi
+          if [[ "${{ steps.paths.outputs.backend_changed }}" == "true" ]]; then
+            CHANGED_COMPONENTS+=("backend")
+          fi
+          git commit -m "ci(cd): promote dev images (${CHANGED_COMPONENTS[*]})"
           git pull --rebase origin main
           git push origin HEAD:main

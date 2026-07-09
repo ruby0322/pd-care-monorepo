@@ -5,11 +5,11 @@ on:
     inputs:
       backend_tag:
         description: "Backend image tag (example: sha-abc123def456)"
-        required: true
+        required: false
         type: string
       frontend_tag:
         description: "Frontend image tag (example: prod-sha-abc123def456)"
-        required: true
+        required: false
         type: string
 
 concurrency:
@@ -38,12 +38,22 @@ jobs:
       - name: Validate input tag formats
         run: |
           set -euo pipefail
-          [[ "${{ github.event.inputs.backend_tag }}" =~ ^sha-[0-9a-f]{12}$ ]] || {
-            echo "backend_tag must match sha-<12-hex>"; exit 1;
-          }
-          [[ "${{ github.event.inputs.frontend_tag }}" =~ ^prod-sha-[0-9a-f]{12}$ ]] || {
-            echo "frontend_tag must match prod-sha-<12-hex>"; exit 1;
-          }
+          BACKEND_TAG="${{ github.event.inputs.backend_tag }}"
+          FRONTEND_TAG="${{ github.event.inputs.frontend_tag }}"
+          if [[ -z "${BACKEND_TAG}" && -z "${FRONTEND_TAG}" ]]; then
+            echo "Provide at least one of backend_tag or frontend_tag."
+            exit 1
+          fi
+          if [[ -n "${BACKEND_TAG}" ]]; then
+            [[ "${BACKEND_TAG}" =~ ^sha-[0-9a-f]{12}$ ]] || {
+              echo "backend_tag must match sha-<12-hex>"; exit 1;
+            }
+          fi
+          if [[ -n "${FRONTEND_TAG}" ]]; then
+            [[ "${FRONTEND_TAG}" =~ ^prod-sha-[0-9a-f]{12}$ ]] || {
+              echo "frontend_tag must match prod-sha-<12-hex>"; exit 1;
+            }
+          fi
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -55,49 +65,43 @@ jobs:
       - name: Validate tags exist in GHCR
         run: |
           set -euo pipefail
-          docker manifest inspect "${REGISTRY}/${OWNER}/${BACKEND_IMAGE}:${{ github.event.inputs.backend_tag }}" >/dev/null
-          docker manifest inspect "${REGISTRY}/${OWNER}/${FRONTEND_IMAGE}:${{ github.event.inputs.frontend_tag }}" >/dev/null
+          if [[ -n "${{ github.event.inputs.backend_tag }}" ]]; then
+            docker manifest inspect "${REGISTRY}/${OWNER}/${BACKEND_IMAGE}:${{ github.event.inputs.backend_tag }}" >/dev/null
+          fi
+          if [[ -n "${{ github.event.inputs.frontend_tag }}" ]]; then
+            docker manifest inspect "${REGISTRY}/${OWNER}/${FRONTEND_IMAGE}:${{ github.event.inputs.frontend_tag }}" >/dev/null
+          fi
 
       - name: Update prod overlay image tags
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          def upsert_ghcr_images(file_path: Path, frontend_tag: str, backend_tag: str) -> None:
+          def update_image_tag(file_path: Path, image_name: str, new_tag: str) -> None:
+              if not new_tag:
+                  return
+
               lines = file_path.read_text().splitlines()
-              block = [
-                  "images:",
-                  "  - name: pd-care-frontend",
-                  "    newName: ghcr.io/ruby0322/pd-care-frontend",
-                  f"    newTag: {frontend_tag}",
-                  "  - name: pd-care-backend",
-                  "    newName: ghcr.io/ruby0322/pd-care-backend",
-                  f"    newTag: {backend_tag}",
-              ]
+              current_name = None
+              updated = False
+              for index, line in enumerate(lines):
+                  stripped = line.strip()
+                  if stripped.startswith("- name:"):
+                      current_name = stripped.split(":", 1)[1].strip()
+                      continue
+                  if stripped.startswith("newTag:") and current_name == image_name:
+                      indent = line[: line.index("newTag:")]
+                      lines[index] = f"{indent}newTag: {new_tag}"
+                      updated = True
+                      current_name = None
 
-              images_start = next(
-                  (index for index, line in enumerate(lines) if line.strip() == "images:"),
-                  None,
-              )
-              if images_start is None:
-                  if lines and lines[-1].strip():
-                      lines.append("")
-                  lines.extend(block)
-              else:
-                  images_end = len(lines)
-                  for index in range(images_start + 1, len(lines)):
-                      if lines[index] and not lines[index][0].isspace():
-                          images_end = index
-                          break
-                  lines = lines[:images_start] + block + lines[images_end:]
-
+              if not updated:
+                  raise SystemExit(f"Could not find image entry for {image_name}")
               file_path.write_text("\n".join(lines) + "\n")
 
-          upsert_ghcr_images(
-              Path("k8s/overlays/prod/kustomization.yaml"),
-              "${{ github.event.inputs.frontend_tag }}",
-              "${{ github.event.inputs.backend_tag }}",
-          )
+          overlay_file = Path("k8s/overlays/prod/kustomization.yaml")
+          update_image_tag(overlay_file, "pd-care-frontend", "${{ github.event.inputs.frontend_tag }}")
+          update_image_tag(overlay_file, "pd-care-backend", "${{ github.event.inputs.backend_tag }}")
           PY
 
       - name: Configure bot git identity
@@ -112,5 +116,12 @@ jobs:
             exit 0
           fi
           git add k8s/overlays/prod/kustomization.yaml
-          git commit -m "ci(cd): promote prod images ${{ github.event.inputs.backend_tag }}"
+          CHANGED_COMPONENTS=()
+          if [[ -n "${{ github.event.inputs.frontend_tag }}" ]]; then
+            CHANGED_COMPONENTS+=("frontend")
+          fi
+          if [[ -n "${{ github.event.inputs.backend_tag }}" ]]; then
+            CHANGED_COMPONENTS+=("backend")
+          fi
+          git commit -m "ci(cd): promote prod images (${CHANGED_COMPONENTS[*]})"
           git push origin HEAD:main
