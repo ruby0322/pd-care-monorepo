@@ -202,9 +202,14 @@ export default function PatientDetailPage() {
             { label: "LINE 帳號", value: detail.line_user_id ?? "尚未綁定", mono: true },
             { label: "總上傳次數", value: `${detail.total_uploads}` },
           ].map(({ label, value, mono }) => (
-            <div key={label}>
+            <div key={label} className="min-w-0">
               <div className="text-xs text-zinc-400 mb-0.5">{label}</div>
-              <div className={clsx("text-sm text-zinc-900", mono && "font-mono")}>{value}</div>
+              <div
+                className={clsx("text-sm text-zinc-900", mono && "font-mono break-all")}
+                title={typeof value === "string" ? value : undefined}
+              >
+                {value}
+              </div>
             </div>
           ))}
         </div>
