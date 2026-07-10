@@ -22,16 +22,14 @@ import { getReadableApiError } from "@/lib/api/client";
 import {
   fetchPatientAnnotations,
   fetchStaffPatientDetail,
+  fetchStaffPatientUploadCalendar,
+  fetchStaffPatientUploads,
   fetchUploadImageAccess,
   StaffAnnotationItem,
   StaffPatientDetailUpload,
   upsertUploadAnnotation,
 } from "@/lib/api/staff";
-import {
-  getMonthKeyFromDateKey,
-  getTaipeiTodayKey,
-  summarizeUploadsForCalendar,
-} from "@/lib/utils/upload-calendar";
+import { getMonthKeyFromDateKey, getTaipeiTodayKey } from "@/lib/utils/upload-calendar";
 
 function ResultBadge({ result }: { result: StaffPatientDetailUpload["screening_result"] }) {
   const config = {
@@ -70,6 +68,8 @@ export default function PatientDetailPage() {
   const params = useParams<{ id: string }>();
   const patientId = Number(params.id);
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof fetchStaffPatientDetail>> | null>(null);
+  const [uploads, setUploads] = useState<StaffPatientDetailUpload[]>([]);
+  const [calendarDays, setCalendarDays] = useState<Awaited<ReturnType<typeof fetchStaffPatientUploadCalendar>>["items"]>([]);
   const [annotations, setAnnotations] = useState<StaffAnnotationItem[]>([]);
   const [imageUrlByUpload, setImageUrlByUpload] = useState<Record<number, string>>({});
   const [editingLabel, setEditingLabel] = useState<Record<number, StaffAnnotationItem["label"]>>({});
@@ -77,7 +77,14 @@ export default function PatientDetailPage() {
   const [savingUploadId, setSavingUploadId] = useState<number | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; uploadId: number } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [uploadsLoading, setUploadsLoading] = useState(true);
+  const [uploadPage, setUploadPage] = useState(1);
+  const [uploadPageSize, setUploadPageSize] = useState<20 | 50 | 100>(20);
+  const [uploadTotal, setUploadTotal] = useState(0);
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -85,28 +92,17 @@ export default function PatientDetailPage() {
       setLoading(true);
       setErrorMessage(null);
       try {
-        const [detailResponse, annotationItems] = await Promise.all([
+        const [detailResponse, annotationItems, calendarResponse] = await Promise.all([
           fetchStaffPatientDetail(patientId),
           fetchPatientAnnotations(patientId),
+          fetchStaffPatientUploadCalendar(patientId),
         ]);
         if (cancelled) {
           return;
         }
         setDetail(detailResponse);
         setAnnotations(annotationItems);
-        const accessRows = await Promise.all(
-          detailResponse.uploads.slice(0, 20).map(async (upload) => ({
-            uploadId: upload.upload_id,
-            access: await fetchUploadImageAccess(upload.upload_id),
-          }))
-        );
-        if (!cancelled) {
-          const map: Record<number, string> = {};
-          for (const row of accessRows) {
-            map[row.uploadId] = row.access.image_url;
-          }
-          setImageUrlByUpload(map);
-        }
+        setCalendarDays(calendarResponse.items);
       } catch (error) {
         if (!cancelled) {
           setErrorMessage(getReadableApiError(error));
@@ -125,6 +121,61 @@ export default function PatientDetailPage() {
     };
   }, [patientId]);
 
+  useEffect(() => {
+    if (Number.isNaN(patientId)) {
+      return;
+    }
+    let cancelled = false;
+    async function loadUploads() {
+      setUploadsLoading(true);
+      setUploadErrorMessage(null);
+      setUploads([]);
+      setUploadTotal(0);
+      setImageUrlByUpload({});
+      try {
+        const response = await fetchStaffPatientUploads(patientId, {
+          createdFrom: createdFrom || undefined,
+          createdTo: createdTo || undefined,
+          limit: uploadPageSize,
+          offset: (uploadPage - 1) * uploadPageSize,
+        });
+        if (cancelled) {
+          return;
+        }
+        const lastPage = Math.max(1, Math.ceil(response.total / uploadPageSize));
+        if (uploadPage > lastPage) {
+          setUploadPage(lastPage);
+          return;
+        }
+        setUploads(response.items);
+        setUploadTotal(response.total);
+        const accessRows = await Promise.all(
+          response.items.map(async (upload) => ({
+            uploadId: upload.upload_id,
+            access: await fetchUploadImageAccess(upload.upload_id),
+          }))
+        );
+        if (!cancelled) {
+          setImageUrlByUpload(Object.fromEntries(
+            accessRows.map((row) => [row.uploadId, row.access.image_url])
+          ));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setUploadErrorMessage(getReadableApiError(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setUploadsLoading(false);
+        }
+      }
+    }
+    void loadUploads();
+    return () => {
+      cancelled = true;
+    };
+  }, [createdFrom, createdTo, patientId, uploadPage, uploadPageSize]);
+
   const annotationByUpload = useMemo(() => {
     const map = new Map<number, StaffAnnotationItem>();
     for (const item of annotations) {
@@ -135,10 +186,6 @@ export default function PatientDetailPage() {
     return map;
   }, [annotations]);
 
-  const calendarDays = useMemo(
-    () => summarizeUploadsForCalendar(detail?.uploads ?? []),
-    [detail?.uploads]
-  );
   const calendarMonthBounds = useMemo(() => {
     const currentMonthKey = getMonthKeyFromDateKey(getTaipeiTodayKey());
     if (calendarDays.length === 0) {
@@ -149,6 +196,9 @@ export default function PatientDetailPage() {
       newestMonthKey: getMonthKeyFromDateKey(calendarDays[calendarDays.length - 1].date),
     };
   }, [calendarDays]);
+  const uploadTotalPages = Math.max(1, Math.ceil(uploadTotal / uploadPageSize));
+  const uploadRangeStart = uploadTotal === 0 ? 0 : (uploadPage - 1) * uploadPageSize + 1;
+  const uploadRangeEnd = uploadTotal === 0 ? 0 : Math.min(uploadPage * uploadPageSize, uploadTotal);
 
   useEffect(() => {
     if (!previewImage) {
@@ -258,12 +308,62 @@ export default function PatientDetailPage() {
       />
 
       <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-50 flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-zinc-400" strokeWidth={1.5} />
-          <h2 className="text-sm font-medium text-zinc-900">上傳歷程</h2>
+        <div className="border-b border-zinc-100 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-zinc-400" strokeWidth={1.5} />
+            <h2 className="text-sm font-medium text-zinc-900">上傳歷程</h2>
+          </div>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-xs text-zinc-500">
+              上傳日期起
+              <input
+                type="date"
+                aria-label="上傳日期起"
+                value={createdFrom}
+                onChange={(event) => {
+                  setCreatedFrom(event.target.value);
+                  setUploadPage(1);
+                }}
+                className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-zinc-500">
+              上傳日期迄
+              <input
+                type="date"
+                aria-label="上傳日期迄"
+                value={createdTo}
+                onChange={(event) => {
+                  setCreatedTo(event.target.value);
+                  setUploadPage(1);
+                }}
+                className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900"
+              />
+            </label>
+            {(createdFrom || createdTo) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setCreatedFrom("");
+                  setCreatedTo("");
+                  setUploadPage(1);
+                }}
+                className="rounded-lg border border-zinc-200 px-3 py-2 text-xs text-zinc-600 hover:bg-zinc-50"
+              >
+                清除日期
+              </button>
+            ) : null}
+          </div>
         </div>
+        {uploadErrorMessage ? (
+          <div className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm text-red-700">{uploadErrorMessage}</div>
+        ) : null}
         <div className="divide-y divide-zinc-50">
-          {detail.uploads.map((upload) => {
+          {uploadsLoading ? (
+            <div className="px-5 py-8 text-center text-sm text-zinc-400">載入上傳紀錄中...</div>
+          ) : uploads.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-zinc-400">此日期範圍沒有上傳紀錄</div>
+          ) : uploads.map((upload) => {
             const imageUrl = imageUrlByUpload[upload.upload_id];
             const annotation = annotationByUpload.get(upload.upload_id);
             return (
@@ -343,6 +443,48 @@ export default function PatientDetailPage() {
               </div>
             );
           })}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 px-5 py-4">
+          <div className="text-xs text-zinc-500">
+            顯示 {uploadRangeStart}–{uploadRangeEnd} 筆，共 {uploadTotal} 筆
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-zinc-500">
+              每頁筆數
+              <select
+                aria-label="每頁筆數"
+                value={uploadPageSize}
+                onChange={(event) => {
+                  setUploadPageSize(Number(event.target.value) as 20 | 50 | 100);
+                  setUploadPage(1);
+                }}
+                className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700"
+              >
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              aria-label="上一頁"
+              disabled={uploadPage <= 1 || uploadsLoading}
+              onClick={() => setUploadPage((current) => Math.max(1, current - 1))}
+              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700 disabled:text-zinc-300"
+            >
+              上一頁
+            </button>
+            <span className="text-xs text-zinc-500">{uploadPage} / {uploadTotalPages}</span>
+            <button
+              type="button"
+              aria-label="下一頁"
+              disabled={uploadPage >= uploadTotalPages || uploadsLoading}
+              onClick={() => setUploadPage((current) => Math.min(uploadTotalPages, current + 1))}
+              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700 disabled:text-zinc-300"
+            >
+              下一頁
+            </button>
+          </div>
         </div>
       </div>
 

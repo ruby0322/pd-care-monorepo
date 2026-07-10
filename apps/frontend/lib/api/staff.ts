@@ -54,7 +54,23 @@ export type StaffPatientDetailResponse = {
   total_uploads: number;
   suspected_uploads: number;
   rejected_uploads: number;
-  uploads: StaffPatientDetailUpload[];
+};
+
+export type StaffPatientUploadsResponse = {
+  items: StaffPatientDetailUpload[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type StaffPatientUploadCalendarDay = {
+  date: string;
+  upload_count: number;
+  has_suspected_risk: boolean;
+};
+
+export type StaffPatientUploadCalendarResponse = {
+  items: StaffPatientUploadCalendarDay[];
 };
 
 export type StaffPatientCreatePayload = {
@@ -82,6 +98,8 @@ export type StaffUploadQueueItem = {
   created_at: string;
   screening_result: "normal" | "suspected" | "rejected" | "technical_error";
   probability: number | null;
+  threshold: number | null;
+  model_version: string | null;
   has_annotation: boolean;
   symptom_pain: boolean;
   symptom_discharge: boolean;
@@ -455,6 +473,35 @@ export async function fetchStaffPatients(params: {
 
 export async function fetchStaffPatientDetail(patientId: number): Promise<StaffPatientDetailResponse> {
   const { data } = await apiClient.get<StaffPatientDetailResponse>(`/v1/staff/patients/${patientId}`);
+  return data;
+}
+
+export async function fetchStaffPatientUploads(
+  patientId: number,
+  params: {
+    createdFrom?: string;
+    createdTo?: string;
+    limit?: number;
+    offset?: number;
+  } = {}
+): Promise<StaffPatientUploadsResponse> {
+  const { data } = await apiClient.get<StaffPatientUploadsResponse>(`/v1/staff/patients/${patientId}/uploads`, {
+    params: {
+      created_from: params.createdFrom,
+      created_to: params.createdTo,
+      limit: params.limit ?? 20,
+      offset: params.offset ?? 0,
+    },
+  });
+  return data;
+}
+
+export async function fetchStaffPatientUploadCalendar(
+  patientId: number
+): Promise<StaffPatientUploadCalendarResponse> {
+  const { data } = await apiClient.get<StaffPatientUploadCalendarResponse>(
+    `/v1/staff/patients/${patientId}/upload-calendar`
+  );
   return data;
 }
 

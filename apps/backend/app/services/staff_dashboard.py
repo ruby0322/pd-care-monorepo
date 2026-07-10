@@ -407,6 +407,79 @@ def list_patient_upload_records(session: Session, *, patient_id: int) -> list[tu
     return [(upload, ai_result, upload.id in annotated_upload_ids) for upload, ai_result in upload_rows]
 
 
+def get_patient_upload_counts(session: Session, *, patient_id: int) -> tuple[int, int, int]:
+    row = session.execute(
+        select(
+            func.count(Upload.id),
+            func.sum(case((AIResult.screening_result == "suspected", 1), else_=0)),
+            func.sum(case((AIResult.screening_result == "rejected", 1), else_=0)),
+        )
+        .select_from(Upload)
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .where(Upload.patient_id == patient_id)
+    ).one()
+    return int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+
+
+def list_patient_upload_records_page(
+    session: Session,
+    *,
+    patient_id: int,
+    created_from: date | None,
+    created_to: date | None,
+    limit: int,
+    offset: int,
+) -> tuple[int, list[tuple[Upload, AIResult, bool]]]:
+    filters = [Upload.patient_id == patient_id]
+    if created_from is not None:
+        local_start = datetime.combine(created_from, time.min, tzinfo=TAIPEI_TIMEZONE)
+        filters.append(Upload.created_at >= local_start.astimezone(timezone.utc))
+    if created_to is not None:
+        local_end = datetime.combine(created_to + timedelta(days=1), time.min, tzinfo=TAIPEI_TIMEZONE)
+        filters.append(Upload.created_at < local_end.astimezone(timezone.utc))
+
+    total = int(session.scalar(select(func.count(Upload.id)).join(AIResult).where(*filters)) or 0)
+    upload_rows = session.execute(
+        select(Upload, AIResult)
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .where(*filters)
+        .order_by(Upload.created_at.desc(), Upload.id.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    upload_ids = [upload.id for upload, _ in upload_rows]
+    annotated_upload_ids = set(
+        session.execute(select(Annotation.upload_id).where(Annotation.upload_id.in_(upload_ids))).scalars().all()
+    ) if upload_ids else set()
+    return total, [(upload, ai_result, upload.id in annotated_upload_ids) for upload, ai_result in upload_rows]
+
+
+def list_patient_upload_calendar_days(session: Session, *, patient_id: int) -> list[dict[str, object]]:
+    if session.bind is not None and session.bind.dialect.name == "sqlite":
+        local_date = func.date(Upload.created_at, "+8 hours")
+    else:
+        local_date = func.date(func.timezone("Asia/Taipei", Upload.created_at))
+    rows = session.execute(
+        select(
+            local_date.label("local_date"),
+            func.count(Upload.id).label("upload_count"),
+            func.max(case((AIResult.screening_result == "suspected", 1), else_=0)).label("has_suspected_risk"),
+        )
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .where(Upload.patient_id == patient_id)
+        .group_by(local_date)
+        .order_by(local_date.asc())
+    ).all()
+    return [
+        {
+            "date": local_date_value.isoformat() if isinstance(local_date_value, date) else str(local_date_value),
+            "upload_count": int(upload_count),
+            "has_suspected_risk": bool(has_suspected_risk),
+        }
+        for local_date_value, upload_count, has_suspected_risk in rows
+    ]
+
+
 def list_upload_queue(
     session: Session,
     *,

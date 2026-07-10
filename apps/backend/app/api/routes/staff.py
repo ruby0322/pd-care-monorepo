@@ -44,6 +44,9 @@ from app.schemas.staff_dashboard import (
     StaffPatientStatusUpdateRequest,
     StaffPendingCandidatePatient,
     StaffPatientSummary,
+    StaffPatientUploadCalendarItem,
+    StaffPatientUploadCalendarResponse,
+    StaffPatientUploadsResponse,
     StaffUploadQueueItem,
     StaffUploadQueueResponse,
     StaffUploadRecord,
@@ -65,9 +68,11 @@ from app.services.staff_dashboard import (
     create_patient_and_link_pending_binding,
     DuplicatePatientError,
     ensure_staff_assignment,
+    get_patient_upload_counts,
     link_pending_binding,
     list_annotations_for_patient,
-    list_patient_upload_records,
+    list_patient_upload_calendar_days,
+    list_patient_upload_records_page,
     list_pending_bindings,
     list_staff_patients,
     list_upload_queue,
@@ -324,7 +329,10 @@ async def get_staff_patient_detail(
             patient_id=patient_id,
         )
 
-        uploads = list_patient_upload_records(session, patient_id=patient_id)
+        total_uploads, suspected_uploads, rejected_uploads = get_patient_upload_counts(
+            session,
+            patient_id=patient_id,
+        )
         line_identity = session.execute(
             select(LiffIdentity.display_name, LiffIdentity.line_user_id).where(LiffIdentity.patient_id == patient_id).limit(1)
         ).first()
@@ -338,10 +346,48 @@ async def get_staff_patient_detail(
             line_display_name=line_identity[0] if line_identity else None,
             line_user_id=line_identity[1] if line_identity else None,
             is_active=patient.is_active,
-            total_uploads=len(uploads),
-            suspected_uploads=sum(1 for _, ai_result, _ in uploads if ai_result.screening_result == "suspected"),
-            rejected_uploads=sum(1 for _, ai_result, _ in uploads if ai_result.screening_result == "rejected"),
-            uploads=[
+            total_uploads=total_uploads,
+            suspected_uploads=suspected_uploads,
+            rejected_uploads=rejected_uploads,
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/patients/{patient_id}/uploads", response_model=StaffPatientUploadsResponse)
+async def get_staff_patient_uploads(
+    request: Request,
+    patient_id: int,
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    credentials=Depends(bearer_scheme),
+) -> StaffPatientUploadsResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        if session.get(Patient, patient_id) is None:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        _assert_patient_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            patient_id=patient_id,
+        )
+        total, uploads = list_patient_upload_records_page(
+            session,
+            patient_id=patient_id,
+            created_from=created_from,
+            created_to=created_to,
+            limit=limit,
+            offset=offset,
+        )
+        return StaffPatientUploadsResponse(
+            total=total,
+            limit=limit,
+            offset=offset,
+            items=[
                 StaffUploadRecord(
                     upload_id=upload.id,
                     created_at=upload.created_at,
@@ -355,6 +401,36 @@ async def get_staff_patient_detail(
                 )
                 for upload, ai_result, has_annotation in uploads
             ],
+        )
+    finally:
+        session.close()
+
+
+@router.get(
+    "/v1/staff/patients/{patient_id}/upload-calendar",
+    response_model=StaffPatientUploadCalendarResponse,
+)
+async def get_staff_patient_upload_calendar(
+    request: Request,
+    patient_id: int,
+    credentials=Depends(bearer_scheme),
+) -> StaffPatientUploadCalendarResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        if session.get(Patient, patient_id) is None:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        _assert_patient_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            patient_id=patient_id,
+        )
+        return StaffPatientUploadCalendarResponse(
+            items=[
+                StaffPatientUploadCalendarItem(**item)
+                for item in list_patient_upload_calendar_days(session, patient_id=patient_id)
+            ]
         )
     finally:
         session.close()
@@ -392,6 +468,8 @@ async def get_staff_upload_queue(
                     created_at=upload.created_at,
                     screening_result=ai_result.screening_result,
                     probability=ai_result.probability,
+                    threshold=ai_result.threshold,
+                    model_version=ai_result.model_version,
                     has_annotation=has_annotation,
                     symptom_pain=upload.symptom_pain,
                     symptom_discharge=upload.symptom_discharge,
