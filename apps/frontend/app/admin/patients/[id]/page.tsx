@@ -27,7 +27,11 @@ import {
   StaffPatientDetailUpload,
   upsertUploadAnnotation,
 } from "@/lib/api/staff";
-import { summarizeUploadsForCalendar } from "@/lib/utils/upload-calendar";
+import {
+  getMonthKeyFromDateKey,
+  getTaipeiTodayKey,
+  summarizeUploadsForCalendar,
+} from "@/lib/utils/upload-calendar";
 
 function ResultBadge({ result }: { result: StaffPatientDetailUpload["screening_result"] }) {
   const config = {
@@ -135,6 +139,16 @@ export default function PatientDetailPage() {
     () => summarizeUploadsForCalendar(detail?.uploads ?? []),
     [detail?.uploads]
   );
+  const calendarMonthBounds = useMemo(() => {
+    const currentMonthKey = getMonthKeyFromDateKey(getTaipeiTodayKey());
+    if (calendarDays.length === 0) {
+      return { oldestMonthKey: currentMonthKey, newestMonthKey: currentMonthKey };
+    }
+    return {
+      oldestMonthKey: getMonthKeyFromDateKey(calendarDays[0].date),
+      newestMonthKey: getMonthKeyFromDateKey(calendarDays[calendarDays.length - 1].date),
+    };
+  }, [calendarDays]);
 
   useEffect(() => {
     if (!previewImage) {
@@ -237,7 +251,11 @@ export default function PatientDetailPage() {
         ))}
       </div>
 
-      <PatientDailyCalendar days={calendarDays} />
+      <PatientDailyCalendar
+        days={calendarDays}
+        loadedOldestMonthKey={calendarMonthBounds.oldestMonthKey}
+        loadedNewestMonthKey={calendarMonthBounds.newestMonthKey}
+      />
 
       <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-zinc-50 flex items-center gap-2">
