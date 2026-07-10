@@ -35,13 +35,14 @@ jest.mock("@/components/ui/carousel", () => {
     Carousel: ({
       children,
       setApi,
-      withGutter: _withGutter,
+      withGutter,
       ...props
     }: {
       children: React.ReactNode;
       setApi?: (api: FakeApi) => void;
       withGutter?: boolean;
     }) => {
+      void withGutter;
       const [index, setIndex] = ReactLocal.useState(0);
       const apiRef = ReactLocal.useRef<FakeApi | null>(null);
       if (!apiRef.current) {
@@ -152,6 +153,43 @@ describe("PatientDailyCalendar month paging UI", () => {
       jest.advanceTimersByTime(240);
     });
     expect(screen.getByText("4 月")).toBeInTheDocument();
+  });
+
+  test("notifies the parent after navigating to a previous month", () => {
+    const onMonthChange = jest.fn();
+    render(
+      <PatientDailyCalendar
+        days={days}
+        loadedOldestMonthKey="2026-04"
+        loadedNewestMonthKey="2026-05"
+        onMonthChange={onMonthChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "上個月" }));
+    act(() => {
+      jest.advanceTimersByTime(240);
+    });
+
+    expect(onMonthChange).toHaveBeenLastCalledWith("2026-04");
+  });
+
+  test("forward button returns from an older month to the newest loaded month", () => {
+    render(
+      <PatientDailyCalendar
+        days={days}
+        initialMonthKey="2026-04"
+        loadedOldestMonthKey="2026-04"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "下個月" }));
+    act(() => {
+      jest.advanceTimersByTime(240);
+    });
+
+    expect(screen.getByText("5 月")).toBeInTheDocument();
   });
 
   test("month header updates when initialMonthKey is controlled", () => {

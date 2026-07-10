@@ -37,11 +37,6 @@ export default function AdminRapidReviewPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [draftByUploadId, setDraftByUploadId] = useState<Record<number, DraftVerdict>>({});
 
-  const currentUpload = useMemo(
-    () => currentPatient?.uploads.find((upload) => upload.upload_id === currentItem?.upload_id) ?? null,
-    [currentItem?.upload_id, currentPatient?.uploads]
-  );
-
   const draft = useMemo(() => {
     if (!currentItem) {
       return null;
@@ -166,14 +161,14 @@ export default function AdminRapidReviewPage() {
           <div className="flex items-start justify-between gap-4">
             <dt className="text-zinc-400">Threshold</dt>
             <dd className="text-right text-zinc-900">
-              {currentUpload?.threshold !== null && currentUpload?.threshold !== undefined
-                ? currentUpload.threshold.toFixed(2)
+              {currentItem?.threshold !== null && currentItem?.threshold !== undefined
+                ? currentItem.threshold.toFixed(2)
                 : "-"}
             </dd>
           </div>
           <div className="flex items-start justify-between gap-4">
             <dt className="text-zinc-400">Model</dt>
-            <dd className="text-right text-zinc-900">{currentUpload?.model_version ?? "-"}</dd>
+            <dd className="text-right text-zinc-900">{currentItem?.model_version ?? "-"}</dd>
           </div>
         </dl>
         <div className="mt-4">

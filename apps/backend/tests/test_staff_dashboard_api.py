@@ -352,6 +352,8 @@ def test_staff_patient_list_and_queue_are_accessible(tmp_path: Path) -> None:
         queue_response = client.get("/v1/staff/uploads/queue", headers=headers)
         assert queue_response.status_code == 200
         assert len(queue_response.json()["items"]) >= 1
+        assert queue_response.json()["items"][0]["threshold"] == 0.5
+        assert "model_version" in queue_response.json()["items"][0]
 
 
 def test_staff_upload_queue_includes_symptom_flags(tmp_path: Path) -> None:
@@ -670,8 +672,8 @@ def test_staff_can_upsert_annotation(tmp_path: Path) -> None:
         token = _login_staff_token(client)
         headers = {"Authorization": f"Bearer {token}"}
 
-        detail = client.get(f"/v1/staff/patients/{patient_id}", headers=headers)
-        upload_id = detail.json()["uploads"][0]["upload_id"]
+        uploads = client.get(f"/v1/staff/patients/{patient_id}/uploads", headers=headers)
+        upload_id = uploads.json()["items"][0]["upload_id"]
 
         create_response = client.post(
             f"/v1/staff/uploads/{upload_id}/annotation",
@@ -699,6 +701,156 @@ def test_staff_can_upsert_annotation(tmp_path: Path) -> None:
         with session_factory() as session:
             updated = session.query(Annotation).filter(Annotation.upload_id == upload_id).one()
             assert updated.patient_read_at is None
+
+
+def test_staff_patient_uploads_support_taipei_date_filter_and_pagination(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-upload-history.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-UPLOAD-HISTORY",
+            line_user_id="U_PATIENT_UPLOAD_HISTORY",
+            uploads=[
+                (datetime(2026, 4, 30, 15, 59, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 4, 30, 16, 0, tzinfo=timezone.utc), "suspected"),
+                (datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 5, 1, 16, 0, tzinfo=timezone.utc), "rejected"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        first_page = client.get(
+            f"/v1/staff/patients/{patient_id}/uploads"
+            "?created_from=2026-05-01&created_to=2026-05-01&limit=1&offset=0",
+            headers=headers,
+        )
+        assert first_page.status_code == 200
+        first_payload = first_page.json()
+        assert first_payload["total"] == 2
+        assert first_payload["limit"] == 1
+        assert first_payload["offset"] == 0
+        assert len(first_payload["items"]) == 1
+        assert first_payload["items"][0]["screening_result"] == "normal"
+
+        second_page = client.get(
+            f"/v1/staff/patients/{patient_id}/uploads"
+            "?created_from=2026-05-01&created_to=2026-05-01&limit=1&offset=1",
+            headers=headers,
+        )
+        assert second_page.status_code == 200
+        second_payload = second_page.json()
+        assert second_payload["total"] == 2
+        assert second_payload["items"][0]["screening_result"] == "suspected"
+
+        empty_range = client.get(
+            f"/v1/staff/patients/{patient_id}/uploads"
+            "?created_from=2026-06-01&created_to=2026-06-30",
+            headers=headers,
+        )
+        assert empty_range.status_code == 200
+        assert empty_range.json()["total"] == 0
+        assert empty_range.json()["items"] == []
+
+
+def test_staff_patient_upload_calendar_groups_by_taipei_date(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-upload-calendar.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-UPLOAD-CALENDAR",
+            line_user_id="U_PATIENT_UPLOAD_CALENDAR",
+            uploads=[
+                (datetime(2026, 4, 30, 15, 59, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 4, 30, 16, 0, tzinfo=timezone.utc), "suspected"),
+                (datetime(2026, 5, 1, 8, 0, tzinfo=timezone.utc), "normal"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        token = _login_staff_token(client)
+
+        response = client.get(
+            f"/v1/staff/patients/{patient_id}/upload-calendar",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["items"] == [
+            {"date": "2026-04-30", "upload_count": 1, "has_suspected_risk": False},
+            {"date": "2026-05-01", "upload_count": 2, "has_suspected_risk": True},
+        ]
+
+
+def test_staff_patient_upload_pagination_uses_id_as_timestamp_tiebreaker(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-upload-order.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        shared_timestamp = datetime(2026, 5, 1, 8, 0, tzinfo=timezone.utc)
+        patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-UPLOAD-ORDER",
+            line_user_id="U_PATIENT_UPLOAD_ORDER",
+            uploads=[
+                (shared_timestamp, "normal"),
+                (shared_timestamp, "suspected"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            expected_ids = [
+                upload.id
+                for upload in session.query(Upload)
+                .filter(Upload.patient_id == patient_id)
+                .order_by(Upload.id.desc())
+                .all()
+            ]
+        token = _login_staff_token(client)
+
+        response = client.get(
+            f"/v1/staff/patients/{patient_id}/uploads",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert [item["upload_id"] for item in response.json()["items"]] == expected_ids
+
+
+def test_staff_patient_detail_returns_counts_without_embedded_uploads(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-slim-detail.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-SLIM-DETAIL",
+            line_user_id="U_PATIENT_SLIM_DETAIL",
+            uploads=[
+                (datetime(2026, 5, 1, 8, 0, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 5, 2, 8, 0, tzinfo=timezone.utc), "suspected"),
+                (datetime(2026, 5, 3, 8, 0, tzinfo=timezone.utc), "rejected"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        token = _login_staff_token(client)
+
+        response = client.get(
+            f"/v1/staff/patients/{patient_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert "uploads" not in payload
+        assert payload["total_uploads"] == 3
+        assert payload["suspected_uploads"] == 1
+        assert payload["rejected_uploads"] == 1
 
 
 def test_staff_cannot_review_unassigned_uploads_or_annotations(tmp_path: Path) -> None:
@@ -731,6 +883,15 @@ def test_staff_cannot_review_unassigned_uploads_or_annotations(tmp_path: Path) -
 
         annotation_list_response = client.get(f"/v1/staff/patients/{unassigned_patient_id}/annotations", headers=headers)
         assert annotation_list_response.status_code == 403
+
+        uploads_response = client.get(f"/v1/staff/patients/{unassigned_patient_id}/uploads", headers=headers)
+        assert uploads_response.status_code == 403
+
+        calendar_response = client.get(
+            f"/v1/staff/patients/{unassigned_patient_id}/upload-calendar",
+            headers=headers,
+        )
+        assert calendar_response.status_code == 403
 
         image_access_response = client.get(f"/v1/staff/uploads/{unassigned_upload_id}/image-access", headers=headers)
         assert image_access_response.status_code == 403

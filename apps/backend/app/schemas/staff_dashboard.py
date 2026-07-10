@@ -42,6 +42,23 @@ class StaffUploadRecord(BaseModel):
     has_annotation: bool
 
 
+class StaffPatientUploadsResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[StaffUploadRecord]
+
+
+class StaffPatientUploadCalendarItem(BaseModel):
+    date: str
+    upload_count: int
+    has_suspected_risk: bool
+
+
+class StaffPatientUploadCalendarResponse(BaseModel):
+    items: list[StaffPatientUploadCalendarItem]
+
+
 class StaffPatientDetailResponse(BaseModel):
     patient_id: int
     case_number: str
@@ -55,7 +72,6 @@ class StaffPatientDetailResponse(BaseModel):
     total_uploads: int
     suspected_uploads: int
     rejected_uploads: int
-    uploads: list[StaffUploadRecord]
 
 
 class StaffUploadQueueItem(BaseModel):
@@ -67,6 +83,8 @@ class StaffUploadQueueItem(BaseModel):
     created_at: datetime
     screening_result: str
     probability: float | None
+    threshold: float | None
+    model_version: str | None
     has_annotation: bool
     symptom_pain: bool
     symptom_discharge: bool
