@@ -244,9 +244,11 @@ export default function PatientDetailPage() {
         >
           <ChevronLeft className="w-5 h-5 text-zinc-500" strokeWidth={1.5} />
         </Link>
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold text-zinc-900">{detail.full_name ?? "未命名病患"}</h1>
-          <p className="text-xs text-zinc-400 font-mono mt-0.5">{detail.case_number}</p>
+          <p className="text-xs text-zinc-400 font-mono break-all mt-0.5" title={detail.case_number}>
+            {detail.case_number}
+          </p>
         </div>
       </div>
       {errorMessage ? <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div> : null}
