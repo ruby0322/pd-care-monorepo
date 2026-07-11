@@ -559,7 +559,12 @@ export default function AdminHistoryOverviewPage() {
                       )}
                     </Link>
                     <div className="text-sm">
-                      <p className="font-medium text-zinc-900">{group.real_name ?? group.patient_full_name ?? "未命名"}</p>
+                      <Link
+                        href={`/admin/patients/${group.patient_id}`}
+                        className="font-medium text-zinc-900 hover:text-zinc-700 hover:underline"
+                      >
+                        {group.real_name ?? group.patient_full_name ?? "未命名"}
+                      </Link>
                       <p className="text-xs text-zinc-500">
                         {group.case_number} · {group.line_display_name ?? "No LINE name"} · {group.gender}
                       </p>
