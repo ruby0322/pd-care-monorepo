@@ -20,6 +20,7 @@ type StaffAssigneeCardProps = {
   rows: number;
   columns: number;
   busy?: boolean;
+  elevateForDrop?: boolean;
   onOpenCard: () => void;
   onOpenAdd: () => void;
   onOpenOverflow: () => void;
@@ -32,6 +33,7 @@ export function StaffAssigneeCard({
   rows,
   columns,
   busy,
+  elevateForDrop,
   onOpenCard,
   onOpenAdd,
   onOpenOverflow,
@@ -54,12 +56,13 @@ export function StaffAssigneeCard({
       ref={droppable.setNodeRef}
       className={cn(
         "flex h-[168px] flex-col rounded-xl border border-zinc-200 bg-white p-3 shadow-sm transition-shadow md:h-[188px]",
+        elevateForDrop && "relative z-40 shadow-lg ring-1 ring-zinc-200",
         isOver && "ring-2 ring-zinc-400"
       )}
     >
       <button
         type="button"
-        className="mb-2 flex min-w-0 items-center gap-2 text-left"
+        className="mb-2 flex min-w-0 cursor-pointer items-center gap-2 text-left disabled:cursor-default"
         onClick={onOpenCard}
         disabled={busy}
       >
@@ -107,7 +110,7 @@ export function StaffAssigneeCard({
               <button
                 key={`overflow-${index}`}
                 type="button"
-                className="flex h-full w-full items-center justify-center rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-600"
+                className="flex h-full w-full cursor-pointer items-center justify-center rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-600 disabled:cursor-default"
                 onClick={onOpenOverflow}
                 disabled={busy}
                 aria-label={`查看另外 ${cell.count} 位病患`}
@@ -123,7 +126,7 @@ export function StaffAssigneeCard({
                 type="button"
                 ref={addDroppable.setNodeRef}
                 className={cn(
-                  "flex h-full w-full items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-zinc-500",
+                  "flex h-full w-full cursor-pointer items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-zinc-500 disabled:cursor-default",
                   addDroppable.isOver && "border-zinc-500 bg-zinc-100"
                 )}
                 onClick={onOpenAdd}
