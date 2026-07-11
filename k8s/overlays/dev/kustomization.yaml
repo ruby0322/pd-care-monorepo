@@ -20,7 +20,7 @@ patches:
 images:
   - name: pd-care-frontend
     newName: ghcr.io/ruby0322/pd-care-frontend
-    newTag: dev-sha-e55ccfb3a086
+    newTag: dev-sha-de2cc46cb6ea
   - name: pd-care-backend
     newName: ghcr.io/ruby0322/pd-care-backend
     newTag: sha-e55ccfb3a086
