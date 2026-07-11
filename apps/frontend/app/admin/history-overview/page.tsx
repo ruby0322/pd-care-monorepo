@@ -547,15 +547,24 @@ export default function AdminHistoryOverviewPage() {
               <article key={group.patient_id} className="rounded-2xl border border-zinc-200 bg-white p-4">
                 <header className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="relative h-10 w-10 overflow-hidden rounded-full bg-zinc-100">
+                    <Link
+                      href={`/admin/patients/${group.patient_id}`}
+                      className="relative block h-10 w-10 shrink-0 overflow-hidden rounded-full bg-zinc-100 ring-1 ring-zinc-200 transition hover:ring-zinc-400"
+                      aria-label={`查看 ${group.real_name ?? group.patient_full_name ?? "病患"} 詳情`}
+                    >
                       {group.picture_url ? (
                         <Image src={group.picture_url} alt={`avatar-${group.patient_id}`} fill unoptimized className="object-cover" />
                       ) : (
                         <div className="flex h-full items-center justify-center text-xs text-zinc-400">N/A</div>
                       )}
-                    </div>
+                    </Link>
                     <div className="text-sm">
-                      <p className="font-medium text-zinc-900">{group.real_name ?? group.patient_full_name ?? "未命名"}</p>
+                      <Link
+                        href={`/admin/patients/${group.patient_id}`}
+                        className="font-medium text-zinc-900 hover:text-zinc-700 hover:underline"
+                      >
+                        {group.real_name ?? group.patient_full_name ?? "未命名"}
+                      </Link>
                       <p className="text-xs text-zinc-500">
                         {group.case_number} · {group.line_display_name ?? "No LINE name"} · {group.gender}
                       </p>
