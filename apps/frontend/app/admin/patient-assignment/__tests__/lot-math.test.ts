@@ -1,9 +1,8 @@
 import { buildPatientLot, genderBadgeLabel, staffDisplayName } from "@/app/admin/patient-assignment/lot-math";
 
 describe("buildPatientLot", () => {
-  test("uses chip mode and pads to capacity when few patients", () => {
+  test("pads to capacity when few patients", () => {
     const lot = buildPatientLot(2, 8);
-    expect(lot.mode).toBe("chip");
     expect(lot.visibleCount).toBe(2);
     expect(lot.cells).toHaveLength(8);
     expect(lot.cells.filter((cell) => cell.type === "patient")).toHaveLength(2);
@@ -11,9 +10,14 @@ describe("buildPatientLot", () => {
     expect(lot.cells.filter((cell) => cell.type === "pad")).toHaveLength(5);
   });
 
-  test("uses square mode with overflow tile when over capacity", () => {
+  test("lays out more than three patients without overflow", () => {
+    const lot = buildPatientLot(4, 8);
+    expect(lot.visibleCount).toBe(4);
+    expect(lot.cells.filter((cell) => cell.type === "patient")).toHaveLength(4);
+  });
+
+  test("uses overflow tile when over capacity", () => {
     const lot = buildPatientLot(10, 8);
-    expect(lot.mode).toBe("square");
     expect(lot.visibleCount).toBe(6);
     expect(lot.cells).toEqual([
       { type: "patient", patientIndex: 0 },

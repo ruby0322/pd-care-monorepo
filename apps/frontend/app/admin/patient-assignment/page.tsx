@@ -43,7 +43,6 @@ import { UnassignedPool } from "./unassigned-pool";
 
 type ActiveDragPatient = {
   patient: PatientTilePatient;
-  mode: "chip" | "square";
   fromStaffId: number | null;
 };
 
@@ -332,7 +331,6 @@ export default function AdminPatientAssignmentPage() {
       data?.fromStaffId === null || data?.fromStaffId === undefined ? null : Number(data.fromStaffId);
     const gender = data?.gender;
     const pictureUrl = data?.pictureUrl;
-    const tileMode = data?.tileMode === "square" ? "square" : "chip";
     setActiveDragPatient({
       patient: {
         patient_id: patientId,
@@ -342,7 +340,6 @@ export default function AdminPatientAssignmentPage() {
           gender === "male" || gender === "female" || gender === "other" || gender === "unknown" ? gender : "unknown",
         picture_url: (pictureUrl as string | null) ?? null,
       },
-      mode: tileMode,
       fromStaffId: Number.isFinite(fromStaffId) ? fromStaffId : null,
     });
   };
@@ -436,7 +433,6 @@ export default function AdminPatientAssignmentPage() {
           {activeDragPatient ? (
             <PatientDragOverlay
               patient={activeDragPatient.patient}
-              mode={activeDragPatient.mode}
               fromStaffId={activeDragPatient.fromStaffId}
             />
           ) : null}
