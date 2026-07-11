@@ -199,7 +199,7 @@ export function StaffDetailSheet({
                   aria-label="搜尋可加入病患"
                   className="h-8 flex-1 text-sm"
                 />
-                <button type="submit" className="h-8 shrink-0 rounded-lg bg-zinc-900 px-3 text-xs text-white">
+                <button type="submit" className="h-8 shrink-0 cursor-pointer rounded-lg bg-zinc-900 px-3 text-xs text-white">
                   搜尋
                 </button>
               </form>

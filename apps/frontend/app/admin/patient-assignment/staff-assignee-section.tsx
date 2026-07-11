@@ -20,6 +20,7 @@ type StaffAssigneeSectionProps = {
   rows: number;
   columns: number;
   busy?: boolean;
+  elevateForDrop?: boolean;
   onSearch: (query: string) => void;
   onPageChange: (page: number) => void;
   onOpenCard: (staffId: number) => void;
@@ -39,6 +40,7 @@ export function StaffAssigneeSection({
   rows,
   columns,
   busy,
+  elevateForDrop,
   onSearch,
   onPageChange,
   onOpenCard,
@@ -74,7 +76,7 @@ export function StaffAssigneeSection({
             aria-label="搜尋可指派人員"
             className="h-8 w-40 text-sm sm:w-52"
           />
-          <button type="submit" className="h-8 rounded-lg bg-zinc-900 px-3 text-xs text-white">
+          <button type="submit" className="h-8 cursor-pointer rounded-lg bg-zinc-900 px-3 text-xs text-white">
             搜尋
           </button>
         </form>
@@ -93,6 +95,7 @@ export function StaffAssigneeSection({
               rows={rows}
               columns={columns}
               busy={busy}
+              elevateForDrop={elevateForDrop}
               onOpenCard={() => onOpenCard(member.id)}
               onOpenAdd={() => onOpenAdd(member.id)}
               onOpenOverflow={() => onOpenOverflow(member.id)}

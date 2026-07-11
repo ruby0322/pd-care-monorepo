@@ -392,6 +392,10 @@ export default function AdminPatientAssignmentPage() {
         onDragEnd={handleDragEnd}
         onDragCancel={() => setActiveDragPatient(null)}
       >
+        {activeDragPatient ? (
+          <div className="pointer-events-none fixed inset-0 z-30 bg-zinc-900/45" aria-hidden />
+        ) : null}
+
         <UnassignedPool
           key={filterSyncKey}
           patients={poolPatients}
@@ -401,6 +405,7 @@ export default function AdminPatientAssignmentPage() {
           initialKeyword={parsedFilters.q}
           bindingFilter={parsedFilters.binding}
           busy={busy}
+          elevateForDrop={Boolean(activeDragPatient)}
           onKeywordSubmit={(draft) => replaceAssignmentUrl({ q: draft, binding: parsedFilters.binding })}
           onBindingFilterChange={(value) => replaceAssignmentUrl({ q: parsedFilters.q, binding: value })}
           onLoadMore={() => void loadMorePool()}
@@ -419,6 +424,7 @@ export default function AdminPatientAssignmentPage() {
           rows={lotLayout.rows}
           columns={lotLayout.columns}
           busy={busy}
+          elevateForDrop={Boolean(activeDragPatient)}
           onSearch={(draft) => replaceAssignmentUrl({ staffQ: draft, staffPage: 1 })}
           onPageChange={(nextPage) => replaceAssignmentUrl({ staffQ: parsedFilters.staffQ, staffPage: nextPage })}
           onOpenCard={(staffId) => openSheet(staffId, "assigned")}
@@ -426,7 +432,7 @@ export default function AdminPatientAssignmentPage() {
           onOpenOverflow={(staffId) => openSheet(staffId, "assigned")}
         />
 
-        <DragOverlay dropAnimation={null}>
+        <DragOverlay dropAnimation={null} style={{ zIndex: 50 }}>
           {activeDragPatient ? (
             <PatientDragOverlay
               patient={activeDragPatient.patient}

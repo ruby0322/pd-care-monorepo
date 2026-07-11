@@ -20,6 +20,7 @@ type UnassignedPoolProps = {
   initialKeyword: string;
   bindingFilter: AdminBindingFilter;
   busy?: boolean;
+  elevateForDrop?: boolean;
   onKeywordSubmit: (keyword: string) => void;
   onBindingFilterChange: (value: AdminBindingFilter) => void;
   onLoadMore: () => void;
@@ -33,6 +34,7 @@ export function UnassignedPool({
   initialKeyword,
   bindingFilter,
   busy,
+  elevateForDrop,
   onKeywordSubmit,
   onBindingFilterChange,
   onLoadMore,
@@ -46,7 +48,14 @@ export function UnassignedPool({
   const hasMore = patients.length < total;
 
   return (
-    <section className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50/80 p-3">
+    <section
+      ref={setNodeRef}
+      className={cn(
+        "rounded-xl border border-dashed border-zinc-300 bg-zinc-50/80 p-3",
+        elevateForDrop && "relative z-40 bg-zinc-50 shadow-lg ring-1 ring-zinc-200",
+        isOver && "ring-2 ring-zinc-400 ring-offset-2"
+      )}
+    >
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-zinc-900">未分配病患</h2>
@@ -67,7 +76,7 @@ export function UnassignedPool({
               aria-label="搜尋未分配病患"
               className="h-8 w-40 text-sm sm:w-52"
             />
-            <button type="submit" className="h-8 rounded-lg bg-zinc-900 px-3 text-xs text-white">
+            <button type="submit" className="h-8 cursor-pointer rounded-lg bg-zinc-900 px-3 text-xs text-white">
               搜尋
             </button>
           </form>
@@ -75,7 +84,7 @@ export function UnassignedPool({
             註冊狀態
             <select
               aria-label="註冊狀態"
-              className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-xs"
+              className="h-8 cursor-pointer rounded-lg border border-zinc-200 bg-white px-2 text-xs"
               value={bindingFilter}
               onChange={(event) => onBindingFilterChange(event.target.value as AdminBindingFilter)}
             >
@@ -93,13 +102,7 @@ export function UnassignedPool({
         </p>
       ) : null}
 
-      <div
-        ref={setNodeRef}
-        className={cn(
-          "flex min-h-[64px] gap-2 overflow-x-auto pb-1",
-          isOver && "rounded-lg ring-2 ring-zinc-400 ring-offset-2"
-        )}
-      >
+      <div className="flex min-h-[64px] gap-2 overflow-x-auto pb-1">
         {loading ? (
           <p className="px-1 text-xs text-zinc-500">載入中…</p>
         ) : patients.length === 0 ? (
