@@ -60,6 +60,7 @@ class AdminIdentityItem(BaseModel):
     line_user_id: str
     display_name: str | None
     real_name: str | None
+    picture_url: str | None
     role: RoleType
     is_active: bool
     patient_id: int | None

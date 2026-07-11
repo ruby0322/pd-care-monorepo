@@ -66,6 +66,8 @@ describe("admin assignment filters", () => {
     expect(filters.q).toBe("");
     expect(filters.binding).toBe("bound");
     expect(filters.assignment).toBe("unassigned");
+    expect(filters.staffQ).toBe("");
+    expect(filters.staffPage).toBe(1);
   });
 
   test("coerces invalid binding and assignment to defaults", () => {
@@ -83,6 +85,8 @@ describe("admin assignment filters", () => {
       q: "foo",
       binding: "bound",
       assignment: "unassigned",
+      staffQ: "",
+      staffPage: 1,
     });
 
     expect(params.get("q")).toBe("foo");
@@ -95,10 +99,14 @@ describe("admin assignment filters", () => {
       q: "foo",
       binding: "all",
       assignment: "assigned",
+      staffQ: "nurse",
+      staffPage: 2,
     });
 
     expect(params.get("q")).toBe("foo");
     expect(params.get("binding")).toBe("all");
     expect(params.get("assignment")).toBe("assigned");
+    expect(params.get("staffQ")).toBe("nurse");
+    expect(params.get("staffPage")).toBe("2");
   });
 });

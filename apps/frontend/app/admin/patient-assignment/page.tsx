@@ -1,26 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowUpDown, X } from "lucide-react";
-import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
+import {
+  DndContext,
+  type DragEndEvent,
+  type DragStartEvent,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  type AdminAssignmentStatusFilter,
-  type AdminBindingFilter,
+  type AdminAssignmentFilters,
   assignmentFiltersToSearchParams,
   parseAssignmentFilters,
 } from "@/lib/admin/filters";
 import { getReadableApiError } from "@/lib/api/client";
 import {
-  AdminIdentityItem,
-  AdminPatientAssignmentItem,
-  AdminPatientAssignmentByStaffPatientItem,
-  bulkUpsertAdminAssignments,
+  type AdminIdentityItem,
+  type AdminPatientAssignmentByStaffPatientItem,
+  type AdminPatientAssignmentItem,
   fetchAdminAssignments,
   fetchAdminAssignmentsByStaff,
   fetchAdminUsersPage,
@@ -29,13 +33,66 @@ import {
   upsertAdminAssignment,
 } from "@/lib/api/staff";
 
-const DEFAULT_PAGE_SIZE = 10;
+import { POOL_PAGE_SIZE, STAFF_PAGE_SIZE } from "./constants";
+import { resolveDragEndResult } from "./drag-end";
+import { PatientDragOverlay } from "./patient-drag-overlay";
+import type { PatientTilePatient } from "./patient-tile";
+import { StaffAssigneeSection } from "./staff-assignee-section";
+import { StaffDetailSheet, type StaffSheetFocus } from "./staff-detail-sheet";
+import { UnassignedPool } from "./unassigned-pool";
+
+type ActiveDragPatient = {
+  patient: PatientTilePatient;
+  mode: "chip" | "square";
+  fromStaffId: number | null;
+};
+
+function useLotLayout() {
+  const [layout, setLayout] = useState({ rows: 2, columns: 4, capacity: 8 });
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
+    const media = window.matchMedia("(min-width: 768px)");
+    const apply = () => {
+      if (media.matches) {
+        setLayout({ rows: 2, columns: 4, capacity: 8 });
+        return;
+      }
+      setLayout({ rows: 1, columns: 4, capacity: 4 });
+    };
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
+
+  return layout;
+}
+
+function toTilePatient(patient: AdminPatientAssignmentItem | AdminPatientAssignmentByStaffPatientItem): PatientTilePatient {
+  return {
+    patient_id: patient.patient_id,
+    case_number: patient.case_number,
+    patient_full_name: patient.patient_full_name,
+    gender: patient.gender ?? "unknown",
+    picture_url: patient.picture_url ?? null,
+  };
+}
 
 export default function AdminPatientAssignmentPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const parsedFilters = useMemo(() => parseAssignmentFilters(searchParams), [searchParams]);
+  const searchParamsKey = searchParams.toString();
+  const parsedFilters = useMemo(
+    () => parseAssignmentFilters(new URLSearchParams(searchParamsKey)),
+    [searchParamsKey]
+  );
+  const lotLayout = useLotLayout();
+
+  const filterSyncKey = `${parsedFilters.binding}::${parsedFilters.q}`;
+  const staffFilterSyncKey = `${parsedFilters.staffQ}::${parsedFilters.staffPage}`;
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,41 +100,44 @@ export default function AdminPatientAssignmentPage() {
 
   const [assigneeUsers, setAssigneeUsers] = useState<AdminIdentityItem[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
-  const [userTotal, setUserTotal] = useState(0);
-  const [userPage, setUserPage] = useState(1);
-  const userPageSize = DEFAULT_PAGE_SIZE;
-
-  const [assignments, setAssignments] = useState<AdminPatientAssignmentItem[]>([]);
-  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
-  const [assignmentTotal, setAssignmentTotal] = useState(0);
+  const [poolPatients, setPoolPatients] = useState<PatientTilePatient[]>([]);
+  const [poolTotal, setPoolTotal] = useState(0);
+  const [poolLoading, setPoolLoading] = useState(false);
+  const [poolLoadingMore, setPoolLoadingMore] = useState(false);
+  const [staffTotal, setStaffTotal] = useState(0);
   const [assignedPatientsByStaffId, setAssignedPatientsByStaffId] = useState<
     Record<number, AdminPatientAssignmentByStaffPatientItem[]>
   >({});
-  const [patientPage, setPatientPage] = useState(1);
-  const patientPageSize = DEFAULT_PAGE_SIZE;
-  const [bindingFilter, setBindingFilter] = useState<AdminBindingFilter>(parsedFilters.binding);
-  const [assignmentFilter, setAssignmentFilter] = useState<AdminAssignmentStatusFilter>(parsedFilters.assignment);
-  const [assigneeActiveFilter, setAssigneeActiveFilter] = useState<"all" | "active" | "inactive">("all");
-  const [keywordDraft, setKeywordDraft] = useState(parsedFilters.q);
-  const [keyword, setKeyword] = useState(parsedFilters.q);
+  const [boardRevision, setBoardRevision] = useState(0);
 
-  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
-  const [selectedPatientIds, setSelectedPatientIds] = useState<Set<number>>(new Set());
-  const [workingPatientId, setWorkingPatientId] = useState<number | null>(null);
-  const [isBulkAssigning, setIsBulkAssigning] = useState(false);
-  const [isUnassigning, setIsUnassigning] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<{ patientId: number; caseNumber: string; fullName: string | null } | null>(
-    null
+  const [sheetStaffId, setSheetStaffId] = useState<number | null>(null);
+  const [sheetFocus, setSheetFocus] = useState<StaffSheetFocus>("assigned");
+  const [activeDragPatient, setActiveDragPatient] = useState<ActiveDragPatient | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<{
+    patientId: number;
+    caseNumber: string;
+    fullName: string | null;
+  } | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } })
   );
-  const [assignmentSorting, setAssignmentSorting] = useState<SortingState>([]);
-  const queryString = useMemo(
-    () =>
-      assignmentFiltersToSearchParams({
-        q: keyword.trim(),
-        binding: bindingFilter,
-        assignment: assignmentFilter,
-      }).toString(),
-    [assignmentFilter, bindingFilter, keyword]
+
+  const replaceAssignmentUrl = useCallback(
+    (patch: Partial<AdminAssignmentFilters>) => {
+      const params = assignmentFiltersToSearchParams({
+        q: patch.q ?? parsedFilters.q,
+        binding: patch.binding ?? parsedFilters.binding,
+        assignment: "unassigned",
+        staffQ: patch.staffQ ?? parsedFilters.staffQ,
+        staffPage: patch.staffPage ?? parsedFilters.staffPage,
+      }).toString();
+      const href = params ? `${pathname}?${params}` : pathname;
+      router.replace(href, { scroll: false });
+    },
+    [parsedFilters, pathname, router]
   );
 
   useEffect(() => {
@@ -90,7 +150,7 @@ export default function AdminPatientAssignmentPage() {
           if (me.role !== "admin") {
             setIsAdmin(false);
             setAssigneeUsers([]);
-            setAssignments([]);
+            setPoolPatients([]);
             return;
           }
           setIsAdmin(true);
@@ -106,691 +166,328 @@ export default function AdminPatientAssignmentPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  const loadAssignees = useCallback(async () => {
-    if (!isAdmin) {
-      return;
-    }
+  const loadAssigneesWithAssignments = useCallback(async () => {
     setUsersLoading(true);
-    setError(null);
     try {
-      const response = await fetchAdminUsersPage({
-        limit: userPageSize,
-        offset: (userPage - 1) * userPageSize,
+      const data = await fetchAdminUsersPage({
+        query: parsedFilters.staffQ.trim() || undefined,
+        isActive: true,
+        limit: STAFF_PAGE_SIZE,
+        offset: (parsedFilters.staffPage - 1) * STAFF_PAGE_SIZE,
       });
-      setAssigneeUsers(response.items);
-      setUserTotal(response.total);
-      if (response.items.length > 0 && (selectedStaffId === null || !response.items.some((item) => item.id === selectedStaffId))) {
-        setSelectedStaffId(response.items[0].id);
-      }
-      const currentOffset = (userPage - 1) * userPageSize;
-      if (response.total > 0 && currentOffset >= response.total) {
-        setUserPage(Math.max(1, Math.ceil(response.total / userPageSize)));
-      }
-    } catch (requestError) {
-      setError(getReadableApiError(requestError));
-      setAssigneeUsers([]);
-      setUserTotal(0);
-    } finally {
-      setUsersLoading(false);
-    }
-  }, [isAdmin, selectedStaffId, userPage, userPageSize]);
+      setStaffTotal(data.total);
+      setAssigneeUsers(data.items);
 
-  const loadAssignments = useCallback(async () => {
-    if (!isAdmin) {
-      return;
-    }
-    setAssignmentsLoading(true);
-    setError(null);
-    try {
-      const response = await fetchAdminAssignments({
-        query: keyword.trim() || undefined,
-        bindingFilter,
-        assignmentFilter,
-        assigneeActive: assigneeActiveFilter,
-        limit: patientPageSize,
-        offset: (patientPage - 1) * patientPageSize,
-      });
-      setAssignments(response.items);
-      setAssignmentTotal(response.total);
-      setSelectedPatientIds((current) => {
-        const visibleIds = new Set(response.items.map((item) => item.patient_id));
-        const next = new Set<number>();
-        for (const id of current) {
-          if (visibleIds.has(id)) {
-            next.add(id);
-          }
+      const currentOffset = (parsedFilters.staffPage - 1) * STAFF_PAGE_SIZE;
+      if (data.total > 0 && currentOffset >= data.total) {
+        const lastPage = Math.max(1, Math.ceil(data.total / STAFF_PAGE_SIZE));
+        if (lastPage !== parsedFilters.staffPage) {
+          replaceAssignmentUrl({ staffPage: lastPage });
+          return;
         }
-        return next;
-      });
-      const currentOffset = (patientPage - 1) * patientPageSize;
-      if (response.total > 0 && currentOffset >= response.total) {
-        setPatientPage(Math.max(1, Math.ceil(response.total / patientPageSize)));
       }
-    } catch (requestError) {
-      setError(getReadableApiError(requestError));
-      setAssignments([]);
-      setAssignmentTotal(0);
-    } finally {
-      setAssignmentsLoading(false);
-    }
-  }, [assignmentFilter, assigneeActiveFilter, bindingFilter, isAdmin, keyword, patientPage, patientPageSize]);
 
-  const loadAssignmentsByStaff = useCallback(
-    async (staffIds: number[]) => {
-      const normalizedStaffIds = Array.from(new Set(staffIds.filter((staffId) => staffId > 0)));
-      if (!isAdmin || normalizedStaffIds.length === 0) {
+      const staffIds = data.items.map((user) => user.id);
+      if (staffIds.length === 0) {
         setAssignedPatientsByStaffId({});
         return;
       }
-      try {
-        const response = await fetchAdminAssignmentsByStaff({ staffIdentityIds: normalizedStaffIds });
-        const next: Record<number, AdminPatientAssignmentByStaffPatientItem[]> = {};
-        for (const item of response.items) {
-          next[item.staff_identity_id] = item.assigned_patients;
-        }
-        setAssignedPatientsByStaffId(next);
-      } catch (requestError) {
-        setError(getReadableApiError(requestError));
+      const byStaff = await fetchAdminAssignmentsByStaff({ staffIdentityIds: staffIds });
+      const next: Record<number, AdminPatientAssignmentByStaffPatientItem[]> = {};
+      for (const item of byStaff.items) {
+        next[item.staff_identity_id] = item.assigned_patients;
       }
-    },
-    [isAdmin]
+      for (const staffId of staffIds) {
+        if (!(staffId in next)) {
+          next[staffId] = [];
+        }
+      }
+      setAssignedPatientsByStaffId(next);
+    } catch (requestError) {
+      setError(getReadableApiError(requestError));
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [parsedFilters.staffPage, parsedFilters.staffQ, replaceAssignmentUrl]);
+
+  const loadPool = useCallback(async () => {
+    setPoolLoading(true);
+    try {
+      const data = await fetchAdminAssignments({
+        query: parsedFilters.q.trim() || undefined,
+        bindingFilter: parsedFilters.binding,
+        assignmentFilter: "unassigned",
+        limit: POOL_PAGE_SIZE,
+        offset: 0,
+      });
+      setPoolTotal(data.total);
+      setPoolPatients(data.items.map(toTilePatient));
+    } catch (requestError) {
+      setError(getReadableApiError(requestError));
+    } finally {
+      setPoolLoading(false);
+    }
+  }, [parsedFilters.binding, parsedFilters.q]);
+
+  const loadMorePool = useCallback(async () => {
+    if (poolLoadingMore || poolPatients.length >= poolTotal) {
+      return;
+    }
+    setPoolLoadingMore(true);
+    try {
+      const data = await fetchAdminAssignments({
+        query: parsedFilters.q.trim() || undefined,
+        bindingFilter: parsedFilters.binding,
+        assignmentFilter: "unassigned",
+        limit: POOL_PAGE_SIZE,
+        offset: poolPatients.length,
+      });
+      setPoolTotal(data.total);
+      setPoolPatients((current) => [...current, ...data.items.map(toTilePatient)]);
+    } catch (requestError) {
+      setError(getReadableApiError(requestError));
+    } finally {
+      setPoolLoadingMore(false);
+    }
+  }, [parsedFilters.binding, parsedFilters.q, poolLoadingMore, poolPatients.length, poolTotal]);
+
+  const refreshBoard = useCallback(async () => {
+    await Promise.all([loadPool(), loadAssigneesWithAssignments()]);
+    setBoardRevision((current) => current + 1);
+  }, [loadAssigneesWithAssignments, loadPool]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void loadAssigneesWithAssignments();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isAdmin, loadAssigneesWithAssignments]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void loadPool();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isAdmin, loadPool]);
+
+  const sheetStaff = useMemo(
+    () => assigneeUsers.find((user) => user.id === sheetStaffId) ?? null,
+    [assigneeUsers, sheetStaffId]
   );
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setKeyword(keywordDraft);
-      setPatientPage(1);
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [keywordDraft]);
+  const openSheet = (staffId: number, focus: StaffSheetFocus) => {
+    setSheetStaffId(staffId);
+    setSheetFocus(focus);
+  };
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setKeywordDraft(parsedFilters.q);
-      setKeyword(parsedFilters.q);
-      setBindingFilter(parsedFilters.binding);
-      setAssignmentFilter(parsedFilters.assignment);
-      setPatientPage(1);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [parsedFilters]);
-
-  useEffect(() => {
-    const current = searchParams.toString();
-    if (current === queryString) {
-      return;
-    }
-    const href = queryString ? `${pathname}?${queryString}` : pathname;
-    router.replace(href);
-  }, [pathname, queryString, router, searchParams]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadAssignees();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadAssignees]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadAssignments();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadAssignments]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadAssignmentsByStaff(assigneeUsers.map((staff) => staff.id));
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [assigneeUsers, loadAssignmentsByStaff]);
-
-  function toggleSelectPatient(patientId: number, checked: boolean) {
-    setSelectedPatientIds((current) => {
-      const next = new Set(current);
-      if (checked) {
-        next.add(patientId);
-      } else {
-        next.delete(patientId);
-      }
-      return next;
-    });
-  }
-
-  const assignSingle = useCallback(async (patientId: number) => {
-    if (!selectedStaffId) {
-      toast.error("請先選擇要指派的人員。");
-      return;
-    }
-    setWorkingPatientId(patientId);
+  const assignPatient = async (patientId: number, staffIdentityId: number) => {
+    setBusy(true);
     setError(null);
     try {
-      const result = await upsertAdminAssignment({
-        patient_id: patientId,
-        staff_identity_id: selectedStaffId,
-      });
-      await Promise.all([
-        loadAssignments(),
-        loadAssignmentsByStaff(assigneeUsers.map((staff) => staff.id)),
-      ]);
-      toast.success(result.status === "unchanged" ? "病患已由此人員主責" : "已更新病患主責人員");
+      await upsertAdminAssignment({ patient_id: patientId, staff_identity_id: staffIdentityId });
+      toast.success("已更新指派");
+      await refreshBoard();
     } catch (requestError) {
-      toast.error(getReadableApiError(requestError));
+      const message = getReadableApiError(requestError);
+      setError(message);
+      toast.error(message);
     } finally {
-      setWorkingPatientId(null);
+      setBusy(false);
     }
-  }, [assigneeUsers, loadAssignments, loadAssignmentsByStaff, selectedStaffId]);
+  };
 
-  async function assignBulk() {
-    if (!selectedStaffId) {
-      toast.error("請先選擇要指派的人員。");
-      return;
-    }
-    if (selectedPatientIds.size === 0) {
-      toast.error("請先勾選至少一位病患。");
-      return;
-    }
-    setIsBulkAssigning(true);
-    setError(null);
-    try {
-      const payload = {
-        assignments: Array.from(selectedPatientIds).map((patientId) => ({
-          patient_id: patientId,
-          staff_identity_id: selectedStaffId,
-        })),
-      };
-      const response = await bulkUpsertAdminAssignments(payload);
-      const updated = response.results.filter((item) => item.status === "updated").length;
-      const unchanged = response.results.filter((item) => item.status === "unchanged").length;
-      const invalid = response.results.filter((item) => item.status === "invalid").length;
-      await Promise.all([
-        loadAssignments(),
-        loadAssignmentsByStaff(assigneeUsers.map((staff) => staff.id)),
-      ]);
-      setSelectedPatientIds(new Set());
-      toast.success(`批次完成：更新 ${updated} 筆、未變更 ${unchanged} 筆、失敗 ${invalid} 筆`);
-    } catch (requestError) {
-      toast.error(getReadableApiError(requestError));
-    } finally {
-      setIsBulkAssigning(false);
-    }
-  }
-
-  function openRemoveModal(target: { patientId: number; caseNumber: string; fullName: string | null }) {
-    setRemoveTarget(target);
-  }
-
-  function closeRemoveModal() {
-    if (isUnassigning) {
-      return;
-    }
-    setRemoveTarget(null);
-  }
-
-  async function confirmRemoveAssignedPatient() {
+  const confirmUnassign = async () => {
     if (!removeTarget) {
       return;
     }
-    setIsUnassigning(true);
+    setBusy(true);
     setError(null);
     try {
-      const response = await unassignAdminAssignment(removeTarget.patientId);
-      await Promise.all([
-        loadAssignments(),
-        loadAssignmentsByStaff(assigneeUsers.map((staff) => staff.id)),
-      ]);
+      await unassignAdminAssignment(removeTarget.patientId);
+      toast.success("已移除指派");
       setRemoveTarget(null);
-      toast.success(response.status === "updated" ? "已移除病患指派" : "病患目前無指派關係，無需移除");
+      await refreshBoard();
     } catch (requestError) {
-      toast.error(getReadableApiError(requestError));
+      const message = getReadableApiError(requestError);
+      setError(message);
+      toast.error(message);
     } finally {
-      setIsUnassigning(false);
+      setBusy(false);
     }
-  }
+  };
 
-  function toggleSelectAllForRows(patientIds: number[], checked: boolean) {
-    setSelectedPatientIds((current) => {
-      const next = new Set(current);
-      for (const patientId of patientIds) {
-        if (checked) {
-          next.add(patientId);
-        } else {
-          next.delete(patientId);
-        }
-      }
-      return next;
+  const handleDragStart = (event: DragStartEvent) => {
+    const data = event.active.data.current;
+    const patientId = Number(data?.patientId);
+    if (!Number.isFinite(patientId) || patientId <= 0) {
+      return;
+    }
+    const fromStaffId =
+      data?.fromStaffId === null || data?.fromStaffId === undefined ? null : Number(data.fromStaffId);
+    const gender = data?.gender;
+    const pictureUrl = data?.pictureUrl;
+    const tileMode = data?.tileMode === "square" ? "square" : "chip";
+    setActiveDragPatient({
+      patient: {
+        patient_id: patientId,
+        case_number: String(data?.caseNumber ?? ""),
+        patient_full_name: (data?.fullName as string | null) ?? null,
+        gender:
+          gender === "male" || gender === "female" || gender === "other" || gender === "unknown" ? gender : "unknown",
+        picture_url: (pictureUrl as string | null) ?? null,
+      },
+      mode: tileMode,
+      fromStaffId: Number.isFinite(fromStaffId) ? fromStaffId : null,
     });
-  }
+  };
 
-  const assignmentColumns = useMemo<ColumnDef<AdminPatientAssignmentItem>[]>(
-    () => [
-      {
-        id: "select",
-        header: ({ table }) => {
-          const visiblePatientIds = table.getRowModel().rows.map((row) => row.original.patient_id);
-          const allVisibleSelected =
-            visiblePatientIds.length > 0 && visiblePatientIds.every((patientId) => selectedPatientIds.has(patientId));
-          return (
-            <input
-              type="checkbox"
-              checked={allVisibleSelected}
-              onChange={(event) => toggleSelectAllForRows(visiblePatientIds, event.target.checked)}
-              aria-label="全選可見病患"
-            />
-          );
-        },
-        cell: ({ row }) => (
-          <input
-            type="checkbox"
-            checked={selectedPatientIds.has(row.original.patient_id)}
-            onChange={(event) => toggleSelectPatient(row.original.patient_id, event.target.checked)}
-            aria-label={`勾選病患 ${row.original.case_number}`}
-          />
-        ),
-        enableSorting: false,
-      },
-      {
-        accessorKey: "case_number",
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            病歷號
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
-        ),
-        cell: ({ row }) => <span className="font-mono text-zinc-700">{row.original.case_number}</span>,
-      },
-      {
-        accessorKey: "patient_full_name",
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            病患姓名
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
-        ),
-        cell: ({ row }) => row.original.patient_full_name ?? "未命名",
-        sortingFn: (rowA, rowB) => {
-          const a = rowA.original.patient_full_name ?? "";
-          const b = rowB.original.patient_full_name ?? "";
-          return a.localeCompare(b);
-        },
-      },
-      {
-        accessorKey: "staff_display_name",
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            目前主責人員
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
-        ),
-        cell: ({ row }) => row.original.staff_display_name ?? "未分配",
-        sortingFn: (rowA, rowB) => {
-          const a = rowA.original.staff_display_name ?? "";
-          const b = rowB.original.staff_display_name ?? "";
-          return a.localeCompare(b);
-        },
-      },
-      {
-        id: "actions",
-        header: () => <span className="text-xs font-medium text-zinc-500">操作</span>,
-        cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void assignSingle(row.original.patient_id)}
-              disabled={workingPatientId === row.original.patient_id || selectedStaffId === null}
-            >
-              {workingPatientId === row.original.patient_id ? "分配中..." : "指派"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={workingPatientId === row.original.patient_id || !row.original.staff_identity_id}
-              onClick={() =>
-                openRemoveModal({
-                  patientId: row.original.patient_id,
-                  caseNumber: row.original.case_number,
-                  fullName: row.original.patient_full_name,
-                })
-              }
-            >
-              移除
-            </Button>
-          </div>
-        ),
-        enableSorting: false,
-      },
-    ],
-    [assignSingle, selectedPatientIds, selectedStaffId, workingPatientId]
-  );
-
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const assignmentTable = useReactTable({
-    data: assignments,
-    columns: assignmentColumns,
-    state: { sorting: assignmentSorting },
-    onSortingChange: setAssignmentSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  });
-
-  const userTotalPages = Math.max(1, Math.ceil(userTotal / userPageSize));
-  const userHasPreviousPage = userPage > 1;
-  const userHasNextPage = userPage < userTotalPages;
-  const userRangeStart = userTotal === 0 ? 0 : (userPage - 1) * userPageSize + 1;
-  const userRangeEnd = userTotal === 0 ? 0 : Math.min(userPage * userPageSize, userTotal);
-
-  const patientTotalPages = Math.max(1, Math.ceil(assignmentTotal / patientPageSize));
-  const patientHasPreviousPage = patientPage > 1;
-  const patientHasNextPage = patientPage < patientTotalPages;
-  const patientRangeStart = assignmentTotal === 0 ? 0 : (patientPage - 1) * patientPageSize + 1;
-  const patientRangeEnd = assignmentTotal === 0 ? 0 : Math.min(patientPage * patientPageSize, assignmentTotal);
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDragPatient(null);
+    const result = resolveDragEndResult(event, { busy });
+    if (result.kind === "assign") {
+      void assignPatient(result.patientId, result.staffId);
+      return;
+    }
+    if (result.kind === "unassign") {
+      setRemoveTarget({
+        patientId: result.patient.patientId,
+        caseNumber: result.patient.caseNumber,
+        fullName: result.patient.fullName,
+      });
+    }
+  };
 
   if (checkingAccess) {
-    return <div className="mx-auto max-w-6xl py-12 text-sm text-zinc-500">載入中...</div>;
+    return <main className="p-6 text-sm text-zinc-600">檢查權限中…</main>;
   }
 
   if (!isAdmin) {
     return (
-      <div className="mx-auto max-w-3xl py-12">
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          不可踰越階級：僅 admin 可使用病患分配。
-        </div>
-      </div>
+      <main className="p-6">
+        <h1 className="text-xl font-semibold text-zinc-900">病患分配</h1>
+        <p className="mt-2 text-sm text-zinc-600">僅管理員可使用此頁面。</p>
+        {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+      </main>
     );
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-zinc-900">病患分配</h1>
-          <p className="text-xs text-zinc-500">單筆與批次分配，病患同時僅有一位主責人員。</p>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            void Promise.all([loadAssignees(), loadAssignments()]);
-          }}
-        >
-          重新整理
-        </Button>
-      </header>
-
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-
-      <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-        <div className="border-b border-zinc-100 px-4 py-3">
-          <h2 className="text-sm font-medium text-zinc-900">可指派人員</h2>
-          <p className="mt-1 text-xs text-zinc-500">先選擇主責人員，再於下方病患列表進行單筆或批次分配。</p>
-        </div>
-        <Table>
-          <TableHeader className="bg-zinc-50">
-            <TableRow>
-              <TableHead>名稱</TableHead>
-              <TableHead>角色</TableHead>
-              <TableHead>狀態</TableHead>
-              <TableHead>主要負責病患</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {usersLoading ? (
-              <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-sm text-zinc-500">
-                  載入中...
-                </TableCell>
-              </TableRow>
-            ) : assigneeUsers.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-sm text-zinc-500">
-                  目前沒有可指派人員
-                </TableCell>
-              </TableRow>
-            ) : (
-              assigneeUsers.map((staff) => (
-                <TableRow key={staff.id}>
-                  <TableCell>{staff.display_name ?? "未命名人員"}</TableCell>
-                  <TableCell>{staff.role}</TableCell>
-                  <TableCell>{staff.is_active ? "active" : "inactive"}</TableCell>
-                  <TableCell>
-                    {(assignedPatientsByStaffId[staff.id] ?? []).length === 0 ? (
-                      <span className="text-xs text-zinc-400">目前無指派病患</span>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {(assignedPatientsByStaffId[staff.id] ?? []).map((patient) => (
-                          <span
-                            key={patient.patient_id}
-                            className="inline-flex items-center gap-1 rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700"
-                          >
-                            <button
-                              type="button"
-                              className="inline-flex h-3.5 w-3.5 items-center justify-center rounded text-zinc-600 hover:bg-zinc-200 hover:text-zinc-800"
-                              aria-label={`移除病患 ${patient.case_number} 指派`}
-                              onClick={() =>
-                                openRemoveModal({
-                                  patientId: patient.patient_id,
-                                  caseNumber: patient.case_number,
-                                  fullName: patient.patient_full_name,
-                                })
-                              }
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                            <span>
-                              {patient.case_number} {patient.patient_full_name ? `· ${patient.patient_full_name}` : ""}
-                            </span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
-          <span>
-            顯示 {userRangeStart}-{userRangeEnd} / {userTotal} 位人員
-          </span>
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={!userHasPreviousPage} onClick={() => setUserPage((prev) => Math.max(prev - 1, 1))}>
-              上一頁
-            </Button>
-            <span>
-              第 {Math.min(userPage, userTotalPages)} / {userTotalPages} 頁
-            </span>
-            <Button type="button" variant="outline" size="sm" disabled={!userHasNextPage} onClick={() => setUserPage((prev) => (userHasNextPage ? prev + 1 : prev))}>
-              下一頁
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-zinc-200 bg-white p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs text-zinc-600">
-            目前指派人員
-            <select
-              value={selectedStaffId ?? ""}
-              onChange={(event) => setSelectedStaffId(event.target.value ? Number(event.target.value) : null)}
-              className="min-w-64 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-            >
-              {assigneeUsers.length === 0 ? <option value="">目前沒有可指派人員</option> : null}
-              {assigneeUsers.map((staff) => (
-                <option key={staff.id} value={staff.id}>
-                  {(staff.display_name ?? "未命名人員") + (staff.is_active ? "" : " (inactive)")}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button type="button" onClick={() => void assignBulk()} disabled={isBulkAssigning || selectedPatientIds.size === 0}>
-            {isBulkAssigning ? "批次分配中..." : `批次分配 (${selectedPatientIds.size})`}
-          </Button>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-zinc-200 bg-white p-4">
-        <h2 className="text-sm font-medium text-zinc-900">病患篩選</h2>
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs text-zinc-600">
-            關鍵字
-            <Input
-              value={keywordDraft}
-              onChange={(event) => setKeywordDraft(event.target.value)}
-              className="w-72"
-              placeholder="搜尋病歷號 / 病患姓名 / 人員"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-zinc-600">
-            註冊狀態
-            <select
-              aria-label="註冊狀態"
-              value={bindingFilter}
-              onChange={(event) => {
-                setBindingFilter(event.target.value as AdminBindingFilter);
-                setPatientPage(1);
-              }}
-              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-            >
-              <option value="bound">僅已註冊</option>
-              <option value="all">全部病患</option>
-              <option value="unbound_only">僅未註冊</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-zinc-600">
-            分配狀態
-            <select
-              aria-label="分配狀態"
-              value={assignmentFilter}
-              onChange={(event) => {
-                setAssignmentFilter(event.target.value as AdminAssignmentStatusFilter);
-                setPatientPage(1);
-              }}
-              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-            >
-              <option value="assigned">僅已分配</option>
-              <option value="all">全部病患</option>
-              <option value="unassigned">僅未分配</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-zinc-600">
-            人員狀態
-            <select
-              aria-label="人員狀態"
-              value={assigneeActiveFilter}
-              onChange={(event) => {
-                setAssigneeActiveFilter(event.target.value as "all" | "active" | "inactive");
-                setPatientPage(1);
-              }}
-              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-            >
-              <option value="all">全部狀態</option>
-              <option value="active">僅 active</option>
-              <option value="inactive">僅 inactive</option>
-            </select>
-          </label>
-        </div>
-      </section>
-
-      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-        <Table>
-          <TableHeader className="bg-zinc-50">
-            {assignmentTable.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} className={header.id === "actions" ? "text-right" : undefined}>
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {assignmentsLoading ? (
-              <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-sm text-zinc-500">
-                  載入中...
-                </TableCell>
-              </TableRow>
-            ) : assignmentTable.getRowModel().rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-sm text-zinc-500">
-                  找不到符合條件的病患
-                </TableCell>
-              </TableRow>
-            ) : (
-              assignmentTable.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className={cell.column.id === "actions" ? "text-right" : undefined}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500">
-          <span>
-            顯示 {patientRangeStart}-{patientRangeEnd} / {assignmentTotal} 位病患
-          </span>
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={!patientHasPreviousPage} onClick={() => setPatientPage((prev) => Math.max(prev - 1, 1))}>
-              上一頁
-            </Button>
-            <span>
-              第 {Math.min(patientPage, patientTotalPages)} / {patientTotalPages} 頁
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!patientHasNextPage}
-              onClick={() => setPatientPage((prev) => (patientHasNextPage ? prev + 1 : prev))}
-            >
-              下一頁
-            </Button>
-          </div>
-        </div>
+    <main className="space-y-4 p-4 md:p-6">
+      <div>
+        <h1 className="text-xl font-semibold text-zinc-900">病患分配</h1>
+        <p className="mt-1 text-sm text-zinc-500">以拖曳方式將未分配病患指派給人員；點卡片可開啟詳細操作。</p>
       </div>
 
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveDragPatient(null)}
+      >
+        <UnassignedPool
+          key={filterSyncKey}
+          patients={poolPatients}
+          total={poolTotal}
+          loading={poolLoading}
+          loadingMore={poolLoadingMore}
+          initialKeyword={parsedFilters.q}
+          bindingFilter={parsedFilters.binding}
+          busy={busy}
+          onKeywordSubmit={(draft) => replaceAssignmentUrl({ q: draft, binding: parsedFilters.binding })}
+          onBindingFilterChange={(value) => replaceAssignmentUrl({ q: parsedFilters.q, binding: value })}
+          onLoadMore={() => void loadMorePool()}
+        />
+
+        <StaffAssigneeSection
+          key={staffFilterSyncKey}
+          staff={assigneeUsers}
+          assignedPatientsByStaffId={assignedPatientsByStaffId}
+          total={staffTotal}
+          page={parsedFilters.staffPage}
+          pageSize={STAFF_PAGE_SIZE}
+          loading={usersLoading}
+          initialQuery={parsedFilters.staffQ}
+          capacity={lotLayout.capacity}
+          rows={lotLayout.rows}
+          columns={lotLayout.columns}
+          busy={busy}
+          onSearch={(draft) => replaceAssignmentUrl({ staffQ: draft, staffPage: 1 })}
+          onPageChange={(nextPage) => replaceAssignmentUrl({ staffQ: parsedFilters.staffQ, staffPage: nextPage })}
+          onOpenCard={(staffId) => openSheet(staffId, "assigned")}
+          onOpenAdd={(staffId) => openSheet(staffId, "add")}
+          onOpenOverflow={(staffId) => openSheet(staffId, "assigned")}
+        />
+
+        <DragOverlay dropAnimation={null}>
+          {activeDragPatient ? (
+            <PatientDragOverlay
+              patient={activeDragPatient.patient}
+              mode={activeDragPatient.mode}
+              fromStaffId={activeDragPatient.fromStaffId}
+            />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      <StaffDetailSheet
+        open={sheetStaffId !== null}
+        staff={sheetStaff}
+        assignedPatients={sheetStaffId !== null ? (assignedPatientsByStaffId[sheetStaffId] ?? []) : []}
+        bindingFilter={parsedFilters.binding}
+        boardRevision={boardRevision}
+        focus={sheetFocus}
+        busy={busy}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSheetStaffId(null);
+          }
+        }}
+        onAdd={(patientId) => {
+          if (sheetStaffId === null) {
+            return;
+          }
+          void assignPatient(patientId, sheetStaffId);
+        }}
+        onRemove={(patient) => {
+          setRemoveTarget({
+            patientId: patient.patient_id,
+            caseNumber: patient.case_number,
+            fullName: patient.patient_full_name,
+          });
+        }}
+      />
+
       {removeTarget ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-5">
-            <h2 className="text-base font-semibold text-zinc-900">確認移除病患指派</h2>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-zinc-900/50 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-xl" role="dialog" aria-modal="true" aria-label="確認移除指派">
+            <h3 className="text-base font-semibold text-zinc-900">確認移除指派</h3>
             <p className="mt-2 text-sm text-zinc-600">
-              確定要移除病患 {removeTarget.caseNumber}
-              {removeTarget.fullName ? `（${removeTarget.fullName}）` : ""} 的主責指派嗎？
+              確定要移除{" "}
+              <span className="font-medium text-zinc-900">
+                {removeTarget.caseNumber}
+                {removeTarget.fullName ? ` · ${removeTarget.fullName}` : ""}
+              </span>{" "}
+              的主責人員嗎？
             </p>
-            <p className="mt-1 text-xs text-zinc-500">移除後可再重新指定新的主責人員。</p>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={closeRemoveModal} disabled={isUnassigning}>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" disabled={busy} onClick={() => setRemoveTarget(null)}>
                 取消
               </Button>
-              <Button type="button" onClick={() => void confirmRemoveAssignedPatient()} disabled={isUnassigning}>
-                {isUnassigning ? "移除中..." : "確認移除"}
+              <Button variant="destructive" disabled={busy} onClick={() => void confirmUnassign()}>
+                確認移除
               </Button>
             </div>
           </div>
         </div>
       ) : null}
-    </div>
+    </main>
   );
 }

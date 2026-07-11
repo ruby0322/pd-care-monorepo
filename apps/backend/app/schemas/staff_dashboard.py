@@ -285,6 +285,8 @@ class StaffAssignmentItem(BaseModel):
     patient_id: int
     case_number: str
     patient_full_name: str | None
+    gender: Literal["male", "female", "other", "unknown"]
+    picture_url: str | None
     staff_identity_id: int | None
     staff_line_user_id: str | None
     staff_display_name: str | None
@@ -301,6 +303,8 @@ class StaffAssignmentByStaffPatientItem(BaseModel):
     patient_id: int
     case_number: str
     patient_full_name: str | None
+    gender: Literal["male", "female", "other", "unknown"]
+    picture_url: str | None
 
 
 class StaffAssignmentByStaffItem(BaseModel):

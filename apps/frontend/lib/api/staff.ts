@@ -310,6 +310,7 @@ export type AdminIdentityItem = {
   line_user_id: string;
   display_name: string | null;
   real_name: string | null;
+  picture_url: string | null;
   role: "patient" | "staff" | "admin";
   is_active: boolean;
   patient_id: number | null;
@@ -354,6 +355,8 @@ export type AdminPatientAssignmentItem = {
   patient_id: number;
   case_number: string;
   patient_full_name: string | null;
+  gender: "male" | "female" | "other" | "unknown";
+  picture_url: string | null;
   staff_identity_id: number | null;
   staff_line_user_id: string | null;
   staff_display_name: string | null;
@@ -370,6 +373,8 @@ export type AdminPatientAssignmentByStaffPatientItem = {
   patient_id: number;
   case_number: string;
   patient_full_name: string | null;
+  gender: "male" | "female" | "other" | "unknown";
+  picture_url: string | null;
 };
 
 export type AdminPatientAssignmentByStaffItem = {
