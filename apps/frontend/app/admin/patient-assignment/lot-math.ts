@@ -11,13 +11,10 @@ export type PatientLotResult = {
 };
 
 /** Desktop 2×4, mobile 1×4 — equal cells; always reserve "+" and optional "+n". */
-export function buildPatientLot(
-  patientCount: number,
-  capacity: number,
-  tileMode: "chip" | "square" = "chip"
-): PatientLotResult {
+export function buildPatientLot(patientCount: number, capacity: number): PatientLotResult {
   const safeCapacity = Math.max(2, capacity);
-  const mode = tileMode;
+  // Always chip (avatar | name + sex badge) so dense lots stay readable and consistent with the pool.
+  const mode = "chip" as const;
   const overflow = patientCount > safeCapacity - 1;
   const cells: PatientLotCell[] = [];
 

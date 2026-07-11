@@ -23,9 +23,19 @@ type PatientTileProps = {
   fromStaffId: number | null;
   className?: string;
   disabled?: boolean;
+  /** Desktop only: show square avatar cover on hover while defaulting to chip. */
+  expandOnHoverDesktop?: boolean;
 };
 
-export function PatientTile({ patient, mode, dragId, fromStaffId, className, disabled }: PatientTileProps) {
+export function PatientTile({
+  patient,
+  mode,
+  dragId,
+  fromStaffId,
+  className,
+  disabled,
+  expandOnHoverDesktop,
+}: PatientTileProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     data: {
@@ -42,6 +52,7 @@ export function PatientTile({ patient, mode, dragId, fromStaffId, className, dis
 
   const name = patient.patient_full_name?.trim() || "未命名";
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+  const showHoverSquare = expandOnHoverDesktop && mode === "chip";
 
   return (
     <div
@@ -49,6 +60,7 @@ export function PatientTile({ patient, mode, dragId, fromStaffId, className, dis
       style={style}
       className={cn(
         "relative min-h-0 min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50",
+        showHoverSquare && "group/tile",
         isDragging && "z-20 opacity-80 shadow-md",
         disabled ? "cursor-default" : "cursor-grab active:cursor-grabbing",
         className
@@ -65,10 +77,29 @@ export function PatientTile({ patient, mode, dragId, fromStaffId, className, dis
         {genderBadgeLabel(patient.gender)}
       </span>
       {mode === "chip" ? (
-        <div className="flex h-full items-center justify-center gap-2 px-2 py-1.5">
-          <PersonAvatar name={name} pictureUrl={patient.picture_url} size="sm" />
-          <span className="truncate text-xs font-semibold text-zinc-800">{name}</span>
-        </div>
+        <>
+          <div
+            className={cn(
+              "flex h-full items-center justify-center gap-2 px-2 py-1.5",
+              showHoverSquare && "md:group-hover/tile:hidden"
+            )}
+          >
+            <PersonAvatar name={name} pictureUrl={patient.picture_url} size="sm" />
+            <span className="truncate text-xs font-semibold text-zinc-800">{name}</span>
+          </div>
+          {showHoverSquare ? (
+            <div className="relative hidden h-full w-full bg-zinc-300 md:group-hover/tile:block">
+              {patient.picture_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={patient.picture_url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-zinc-600">
+                  {name.slice(0, 1)}
+                </div>
+              )}
+            </div>
+          ) : null}
+        </>
       ) : (
         <div className="relative h-full w-full bg-zinc-300">
           {patient.picture_url ? (

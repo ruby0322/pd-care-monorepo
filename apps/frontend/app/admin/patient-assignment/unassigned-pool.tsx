@@ -20,7 +20,6 @@ type UnassignedPoolProps = {
   initialKeyword: string;
   bindingFilter: AdminBindingFilter;
   busy?: boolean;
-  tileMode: "chip" | "square";
   elevateForDrop?: boolean;
   onKeywordSubmit: (keyword: string) => void;
   onBindingFilterChange: (value: AdminBindingFilter) => void;
@@ -35,7 +34,6 @@ export function UnassignedPool({
   initialKeyword,
   bindingFilter,
   busy,
-  tileMode,
   elevateForDrop,
   onKeywordSubmit,
   onBindingFilterChange,
@@ -114,14 +112,12 @@ export function UnassignedPool({
             <PatientTile
               key={patient.patient_id}
               patient={patient}
-              mode={tileMode}
+              mode="chip"
               dragId={`pool-${patient.patient_id}`}
               fromStaffId={null}
               disabled={busy}
-              className={cn(
-                "shrink-0",
-                tileMode === "chip" ? "h-12 w-[148px]" : "h-16 w-16"
-              )}
+              expandOnHoverDesktop
+              className="h-12 w-[148px] shrink-0"
             />
           ))
         )}

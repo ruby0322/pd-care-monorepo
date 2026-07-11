@@ -19,7 +19,6 @@ type StaffAssigneeCardProps = {
   capacity: number;
   rows: number;
   columns: number;
-  tileMode: "chip" | "square";
   busy?: boolean;
   elevateForDrop?: boolean;
   onOpenCard: () => void;
@@ -33,7 +32,6 @@ export function StaffAssigneeCard({
   capacity,
   rows,
   columns,
-  tileMode,
   busy,
   elevateForDrop,
   onOpenCard,
@@ -50,7 +48,7 @@ export function StaffAssigneeCard({
   });
 
   const title = staffDisplayName(staff.real_name, staff.display_name);
-  const lot = buildPatientLot(patients.length, capacity, tileMode);
+  const lot = buildPatientLot(patients.length, capacity);
   const isOver = droppable.isOver || addDroppable.isOver;
 
   return (
@@ -103,6 +101,7 @@ export function StaffAssigneeCard({
                 dragId={`assigned-${staff.id}-${patient.patient_id}`}
                 fromStaffId={staff.id}
                 disabled={busy}
+                expandOnHoverDesktop
                 className="h-full w-full"
               />
             );

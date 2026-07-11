@@ -2,7 +2,7 @@ import { buildPatientLot, genderBadgeLabel, staffDisplayName } from "@/app/admin
 
 describe("buildPatientLot", () => {
   test("uses chip mode and pads to capacity when few patients", () => {
-    const lot = buildPatientLot(2, 8, "chip");
+    const lot = buildPatientLot(2, 8);
     expect(lot.mode).toBe("chip");
     expect(lot.visibleCount).toBe(2);
     expect(lot.cells).toHaveLength(8);
@@ -11,19 +11,14 @@ describe("buildPatientLot", () => {
     expect(lot.cells.filter((cell) => cell.type === "pad")).toHaveLength(5);
   });
 
-  test("uses square mode on desktop layout", () => {
-    expect(buildPatientLot(4, 8, "square").mode).toBe("square");
-    expect(buildPatientLot(7, 8, "square").mode).toBe("square");
+  test("keeps chip mode even when more than three patients", () => {
+    expect(buildPatientLot(4, 8).mode).toBe("chip");
+    expect(buildPatientLot(7, 8).mode).toBe("chip");
   });
 
-  test("uses chip mode on mobile layout", () => {
-    expect(buildPatientLot(4, 4, "chip").mode).toBe("chip");
-    expect(buildPatientLot(3, 4, "chip").mode).toBe("chip");
-  });
-
-  test("keeps tile mode with overflow tile when over capacity", () => {
-    const lot = buildPatientLot(10, 8, "square");
-    expect(lot.mode).toBe("square");
+  test("keeps chip mode with overflow tile when over capacity", () => {
+    const lot = buildPatientLot(10, 8);
+    expect(lot.mode).toBe("chip");
     expect(lot.visibleCount).toBe(6);
     expect(lot.cells).toEqual([
       { type: "patient", patientIndex: 0 },
