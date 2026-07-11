@@ -31,6 +31,7 @@ import {
   upsertAdminAssignment,
 } from "@/lib/api/staff";
 
+import { resolveDragEndResult } from "./drag-end";
 import type { PatientTilePatient } from "./patient-tile";
 import { StaffAssigneeCard } from "./staff-assignee-card";
 import { StaffDetailSheet, type StaffSheetFocus } from "./staff-detail-sheet";
@@ -81,15 +82,15 @@ export default function AdminPatientAssignmentPage() {
 
   const [bindingFilter, setBindingFilter] = useState<AdminBindingFilter>(parsedFilters.binding);
   const [keyword, setKeyword] = useState(parsedFilters.q);
-  const [keywordDraft, setKeywordDraft] = useState(parsedFilters.q);
   const filterSyncKey = `${parsedFilters.binding}::${parsedFilters.q}`;
-  const [lastFilterSyncKey, setLastFilterSyncKey] = useState(filterSyncKey);
-  if (lastFilterSyncKey !== filterSyncKey) {
-    setLastFilterSyncKey(filterSyncKey);
+
+  // Sync local filters when the URL changes externally (e.g. browser navigation).
+  /* eslint-disable react-hooks/set-state-in-effect -- mirror URL search params into editable filter state */
+  useEffect(() => {
     setBindingFilter(parsedFilters.binding);
     setKeyword(parsedFilters.q);
-    setKeywordDraft(parsedFilters.q);
-  }
+  }, [parsedFilters.binding, parsedFilters.q]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +99,10 @@ export default function AdminPatientAssignmentPage() {
   const [assigneeUsers, setAssigneeUsers] = useState<AdminIdentityItem[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [poolPatients, setPoolPatients] = useState<PatientTilePatient[]>([]);
+  const [poolTotal, setPoolTotal] = useState(0);
   const [poolLoading, setPoolLoading] = useState(false);
+  const [poolLoadingMore, setPoolLoadingMore] = useState(false);
+  const [staffTotal, setStaffTotal] = useState(0);
   const [assignedPatientsByStaffId, setAssignedPatientsByStaffId] = useState<
     Record<number, AdminPatientAssignmentByStaffPatientItem[]>
   >({});
@@ -129,11 +133,11 @@ export default function AdminPatientAssignmentPage() {
 
   const replaceFilters = useCallback(
     (next: { q: string; binding: AdminBindingFilter }) => {
-      setKeyword(next.q.trim());
+      const trimmed = next.q.trim();
+      setKeyword(trimmed);
       setBindingFilter(next.binding);
-      setKeywordDraft(next.q.trim());
       const params = assignmentFiltersToSearchParams({
-        q: next.q.trim(),
+        q: trimmed,
         binding: next.binding,
         assignment: "unassigned",
       }).toString();
@@ -186,6 +190,7 @@ export default function AdminPatientAssignmentPage() {
         offset: 0,
       });
       const users = data.items.filter((user) => user.role === "staff" || user.role === "admin");
+      setStaffTotal(data.total);
       setAssigneeUsers(users);
       const staffIds = users.map((user) => user.id);
       if (staffIds.length === 0) {
@@ -220,6 +225,7 @@ export default function AdminPatientAssignmentPage() {
         limit: POOL_PAGE_SIZE,
         offset: 0,
       });
+      setPoolTotal(data.total);
       setPoolPatients(data.items.map(toTilePatient));
     } catch (requestError) {
       setError(getReadableApiError(requestError));
@@ -227,6 +233,28 @@ export default function AdminPatientAssignmentPage() {
       setPoolLoading(false);
     }
   }, [bindingFilter, keyword]);
+
+  const loadMorePool = useCallback(async () => {
+    if (poolLoadingMore || poolPatients.length >= poolTotal) {
+      return;
+    }
+    setPoolLoadingMore(true);
+    try {
+      const data = await fetchAdminAssignments({
+        query: keyword.trim() || undefined,
+        bindingFilter,
+        assignmentFilter: "unassigned",
+        limit: POOL_PAGE_SIZE,
+        offset: poolPatients.length,
+      });
+      setPoolTotal(data.total);
+      setPoolPatients((current) => [...current, ...data.items.map(toTilePatient)]);
+    } catch (requestError) {
+      setError(getReadableApiError(requestError));
+    } finally {
+      setPoolLoadingMore(false);
+    }
+  }, [bindingFilter, keyword, poolLoadingMore, poolPatients.length, poolTotal]);
 
   const refreshBoard = useCallback(async () => {
     await Promise.all([loadPool(), loadAssigneesWithAssignments()]);
@@ -299,41 +327,17 @@ export default function AdminPatientAssignmentPage() {
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || busy) {
+    const result = resolveDragEndResult(event, { busy });
+    if (result.kind === "assign") {
+      void assignPatient(result.patientId, result.staffId);
       return;
     }
-    const patientId = Number(active.data.current?.patientId);
-    const fromStaffId =
-      active.data.current?.fromStaffId === null || active.data.current?.fromStaffId === undefined
-        ? null
-        : Number(active.data.current.fromStaffId);
-    if (!Number.isFinite(patientId) || patientId <= 0) {
-      return;
-    }
-
-    const overType = over.data.current?.type;
-    if (overType === "pool") {
-      if (fromStaffId === null) {
-        return;
-      }
+    if (result.kind === "unassign") {
       setRemoveTarget({
-        patientId,
-        caseNumber: String(active.data.current?.caseNumber ?? ""),
-        fullName: (active.data.current?.fullName as string | null) ?? null,
+        patientId: result.patient.patientId,
+        caseNumber: result.patient.caseNumber,
+        fullName: result.patient.fullName,
       });
-      return;
-    }
-
-    if (overType === "staff") {
-      const staffId = Number(over.data.current?.staffId);
-      if (!Number.isFinite(staffId) || staffId <= 0) {
-        return;
-      }
-      if (fromStaffId === staffId) {
-        return;
-      }
-      void assignPatient(patientId, staffId);
     }
   };
 
@@ -362,14 +366,17 @@ export default function AdminPatientAssignmentPage() {
 
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <UnassignedPool
+          key={filterSyncKey}
           patients={poolPatients}
+          total={poolTotal}
           loading={poolLoading}
-          keywordDraft={keywordDraft}
+          loadingMore={poolLoadingMore}
+          initialKeyword={keyword}
           bindingFilter={bindingFilter}
           busy={busy}
-          onKeywordDraftChange={setKeywordDraft}
-          onKeywordSubmit={() => replaceFilters({ q: keywordDraft, binding: bindingFilter })}
+          onKeywordSubmit={(draft) => replaceFilters({ q: draft, binding: bindingFilter })}
           onBindingFilterChange={(value) => replaceFilters({ q: keyword, binding: value })}
+          onLoadMore={() => void loadMorePool()}
         />
 
         <section className="space-y-3">
@@ -377,6 +384,11 @@ export default function AdminPatientAssignmentPage() {
             <h2 className="text-sm font-semibold text-zinc-900">可指派人員</h2>
             {usersLoading ? <span className="text-xs text-zinc-500">載入中…</span> : null}
           </div>
+          {staffTotal > assigneeUsers.length ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
+              僅顯示前 {assigneeUsers.length} 位人員（共 {staffTotal} 位）。請聯絡系統管理員以檢視完整名單。
+            </p>
+          ) : null}
           {assigneeUsers.length === 0 && !usersLoading ? (
             <p className="text-sm text-zinc-500">目前沒有可指派人員</p>
           ) : (

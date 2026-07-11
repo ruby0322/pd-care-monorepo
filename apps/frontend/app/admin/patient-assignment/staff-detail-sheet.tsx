@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,18 @@ export function StaffDetailSheet({
   onRemove,
 }: StaffDetailSheetProps) {
   const [addQuery, setAddQuery] = useState("");
+  const addSectionRef = useRef<HTMLElement | null>(null);
   const title = staff ? staffDisplayName(staff.real_name, staff.display_name) : "";
+
+  useEffect(() => {
+    if (!open || focus !== "add") {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      addSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [focus, open, staff?.id]);
 
   const filteredUnassigned = useMemo(() => {
     const q = addQuery.trim().toLowerCase();
@@ -113,7 +124,7 @@ export function StaffDetailSheet({
               )}
             </section>
 
-            <section id="staff-sheet-add" className={focus === "add" ? "scroll-mt-2" : undefined}>
+            <section id="staff-sheet-add" ref={addSectionRef} className={focus === "add" ? "scroll-mt-2" : undefined}>
               <h3 className="mb-2 text-sm font-semibold text-zinc-900">新增病患</h3>
               <Input
                 value={addQuery}

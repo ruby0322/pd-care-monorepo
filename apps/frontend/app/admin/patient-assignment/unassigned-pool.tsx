@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
+
 import { useDroppable } from "@dnd-kit/core";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AdminBindingFilter } from "@/lib/admin/filters";
 import { cn } from "@/lib/utils";
@@ -11,29 +14,36 @@ import { PatientTile } from "./patient-tile";
 
 type UnassignedPoolProps = {
   patients: PatientTilePatient[];
+  total: number;
   loading: boolean;
-  keywordDraft: string;
+  loadingMore?: boolean;
+  initialKeyword: string;
   bindingFilter: AdminBindingFilter;
   busy?: boolean;
-  onKeywordDraftChange: (value: string) => void;
-  onKeywordSubmit: () => void;
+  onKeywordSubmit: (keyword: string) => void;
   onBindingFilterChange: (value: AdminBindingFilter) => void;
+  onLoadMore: () => void;
 };
 
 export function UnassignedPool({
   patients,
+  total,
   loading,
-  keywordDraft,
+  loadingMore,
+  initialKeyword,
   bindingFilter,
   busy,
-  onKeywordDraftChange,
   onKeywordSubmit,
   onBindingFilterChange,
+  onLoadMore,
 }: UnassignedPoolProps) {
+  const [keywordDraft, setKeywordDraft] = useState(initialKeyword);
   const { setNodeRef, isOver } = useDroppable({
     id: "unassigned-pool",
     data: { type: "pool" },
   });
+
+  const hasMore = patients.length < total;
 
   return (
     <section className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50/80 p-3">
@@ -47,12 +57,12 @@ export function UnassignedPool({
             className="flex gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              onKeywordSubmit();
+              onKeywordSubmit(keywordDraft);
             }}
           >
             <Input
               value={keywordDraft}
-              onChange={(event) => onKeywordDraftChange(event.target.value)}
+              onChange={(event) => setKeywordDraft(event.target.value)}
               placeholder="搜尋病患…"
               aria-label="搜尋未分配病患"
               className="h-8 w-40 text-sm sm:w-52"
@@ -76,6 +86,12 @@ export function UnassignedPool({
           </label>
         </div>
       </div>
+
+      {total > patients.length && patients.length > 0 ? (
+        <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
+          顯示 {patients.length} / {total} 位未分配病患
+        </p>
+      ) : null}
 
       <div
         ref={setNodeRef}
@@ -102,6 +118,20 @@ export function UnassignedPool({
           ))
         )}
       </div>
+
+      {hasMore ? (
+        <div className="mt-2 flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loading || loadingMore || busy}
+            onClick={onLoadMore}
+          >
+            {loadingMore ? "載入中…" : "載入更多"}
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
 }
