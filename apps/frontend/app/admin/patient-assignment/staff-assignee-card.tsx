@@ -97,7 +97,6 @@ export function StaffAssigneeCard({
               <PatientTile
                 key={`p-${patient.patient_id}`}
                 patient={patient}
-                mode={lot.mode}
                 dragId={`assigned-${staff.id}-${patient.patient_id}`}
                 fromStaffId={staff.id}
                 disabled={busy}

@@ -112,7 +112,6 @@ export function UnassignedPool({
             <PatientTile
               key={patient.patient_id}
               patient={patient}
-              mode="chip"
               dragId={`pool-${patient.patient_id}`}
               fromStaffId={null}
               disabled={busy}

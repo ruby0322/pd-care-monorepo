@@ -5,7 +5,6 @@ export type PatientLotCell =
   | { type: "pad" };
 
 export type PatientLotResult = {
-  mode: "chip" | "square";
   cells: PatientLotCell[];
   visibleCount: number;
 };
@@ -13,8 +12,6 @@ export type PatientLotResult = {
 /** Desktop 2×4, mobile 1×4 — equal cells; always reserve "+" and optional "+n". */
 export function buildPatientLot(patientCount: number, capacity: number): PatientLotResult {
   const safeCapacity = Math.max(2, capacity);
-  // Always chip (avatar | name + sex badge) so dense lots stay readable and consistent with the pool.
-  const mode = "chip" as const;
   const overflow = patientCount > safeCapacity - 1;
   const cells: PatientLotCell[] = [];
 
@@ -25,7 +22,7 @@ export function buildPatientLot(patientCount: number, capacity: number): Patient
     }
     cells.push({ type: "overflow", count: patientCount - visibleCount });
     cells.push({ type: "add" });
-    return { mode, cells, visibleCount };
+    return { cells, visibleCount };
   }
 
   for (let index = 0; index < patientCount; index += 1) {
@@ -35,7 +32,7 @@ export function buildPatientLot(patientCount: number, capacity: number): Patient
   while (cells.length < safeCapacity) {
     cells.push({ type: "pad" });
   }
-  return { mode, cells, visibleCount: patientCount };
+  return { cells, visibleCount: patientCount };
 }
 
 export function staffDisplayName(realName: string | null | undefined, displayName: string | null | undefined): string {

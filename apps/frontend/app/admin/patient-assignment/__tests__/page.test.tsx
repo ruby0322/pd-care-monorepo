@@ -49,7 +49,6 @@ const dragStartEvent = {
         caseNumber: "P-000201",
         fullName: "池中病患",
         gender: "female",
-        tileMode: "chip",
       },
     },
   },
