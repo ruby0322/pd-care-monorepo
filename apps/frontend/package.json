@@ -11,6 +11,8 @@
     "test:unit:watch": "jest --watch"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/utilities": "^3.2.2",
     "@tanstack/react-table": "^8.21.3",
     "axios": "^1.15.1",
     "clsx": "^2.1.1",

@@ -378,6 +378,21 @@ def test_admin_assignment_filters_apply_binding_and_assignment_independently(tmp
         )
         assert all_unassigned_response.status_code == 200
         assert {item["case_number"] for item in all_unassigned_response.json()["items"]} == {"ASSIGN-BU", "ASSIGN-UU"}
+        for item in all_unassigned_response.json()["items"]:
+            assert item["gender"] in {"male", "female", "other", "unknown"}
+            assert "picture_url" in item
+
+        by_staff_response = client.get(
+            f"/v1/staff/admin/assignments/by-staff?staff_identity_ids={assignee_id}",
+            headers=headers,
+        )
+        assert by_staff_response.status_code == 200
+        by_staff_items = by_staff_response.json()["items"]
+        assert len(by_staff_items) == 1
+        assert by_staff_items[0]["assigned_count"] == 2
+        for patient in by_staff_items[0]["assigned_patients"]:
+            assert patient["gender"] in {"male", "female", "other", "unknown"}
+            assert "picture_url" in patient
 
 
 def test_staff_is_denied_for_admin_analytics_endpoints(tmp_path: Path) -> None:

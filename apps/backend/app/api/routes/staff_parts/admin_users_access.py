@@ -44,6 +44,7 @@ def _to_admin_identity_item(identity: LiffIdentity) -> AdminIdentityItem:
         line_user_id=identity.line_user_id,
         display_name=identity.display_name,
         real_name=identity.real_name,
+        picture_url=identity.picture_url,
         role=identity.role,  # type: ignore[arg-type]
         is_active=identity.is_active,
         patient_id=identity.patient_id,

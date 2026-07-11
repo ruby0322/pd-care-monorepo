@@ -284,6 +284,8 @@ def test_admin_user_list_includes_real_name_field_with_null_default(tmp_path: Pa
         staff_item = next(item for item in items if item["line_user_id"] == "U_STAFF_REALNAME")
         assert "real_name" in staff_item
         assert staff_item["real_name"] is None
+        assert "picture_url" in staff_item
+        assert staff_item["picture_url"] is None
 
 
 def test_admin_user_list_excludes_patient_when_requested(tmp_path: Path) -> None:

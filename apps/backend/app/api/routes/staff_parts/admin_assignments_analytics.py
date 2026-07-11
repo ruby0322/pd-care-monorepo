@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
@@ -45,6 +46,14 @@ from app.services.staff_dashboard import (
 from .shared import get_staff_session
 
 router = APIRouter(tags=["Staff"])
+
+_GENDER_VALUES = frozenset({"male", "female", "other", "unknown"})
+
+
+def _normalize_patient_gender(value: str | None) -> Literal["male", "female", "other", "unknown"]:
+    if value in _GENDER_VALUES:
+        return value  # type: ignore[return-value]
+    return "unknown"
 
 
 def _list_filtered_patient_ids_for_admin_analytics(
@@ -106,6 +115,8 @@ async def list_admin_assignments(
                 patient_id=row.patient.id,
                 case_number=row.patient.case_number,
                 patient_full_name=row.patient.full_name,
+                gender=_normalize_patient_gender(row.patient.gender),
+                picture_url=row.patient_picture_url,
                 staff_identity_id=row.staff_identity_id,
                 staff_line_user_id=row.staff_line_user_id,
                 staff_display_name=row.staff_display_name,
@@ -143,8 +154,10 @@ async def list_admin_assignments_by_staff(
                         patient_id=patient_id,
                         case_number=case_number,
                         patient_full_name=patient_full_name,
+                        gender=_normalize_patient_gender(gender),
+                        picture_url=picture_url,
                     )
-                    for patient_id, case_number, patient_full_name in grouped_rows.get(staff_id, [])
+                    for patient_id, case_number, patient_full_name, gender, picture_url in grouped_rows.get(staff_id, [])
                 ],
             )
             for staff_id in requested_staff_ids

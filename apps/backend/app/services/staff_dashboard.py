@@ -52,6 +52,7 @@ class StaffAssignmentRow:
     staff_identity_id: int | None
     staff_line_user_id: str | None
     staff_display_name: str | None
+    patient_picture_url: str | None = None
 
 
 @dataclass
@@ -117,12 +118,23 @@ def list_patient_assignments(
         .correlate(Patient)
         .exists()
     )
+    patient_picture_url = (
+        select(patient_identity.picture_url)
+        .where(
+            patient_identity.patient_id == Patient.id,
+            patient_identity.role == "patient",
+        )
+        .correlate(Patient)
+        .limit(1)
+        .scalar_subquery()
+    )
     stmt: Select = (
         select(
             Patient,
             StaffPatientAssignment.staff_identity_id,
             LiffIdentity.line_user_id,
             LiffIdentity.display_name,
+            patient_picture_url,
         )
         .outerjoin(StaffPatientAssignment, StaffPatientAssignment.patient_id == Patient.id)
         .outerjoin(LiffIdentity, LiffIdentity.id == StaffPatientAssignment.staff_identity_id)
@@ -174,8 +186,9 @@ def list_patient_assignments(
             staff_identity_id=staff_identity_id,
             staff_line_user_id=line_user_id,
             staff_display_name=display_name,
+            patient_picture_url=picture_url,
         )
-        for patient, staff_identity_id, line_user_id, display_name in rows
+        for patient, staff_identity_id, line_user_id, display_name, picture_url in rows
     ], total
 
 
@@ -183,24 +196,39 @@ def list_patient_assignments_by_staff(
     session: Session,
     *,
     staff_identity_ids: list[int],
-) -> dict[int, list[tuple[int, str, str | None]]]:
+) -> dict[int, list[tuple[int, str, str | None, str, str | None]]]:
     normalized_staff_ids = sorted({staff_id for staff_id in staff_identity_ids if staff_id > 0})
     if not normalized_staff_ids:
         return {}
+    patient_identity = aliased(LiffIdentity)
+    patient_picture_url = (
+        select(patient_identity.picture_url)
+        .where(
+            patient_identity.patient_id == Patient.id,
+            patient_identity.role == "patient",
+        )
+        .correlate(Patient)
+        .limit(1)
+        .scalar_subquery()
+    )
     rows = session.execute(
         select(
             StaffPatientAssignment.staff_identity_id,
             Patient.id,
             Patient.case_number,
             Patient.full_name,
+            Patient.gender,
+            patient_picture_url,
         )
         .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
         .where(StaffPatientAssignment.staff_identity_id.in_(normalized_staff_ids))
         .order_by(StaffPatientAssignment.staff_identity_id.asc(), Patient.case_number.asc(), Patient.id.asc())
     ).all()
-    grouped: dict[int, list[tuple[int, str, str | None]]] = defaultdict(list)
-    for staff_identity_id, patient_id, case_number, patient_full_name in rows:
-        grouped[int(staff_identity_id)].append((int(patient_id), case_number, patient_full_name))
+    grouped: dict[int, list[tuple[int, str, str | None, str, str | None]]] = defaultdict(list)
+    for staff_identity_id, patient_id, case_number, patient_full_name, gender, picture_url in rows:
+        grouped[int(staff_identity_id)].append(
+            (int(patient_id), case_number, patient_full_name, str(gender or "unknown"), picture_url)
+        )
     return grouped
 
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import AdminPatientAssignmentPage from "@/app/admin/patient-assignment/page";
 import {
@@ -29,13 +29,13 @@ jest.mock("@/lib/api/staff", () => ({
   fetchAdminAssignments: jest.fn(),
   fetchAdminAssignmentsByStaff: jest.fn(),
   upsertAdminAssignment: jest.fn(),
-  bulkUpsertAdminAssignments: jest.fn(),
   unassignAdminAssignment: jest.fn(),
 }));
 
 describe("AdminPatientAssignmentPage", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSearchParams.forEach((_, key) => mockSearchParams.delete(key));
     (fetchStaffMe as jest.Mock).mockResolvedValue({ line_user_id: "U_ADMIN_ASSIGNMENT", role: "admin" });
     (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
       items: [
@@ -44,6 +44,7 @@ describe("AdminPatientAssignmentPage", () => {
           line_user_id: "U_STAFF_ASSIGNMENT",
           display_name: "護理師 A",
           real_name: "Nurse A",
+          picture_url: null,
           role: "staff",
           is_active: true,
           patient_id: null,
@@ -54,6 +55,7 @@ describe("AdminPatientAssignmentPage", () => {
           line_user_id: "U_ADMIN_ASSIGNMENT_TARGET",
           display_name: "管理員 B",
           real_name: "Admin B",
+          picture_url: null,
           role: "admin",
           is_active: true,
           patient_id: null,
@@ -61,22 +63,24 @@ describe("AdminPatientAssignmentPage", () => {
         },
       ],
       total: 2,
-      limit: 10,
+      limit: 200,
       offset: 0,
     });
     (fetchAdminAssignments as jest.Mock).mockResolvedValue({
       items: [
         {
-          patient_id: 101,
-          case_number: "P-000101",
-          patient_full_name: "王小明",
-          staff_identity_id: 11,
-          staff_line_user_id: "U_STAFF_ASSIGNMENT",
-          staff_display_name: "護理師 A",
+          patient_id: 201,
+          case_number: "P-000201",
+          patient_full_name: "池中病患",
+          gender: "female",
+          picture_url: null,
+          staff_identity_id: null,
+          staff_line_user_id: null,
+          staff_display_name: null,
         },
       ],
       total: 1,
-      limit: 10,
+      limit: 200,
       offset: 0,
     });
     (fetchAdminAssignmentsByStaff as jest.Mock).mockResolvedValue({
@@ -84,57 +88,79 @@ describe("AdminPatientAssignmentPage", () => {
         {
           staff_identity_id: 11,
           assigned_count: 1,
-          assigned_patients: [{ patient_id: 101, case_number: "P-000101", patient_full_name: "王小明" }],
+          assigned_patients: [
+            {
+              patient_id: 101,
+              case_number: "P-000101",
+              patient_full_name: "王小明",
+              gender: "male",
+              picture_url: null,
+            },
+          ],
         },
         {
           staff_identity_id: 22,
           assigned_count: 1,
-          assigned_patients: [{ patient_id: 102, case_number: "P-000102", patient_full_name: "陳小華" }],
+          assigned_patients: [
+            {
+              patient_id: 102,
+              case_number: "P-000102",
+              patient_full_name: "陳小華",
+              gender: "female",
+              picture_url: null,
+            },
+          ],
         },
       ],
     });
   });
 
-  test("shows assignee user list and pagination controls at top", async () => {
+  test("renders unassigned pool and staff cards with real names", async () => {
     render(<AdminPatientAssignmentPage />);
 
+    expect(await screen.findByRole("heading", { name: "未分配病患" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "可指派人員" })).toBeInTheDocument();
-    expect((await screen.findAllByText("護理師 A")).length).toBeGreaterThan(0);
-    const userSection = screen.getByRole("heading", { name: "可指派人員" }).closest("section");
-    expect(userSection).not.toBeNull();
-    const userScope = within(userSection as HTMLElement);
-    expect(userScope.queryByRole("columnheader", { name: "選擇" })).not.toBeInTheDocument();
-    expect(
-      userScope.getByText((content) => content.replace(/\s+/g, " ").includes("顯示 1-2 / 2 位人員"))
-    ).toBeInTheDocument();
-    expect(userScope.getByRole("button", { name: "上一頁" })).toBeDisabled();
-    expect(userScope.getByRole("button", { name: "下一頁" })).toBeDisabled();
+    expect(screen.getByText("Nurse A")).toBeInTheDocument();
+    expect(screen.getByText("Admin B")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "未分配病患" })).toBeInTheDocument();
+    expect(screen.getByText("池中病患")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "選擇" })).not.toBeInTheDocument();
   });
 
-  test("provides patient filters for assignment, binding, active status and sends them to API", async () => {
+  test("loads pool with unassigned filter and binding changes", async () => {
     render(<AdminPatientAssignmentPage />);
 
     await screen.findByRole("heading", { name: "病患分配" });
 
-    fireEvent.change(screen.getByLabelText("分配狀態"), { target: { value: "assigned" } });
+    await waitFor(() => {
+      expect(fetchAdminAssignments).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assignmentFilter: "unassigned",
+          bindingFilter: "bound",
+        })
+      );
+    });
+
     fireEvent.change(screen.getByLabelText("註冊狀態"), { target: { value: "unbound_only" } });
-    fireEvent.change(screen.getByLabelText("人員狀態"), { target: { value: "inactive" } });
 
     await waitFor(() => {
-      expect(fetchAdminAssignments).toHaveBeenLastCalledWith(
+      expect(fetchAdminAssignments).toHaveBeenCalledWith(
         expect.objectContaining({
-          assignmentFilter: "assigned",
+          assignmentFilter: "unassigned",
           bindingFilter: "unbound_only",
-          assigneeActive: "inactive",
         })
       );
     });
   });
 
-  test("keeps removable assigned-patient tags for both staff and admin rows", async () => {
+  test("opens staff sheet with remove actions for assigned patients", async () => {
     render(<AdminPatientAssignmentPage />);
 
-    expect(await screen.findByLabelText("移除病患 P-000101 指派")).toBeInTheDocument();
-    expect(screen.getByLabelText("移除病患 P-000102 指派")).toBeInTheDocument();
+    const staffName = await screen.findByText("Nurse A");
+    fireEvent.click(staffName);
+
+    expect(await screen.findByRole("dialog", { name: "Nurse A 詳情" })).toBeInTheDocument();
+    expect(screen.getByLabelText("移除病患 P-000101 指派")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "新增病患" })).toBeInTheDocument();
   });
 });
