@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { DragEndEvent } from "@dnd-kit/core";
+import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 
 import AdminPatientAssignmentPage from "@/app/admin/patient-assignment/page";
 import {
@@ -25,6 +25,35 @@ function rerenderAssignmentPage(view: ReturnType<typeof render>) {
 }
 
 let capturedOnDragEnd: ((event: DragEndEvent) => void) | null = null;
+let capturedOnDragStart: ((event: DragStartEvent) => void) | null = null;
+let capturedOnDragCancel: (() => void) | null = null;
+
+function queryDragBackdrop() {
+  return document.querySelector(".pointer-events-none.fixed.inset-0.z-30");
+}
+
+function getPoolSection() {
+  return screen.getByRole("heading", { name: "未分配病患" }).closest("section");
+}
+
+function getStaffCard(title: string) {
+  return screen.getByText(title).closest("article");
+}
+
+const dragStartEvent = {
+  active: {
+    data: {
+      current: {
+        patientId: 201,
+        fromStaffId: null,
+        caseNumber: "P-000201",
+        fullName: "池中病患",
+        gender: "female",
+        tileMode: "chip",
+      },
+    },
+  },
+} as DragStartEvent;
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace }),
@@ -48,11 +77,17 @@ jest.mock("@dnd-kit/core", () => {
     DndContext: ({
       children,
       onDragEnd,
+      onDragStart,
+      onDragCancel,
     }: {
       children: React.ReactNode;
       onDragEnd: (event: DragEndEvent) => void;
+      onDragStart?: (event: DragStartEvent) => void;
+      onDragCancel?: () => void;
     }) => {
       capturedOnDragEnd = onDragEnd;
+      capturedOnDragStart = onDragStart ?? null;
+      capturedOnDragCancel = onDragCancel ?? null;
       return React.createElement("div", { "data-testid": "dnd-context" }, children);
     },
   };
@@ -71,6 +106,8 @@ describe("AdminPatientAssignmentPage", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     capturedOnDragEnd = null;
+    capturedOnDragStart = null;
+    capturedOnDragCancel = null;
     mockSearchParams.forEach((_, key) => mockSearchParams.delete(key));
     (fetchStaffMe as jest.Mock).mockResolvedValue({ line_user_id: "U_ADMIN_ASSIGNMENT", role: "admin" });
     (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
@@ -202,6 +239,63 @@ describe("AdminPatientAssignmentPage", () => {
     expect(await screen.findByRole("dialog", { name: "Nurse A 詳情" })).toBeInTheDocument();
     expect(screen.getByLabelText("移除病患 P-000101 指派")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "新增病患" })).toBeInTheDocument();
+  });
+
+  test("shows drag backdrop and elevates drop targets while dragging", async () => {
+    render(<AdminPatientAssignmentPage />);
+
+    await screen.findByText("池中病患");
+    expect(capturedOnDragStart).not.toBeNull();
+    expect(queryDragBackdrop()).toBeNull();
+    expect(getPoolSection()).not.toHaveClass("z-40");
+    expect(getStaffCard("Nurse A")).not.toHaveClass("z-40");
+
+    await act(async () => {
+      capturedOnDragStart?.(dragStartEvent);
+    });
+
+    expect(queryDragBackdrop()).toBeInTheDocument();
+    expect(getPoolSection()).toHaveClass("z-40");
+    expect(getStaffCard("Nurse A")).toHaveClass("z-40");
+  });
+
+  test("clears drag backdrop and elevation on drag end", async () => {
+    render(<AdminPatientAssignmentPage />);
+
+    await screen.findByText("池中病患");
+    await act(async () => {
+      capturedOnDragStart?.(dragStartEvent);
+    });
+    expect(queryDragBackdrop()).toBeInTheDocument();
+
+    await act(async () => {
+      capturedOnDragEnd?.({
+        active: dragStartEvent.active,
+        over: null,
+      } as DragEndEvent);
+    });
+
+    expect(queryDragBackdrop()).toBeNull();
+    expect(getPoolSection()).not.toHaveClass("z-40");
+    expect(getStaffCard("Nurse A")).not.toHaveClass("z-40");
+  });
+
+  test("clears drag backdrop and elevation on drag cancel", async () => {
+    render(<AdminPatientAssignmentPage />);
+
+    await screen.findByText("池中病患");
+    await act(async () => {
+      capturedOnDragStart?.(dragStartEvent);
+    });
+    expect(queryDragBackdrop()).toBeInTheDocument();
+
+    await act(async () => {
+      capturedOnDragCancel?.();
+    });
+
+    expect(queryDragBackdrop()).toBeNull();
+    expect(getPoolSection()).not.toHaveClass("z-40");
+    expect(getStaffCard("Nurse A")).not.toHaveClass("z-40");
   });
 
   test("assigns patient on drag end to staff", async () => {
