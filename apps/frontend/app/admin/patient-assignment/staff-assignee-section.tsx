@@ -19,6 +19,7 @@ type StaffAssigneeSectionProps = {
   capacity: number;
   rows: number;
   columns: number;
+  tileMode: "chip" | "square";
   busy?: boolean;
   elevateForDrop?: boolean;
   onSearch: (query: string) => void;
@@ -39,6 +40,7 @@ export function StaffAssigneeSection({
   capacity,
   rows,
   columns,
+  tileMode,
   busy,
   elevateForDrop,
   onSearch,
@@ -94,6 +96,7 @@ export function StaffAssigneeSection({
               capacity={capacity}
               rows={rows}
               columns={columns}
+              tileMode={tileMode}
               busy={busy}
               elevateForDrop={elevateForDrop}
               onOpenCard={() => onOpenCard(member.id)}

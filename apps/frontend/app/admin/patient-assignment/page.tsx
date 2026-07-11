@@ -48,7 +48,12 @@ type ActiveDragPatient = {
 };
 
 function useLotLayout() {
-  const [layout, setLayout] = useState({ rows: 2, columns: 4, capacity: 8 });
+  const [layout, setLayout] = useState({
+    rows: 2,
+    columns: 4,
+    capacity: 8,
+    tileMode: "square" as "chip" | "square",
+  });
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") {
@@ -57,10 +62,10 @@ function useLotLayout() {
     const media = window.matchMedia("(min-width: 768px)");
     const apply = () => {
       if (media.matches) {
-        setLayout({ rows: 2, columns: 4, capacity: 8 });
+        setLayout({ rows: 2, columns: 4, capacity: 8, tileMode: "square" });
         return;
       }
-      setLayout({ rows: 1, columns: 4, capacity: 4 });
+      setLayout({ rows: 1, columns: 4, capacity: 4, tileMode: "chip" });
     };
     apply();
     media.addEventListener("change", apply);
@@ -405,6 +410,7 @@ export default function AdminPatientAssignmentPage() {
           initialKeyword={parsedFilters.q}
           bindingFilter={parsedFilters.binding}
           busy={busy}
+          tileMode={lotLayout.tileMode}
           elevateForDrop={Boolean(activeDragPatient)}
           onKeywordSubmit={(draft) => replaceAssignmentUrl({ q: draft, binding: parsedFilters.binding })}
           onBindingFilterChange={(value) => replaceAssignmentUrl({ q: parsedFilters.q, binding: value })}
@@ -423,6 +429,7 @@ export default function AdminPatientAssignmentPage() {
           capacity={lotLayout.capacity}
           rows={lotLayout.rows}
           columns={lotLayout.columns}
+          tileMode={lotLayout.tileMode}
           busy={busy}
           elevateForDrop={Boolean(activeDragPatient)}
           onSearch={(draft) => replaceAssignmentUrl({ staffQ: draft, staffPage: 1 })}
