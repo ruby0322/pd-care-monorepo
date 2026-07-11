@@ -58,6 +58,7 @@ Progress:
 - [ ] Commit with HEREDOC message
 - [ ] Push to remote
 - [ ] Report hash, branch, author, push result
+- [ ] If branch is not `main`/`master`, include pre-filled PR creation URL
 ```
 
 ## Step 1 — Inspect (parallel)
@@ -121,6 +122,39 @@ Return:
 - branch and remote push result
 - any hook warnings
 - explicit note that deploy was **not** run (offer [ship-and-deploy](../ship-and-deploy/SKILL.md) if the user also wants redeploy)
+
+### PR creation URL (non-`main` branches)
+
+**Always** include a pre-filled GitHub PR URL when the pushed branch is not `main` or `master`.
+
+1. Derive `owner/repo` from `git remote get-url origin` (SSH or HTTPS).
+2. Use default base branch `main` (or `origin/HEAD` if it points elsewhere).
+3. **Title:** latest commit subject (`git log -1 --format='%s'`).
+4. **Body:** `## Summary` bullets from the change + `## Test plan` checklist.
+5. Build the compare URL (URL-encode `title` and `body`):
+
+   ```text
+   https://github.com/{owner}/{repo}/compare/{base}...{head}?quick_pull=1&title={title}&body={body}
+   ```
+
+   Example encoder:
+
+   ```bash
+   python3 -c "
+   import urllib.parse
+   title = 'feat(admin): short summary'
+   body = '''## Summary
+   - bullet one
+
+   ## Test plan
+   - [ ] verification step'''
+   base, head = 'main', 'feat/my-branch'
+   print(f'https://github.com/OWNER/REPO/compare/{base}...{head}?quick_pull=1'
+         f'&title={urllib.parse.quote(title)}&body={urllib.parse.quote(body)}')
+   "
+   ```
+
+Return the URL as a clickable markdown link plus the plain title and body so the user can edit before opening.
 
 ## Partial requests
 
