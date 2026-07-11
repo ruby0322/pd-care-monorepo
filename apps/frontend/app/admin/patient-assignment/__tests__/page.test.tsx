@@ -12,7 +12,6 @@ import {
 } from "@/lib/api/staff";
 
 const mockSearchParams = new URLSearchParams();
-let capturedOnDragEnd: ((event: DragEndEvent) => void) | null = null;
 
 const mockReplace = jest.fn((href: string) => {
   const queryIndex = href.indexOf("?");
@@ -20,6 +19,12 @@ const mockReplace = jest.fn((href: string) => {
   mockSearchParams.forEach((_, key) => mockSearchParams.delete(key));
   new URLSearchParams(query).forEach((value, key) => mockSearchParams.set(key, value));
 });
+
+function rerenderAssignmentPage(view: ReturnType<typeof render>) {
+  view.rerender(<AdminPatientAssignmentPage />);
+}
+
+let capturedOnDragEnd: ((event: DragEndEvent) => void) | null = null;
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace }),
@@ -111,7 +116,7 @@ describe("AdminPatientAssignmentPage", () => {
         },
       ],
       total: 1,
-      limit: 200,
+      limit: 100,
       offset: 0,
     });
     (fetchAdminAssignmentsByStaff as jest.Mock).mockResolvedValue({
@@ -160,7 +165,7 @@ describe("AdminPatientAssignmentPage", () => {
   });
 
   test("loads pool with unassigned filter and binding changes", async () => {
-    render(<AdminPatientAssignmentPage />);
+    const view = render(<AdminPatientAssignmentPage />);
 
     await screen.findByRole("heading", { name: "病患分配" });
 
@@ -169,17 +174,20 @@ describe("AdminPatientAssignmentPage", () => {
         expect.objectContaining({
           assignmentFilter: "unassigned",
           bindingFilter: "bound",
+          limit: 100,
         })
       );
     });
 
     fireEvent.change(screen.getByLabelText("註冊狀態"), { target: { value: "unbound_only" } });
+    rerenderAssignmentPage(view);
 
     await waitFor(() => {
       expect(fetchAdminAssignments).toHaveBeenCalledWith(
         expect.objectContaining({
           assignmentFilter: "unassigned",
           bindingFilter: "unbound_only",
+          limit: 100,
         })
       );
     });
@@ -281,7 +289,7 @@ describe("AdminPatientAssignmentPage", () => {
           },
         ],
         total: 3,
-        limit: 200,
+        limit: 100,
         offset: 0,
       })
       .mockResolvedValueOnce({
@@ -298,7 +306,7 @@ describe("AdminPatientAssignmentPage", () => {
           },
         ],
         total: 3,
-        limit: 200,
+        limit: 100,
         offset: 1,
       });
 
@@ -371,17 +379,19 @@ describe("AdminPatientAssignmentPage", () => {
       };
     });
 
-    render(<AdminPatientAssignmentPage />);
+    const view = render(<AdminPatientAssignmentPage />);
     await screen.findByText("Nurse A");
 
     const staffSearchInput = screen.getByLabelText("搜尋可指派人員");
     fireEvent.change(staffSearchInput, { target: { value: "Nurse" } });
     fireEvent.submit(staffSearchInput.closest("form")!);
+    rerenderAssignmentPage(view);
 
     await waitFor(() => {
       expect(fetchAdminUsersPage).toHaveBeenCalledWith(
         expect.objectContaining({
           query: "Nurse",
+          isActive: true,
           limit: 12,
           offset: 0,
         })
@@ -462,16 +472,18 @@ describe("AdminPatientAssignmentPage", () => {
       };
     });
 
-    render(<AdminPatientAssignmentPage />);
+    const view = render(<AdminPatientAssignmentPage />);
 
     await screen.findByText("Nurse A");
     expect(screen.getByText(/顯示 1-1 \/ 13 位人員/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+    rerenderAssignmentPage(view);
 
     await waitFor(() => {
       expect(fetchAdminUsersPage).toHaveBeenCalledWith(
         expect.objectContaining({
+          isActive: true,
           limit: 12,
           offset: 12,
         })

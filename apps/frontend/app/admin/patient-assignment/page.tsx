@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   type DragEndEvent,
+  type DragStartEvent,
+  DragOverlay,
   PointerSensor,
   TouchSensor,
   useSensor,
@@ -14,7 +16,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-  type AdminBindingFilter,
+  type AdminAssignmentFilters,
   assignmentFiltersToSearchParams,
   parseAssignmentFilters,
 } from "@/lib/admin/filters";
@@ -31,14 +33,19 @@ import {
   upsertAdminAssignment,
 } from "@/lib/api/staff";
 
+import { POOL_PAGE_SIZE, STAFF_PAGE_SIZE } from "./constants";
 import { resolveDragEndResult } from "./drag-end";
+import { PatientDragOverlay } from "./patient-drag-overlay";
 import type { PatientTilePatient } from "./patient-tile";
 import { StaffAssigneeSection } from "./staff-assignee-section";
 import { StaffDetailSheet, type StaffSheetFocus } from "./staff-detail-sheet";
 import { UnassignedPool } from "./unassigned-pool";
 
-const STAFF_PAGE_SIZE = 12;
-const POOL_PAGE_SIZE = 200;
+type ActiveDragPatient = {
+  patient: PatientTilePatient;
+  mode: "chip" | "square";
+  fromStaffId: number | null;
+};
 
 function useLotLayout() {
   const [layout, setLayout] = useState({ rows: 2, columns: 4, capacity: 8 });
@@ -77,25 +84,15 @@ export default function AdminPatientAssignmentPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const parsedFilters = useMemo(() => parseAssignmentFilters(searchParams), [searchParams]);
+  const searchParamsKey = searchParams.toString();
+  const parsedFilters = useMemo(
+    () => parseAssignmentFilters(new URLSearchParams(searchParamsKey)),
+    [searchParamsKey]
+  );
   const lotLayout = useLotLayout();
 
-  const [bindingFilter, setBindingFilter] = useState<AdminBindingFilter>(parsedFilters.binding);
-  const [keyword, setKeyword] = useState(parsedFilters.q);
-  const [staffQuery, setStaffQuery] = useState(parsedFilters.staffQ);
-  const [staffPage, setStaffPage] = useState(parsedFilters.staffPage);
   const filterSyncKey = `${parsedFilters.binding}::${parsedFilters.q}`;
   const staffFilterSyncKey = `${parsedFilters.staffQ}::${parsedFilters.staffPage}`;
-
-  // Sync local filters when the URL changes externally (e.g. browser navigation).
-  /* eslint-disable react-hooks/set-state-in-effect -- mirror URL search params into editable filter state */
-  useEffect(() => {
-    setBindingFilter(parsedFilters.binding);
-    setKeyword(parsedFilters.q);
-    setStaffQuery(parsedFilters.staffQ);
-    setStaffPage(parsedFilters.staffPage);
-  }, [parsedFilters.binding, parsedFilters.q, parsedFilters.staffPage, parsedFilters.staffQ]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,9 +108,11 @@ export default function AdminPatientAssignmentPage() {
   const [assignedPatientsByStaffId, setAssignedPatientsByStaffId] = useState<
     Record<number, AdminPatientAssignmentByStaffPatientItem[]>
   >({});
+  const [boardRevision, setBoardRevision] = useState(0);
 
   const [sheetStaffId, setSheetStaffId] = useState<number | null>(null);
   const [sheetFocus, setSheetFocus] = useState<StaffSheetFocus>("assigned");
+  const [activeDragPatient, setActiveDragPatient] = useState<ActiveDragPatient | null>(null);
   const [busy, setBusy] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<{
     patientId: number;
@@ -121,57 +120,24 @@ export default function AdminPatientAssignmentPage() {
     fullName: string | null;
   } | null>(null);
 
-  const queryString = useMemo(
-    () =>
-      assignmentFiltersToSearchParams({
-        q: keyword.trim(),
-        binding: bindingFilter,
-        assignment: "unassigned",
-        staffQ: staffQuery.trim(),
-        staffPage,
-      }).toString(),
-    [bindingFilter, keyword, staffPage, staffQuery]
-  );
-
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } })
   );
 
-  const replaceFilters = useCallback(
-    (next: { q: string; binding: AdminBindingFilter }) => {
-      const trimmed = next.q.trim();
-      setKeyword(trimmed);
-      setBindingFilter(next.binding);
+  const replaceAssignmentUrl = useCallback(
+    (patch: Partial<AdminAssignmentFilters>) => {
       const params = assignmentFiltersToSearchParams({
-        q: trimmed,
-        binding: next.binding,
+        q: patch.q ?? parsedFilters.q,
+        binding: patch.binding ?? parsedFilters.binding,
         assignment: "unassigned",
-        staffQ: staffQuery.trim(),
-        staffPage,
+        staffQ: patch.staffQ ?? parsedFilters.staffQ,
+        staffPage: patch.staffPage ?? parsedFilters.staffPage,
       }).toString();
       const href = params ? `${pathname}?${params}` : pathname;
       router.replace(href, { scroll: false });
     },
-    [pathname, router, staffPage, staffQuery]
-  );
-
-  const replaceStaffFilters = useCallback(
-    (next: { staffQ: string; staffPage: number }) => {
-      const trimmed = next.staffQ.trim();
-      setStaffQuery(trimmed);
-      setStaffPage(next.staffPage);
-      const params = assignmentFiltersToSearchParams({
-        q: keyword.trim(),
-        binding: bindingFilter,
-        assignment: "unassigned",
-        staffQ: trimmed,
-        staffPage: next.staffPage,
-      }).toString();
-      const href = params ? `${pathname}?${params}` : pathname;
-      router.replace(href, { scroll: false });
-    },
-    [bindingFilter, keyword, pathname, router]
+    [parsedFilters, pathname, router]
   );
 
   useEffect(() => {
@@ -200,31 +166,23 @@ export default function AdminPatientAssignmentPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    const currentQuery = searchParams.toString();
-    if (currentQuery === queryString) {
-      return;
-    }
-    const href = queryString ? `${pathname}?${queryString}` : pathname;
-    router.replace(href, { scroll: false });
-  }, [pathname, queryString, router, searchParams]);
-
   const loadAssigneesWithAssignments = useCallback(async () => {
     setUsersLoading(true);
     try {
       const data = await fetchAdminUsersPage({
-        query: staffQuery.trim() || undefined,
+        query: parsedFilters.staffQ.trim() || undefined,
+        isActive: true,
         limit: STAFF_PAGE_SIZE,
-        offset: (staffPage - 1) * STAFF_PAGE_SIZE,
+        offset: (parsedFilters.staffPage - 1) * STAFF_PAGE_SIZE,
       });
       setStaffTotal(data.total);
       setAssigneeUsers(data.items);
 
-      const currentOffset = (staffPage - 1) * STAFF_PAGE_SIZE;
+      const currentOffset = (parsedFilters.staffPage - 1) * STAFF_PAGE_SIZE;
       if (data.total > 0 && currentOffset >= data.total) {
         const lastPage = Math.max(1, Math.ceil(data.total / STAFF_PAGE_SIZE));
-        if (lastPage !== staffPage) {
-          replaceStaffFilters({ staffQ: staffQuery, staffPage: lastPage });
+        if (lastPage !== parsedFilters.staffPage) {
+          replaceAssignmentUrl({ staffPage: lastPage });
           return;
         }
       }
@@ -250,14 +208,14 @@ export default function AdminPatientAssignmentPage() {
     } finally {
       setUsersLoading(false);
     }
-  }, [replaceStaffFilters, staffPage, staffQuery]);
+  }, [parsedFilters.staffPage, parsedFilters.staffQ, replaceAssignmentUrl]);
 
   const loadPool = useCallback(async () => {
     setPoolLoading(true);
     try {
       const data = await fetchAdminAssignments({
-        query: keyword.trim() || undefined,
-        bindingFilter,
+        query: parsedFilters.q.trim() || undefined,
+        bindingFilter: parsedFilters.binding,
         assignmentFilter: "unassigned",
         limit: POOL_PAGE_SIZE,
         offset: 0,
@@ -269,7 +227,7 @@ export default function AdminPatientAssignmentPage() {
     } finally {
       setPoolLoading(false);
     }
-  }, [bindingFilter, keyword]);
+  }, [parsedFilters.binding, parsedFilters.q]);
 
   const loadMorePool = useCallback(async () => {
     if (poolLoadingMore || poolPatients.length >= poolTotal) {
@@ -278,8 +236,8 @@ export default function AdminPatientAssignmentPage() {
     setPoolLoadingMore(true);
     try {
       const data = await fetchAdminAssignments({
-        query: keyword.trim() || undefined,
-        bindingFilter,
+        query: parsedFilters.q.trim() || undefined,
+        bindingFilter: parsedFilters.binding,
         assignmentFilter: "unassigned",
         limit: POOL_PAGE_SIZE,
         offset: poolPatients.length,
@@ -291,10 +249,11 @@ export default function AdminPatientAssignmentPage() {
     } finally {
       setPoolLoadingMore(false);
     }
-  }, [bindingFilter, keyword, poolLoadingMore, poolPatients.length, poolTotal]);
+  }, [parsedFilters.binding, parsedFilters.q, poolLoadingMore, poolPatients.length, poolTotal]);
 
   const refreshBoard = useCallback(async () => {
     await Promise.all([loadPool(), loadAssigneesWithAssignments()]);
+    setBoardRevision((current) => current + 1);
   }, [loadAssigneesWithAssignments, loadPool]);
 
   useEffect(() => {
@@ -363,7 +322,33 @@ export default function AdminPatientAssignmentPage() {
     }
   };
 
+  const handleDragStart = (event: DragStartEvent) => {
+    const data = event.active.data.current;
+    const patientId = Number(data?.patientId);
+    if (!Number.isFinite(patientId) || patientId <= 0) {
+      return;
+    }
+    const fromStaffId =
+      data?.fromStaffId === null || data?.fromStaffId === undefined ? null : Number(data.fromStaffId);
+    const gender = data?.gender;
+    const pictureUrl = data?.pictureUrl;
+    const tileMode = data?.tileMode === "square" ? "square" : "chip";
+    setActiveDragPatient({
+      patient: {
+        patient_id: patientId,
+        case_number: String(data?.caseNumber ?? ""),
+        patient_full_name: (data?.fullName as string | null) ?? null,
+        gender:
+          gender === "male" || gender === "female" || gender === "other" || gender === "unknown" ? gender : "unknown",
+        picture_url: (pictureUrl as string | null) ?? null,
+      },
+      mode: tileMode,
+      fromStaffId: Number.isFinite(fromStaffId) ? fromStaffId : null,
+    });
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDragPatient(null);
     const result = resolveDragEndResult(event, { busy });
     if (result.kind === "assign") {
       void assignPatient(result.patientId, result.staffId);
@@ -401,18 +386,23 @@ export default function AdminPatientAssignmentPage() {
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveDragPatient(null)}
+      >
         <UnassignedPool
           key={filterSyncKey}
           patients={poolPatients}
           total={poolTotal}
           loading={poolLoading}
           loadingMore={poolLoadingMore}
-          initialKeyword={keyword}
-          bindingFilter={bindingFilter}
+          initialKeyword={parsedFilters.q}
+          bindingFilter={parsedFilters.binding}
           busy={busy}
-          onKeywordSubmit={(draft) => replaceFilters({ q: draft, binding: bindingFilter })}
-          onBindingFilterChange={(value) => replaceFilters({ q: keyword, binding: value })}
+          onKeywordSubmit={(draft) => replaceAssignmentUrl({ q: draft, binding: parsedFilters.binding })}
+          onBindingFilterChange={(value) => replaceAssignmentUrl({ q: parsedFilters.q, binding: value })}
           onLoadMore={() => void loadMorePool()}
         />
 
@@ -421,27 +411,38 @@ export default function AdminPatientAssignmentPage() {
           staff={assigneeUsers}
           assignedPatientsByStaffId={assignedPatientsByStaffId}
           total={staffTotal}
-          page={staffPage}
+          page={parsedFilters.staffPage}
           pageSize={STAFF_PAGE_SIZE}
           loading={usersLoading}
-          initialQuery={staffQuery}
+          initialQuery={parsedFilters.staffQ}
           capacity={lotLayout.capacity}
           rows={lotLayout.rows}
           columns={lotLayout.columns}
           busy={busy}
-          onSearch={(draft) => replaceStaffFilters({ staffQ: draft, staffPage: 1 })}
-          onPageChange={(nextPage) => replaceStaffFilters({ staffQ: staffQuery, staffPage: nextPage })}
+          onSearch={(draft) => replaceAssignmentUrl({ staffQ: draft, staffPage: 1 })}
+          onPageChange={(nextPage) => replaceAssignmentUrl({ staffQ: parsedFilters.staffQ, staffPage: nextPage })}
           onOpenCard={(staffId) => openSheet(staffId, "assigned")}
           onOpenAdd={(staffId) => openSheet(staffId, "add")}
           onOpenOverflow={(staffId) => openSheet(staffId, "assigned")}
         />
+
+        <DragOverlay dropAnimation={null}>
+          {activeDragPatient ? (
+            <PatientDragOverlay
+              patient={activeDragPatient.patient}
+              mode={activeDragPatient.mode}
+              fromStaffId={activeDragPatient.fromStaffId}
+            />
+          ) : null}
+        </DragOverlay>
       </DndContext>
 
       <StaffDetailSheet
         open={sheetStaffId !== null}
         staff={sheetStaff}
         assignedPatients={sheetStaffId !== null ? (assignedPatientsByStaffId[sheetStaffId] ?? []) : []}
-        unassignedPatients={poolPatients}
+        bindingFilter={parsedFilters.binding}
+        boardRevision={boardRevision}
         focus={sheetFocus}
         busy={busy}
         onOpenChange={(open) => {

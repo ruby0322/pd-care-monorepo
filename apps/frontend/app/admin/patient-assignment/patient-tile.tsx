@@ -33,6 +33,9 @@ export function PatientTile({ patient, mode, dragId, fromStaffId, className, dis
       fromStaffId,
       caseNumber: patient.case_number,
       fullName: patient.patient_full_name,
+      gender: patient.gender,
+      pictureUrl: patient.picture_url,
+      tileMode: mode,
     },
     disabled,
   });
