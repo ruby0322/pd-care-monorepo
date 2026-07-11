@@ -14,8 +14,15 @@ import {
 const mockSearchParams = new URLSearchParams();
 let capturedOnDragEnd: ((event: DragEndEvent) => void) | null = null;
 
+const mockReplace = jest.fn((href: string) => {
+  const queryIndex = href.indexOf("?");
+  const query = queryIndex >= 0 ? href.slice(queryIndex + 1) : "";
+  mockSearchParams.forEach((_, key) => mockSearchParams.delete(key));
+  new URLSearchParams(query).forEach((value, key) => mockSearchParams.set(key, value));
+});
+
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: jest.fn() }),
+  useRouter: () => ({ replace: mockReplace }),
   usePathname: () => "/admin/patient-assignment",
   useSearchParams: () => mockSearchParams,
 }));
@@ -87,7 +94,7 @@ describe("AdminPatientAssignmentPage", () => {
         },
       ],
       total: 2,
-      limit: 200,
+      limit: 12,
       offset: 0,
     });
     (fetchAdminAssignments as jest.Mock).mockResolvedValue({
@@ -309,5 +316,167 @@ describe("AdminPatientAssignmentPage", () => {
       );
     });
     expect(await screen.findByText("第二位病患")).toBeInTheDocument();
+  });
+
+  test("searches staff list", async () => {
+    (fetchAdminUsersPage as jest.Mock).mockImplementation(async (params) => {
+      if (params?.query === "Nurse") {
+        return {
+          items: [
+            {
+              id: 11,
+              line_user_id: "U_STAFF_ASSIGNMENT",
+              display_name: "護理師 A",
+              real_name: "Nurse A",
+              picture_url: null,
+              role: "staff",
+              is_active: true,
+              patient_id: null,
+              created_at: "2026-05-01T00:00:00Z",
+            },
+          ],
+          total: 1,
+          limit: 12,
+          offset: 0,
+        };
+      }
+      return {
+        items: [
+          {
+            id: 11,
+            line_user_id: "U_STAFF_ASSIGNMENT",
+            display_name: "護理師 A",
+            real_name: "Nurse A",
+            picture_url: null,
+            role: "staff",
+            is_active: true,
+            patient_id: null,
+            created_at: "2026-05-01T00:00:00Z",
+          },
+          {
+            id: 22,
+            line_user_id: "U_ADMIN_ASSIGNMENT_TARGET",
+            display_name: "管理員 B",
+            real_name: "Admin B",
+            picture_url: null,
+            role: "admin",
+            is_active: true,
+            patient_id: null,
+            created_at: "2026-05-01T00:00:00Z",
+          },
+        ],
+        total: 2,
+        limit: 12,
+        offset: params?.offset ?? 0,
+      };
+    });
+
+    render(<AdminPatientAssignmentPage />);
+    await screen.findByText("Nurse A");
+
+    const staffSearchInput = screen.getByLabelText("搜尋可指派人員");
+    fireEvent.change(staffSearchInput, { target: { value: "Nurse" } });
+    fireEvent.submit(staffSearchInput.closest("form")!);
+
+    await waitFor(() => {
+      expect(fetchAdminUsersPage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: "Nurse",
+          limit: 12,
+          offset: 0,
+        })
+      );
+    });
+  });
+
+  test("paginates staff list", async () => {
+    (fetchAdminUsersPage as jest.Mock).mockImplementation(async (params) => {
+      if (params?.offset === 12) {
+        return {
+          items: [
+            {
+              id: 33,
+              line_user_id: "U_STAFF_PAGE2",
+              display_name: "護理師 C",
+              real_name: "Nurse C",
+              picture_url: null,
+              role: "staff",
+              is_active: true,
+              patient_id: null,
+              created_at: "2026-05-01T00:00:00Z",
+            },
+          ],
+          total: 13,
+          limit: 12,
+          offset: 12,
+        };
+      }
+      return {
+        items: [
+          {
+            id: 11,
+            line_user_id: "U_STAFF_ASSIGNMENT",
+            display_name: "護理師 A",
+            real_name: "Nurse A",
+            picture_url: null,
+            role: "staff",
+            is_active: true,
+            patient_id: null,
+            created_at: "2026-05-01T00:00:00Z",
+          },
+        ],
+        total: 13,
+        limit: 12,
+        offset: 0,
+      };
+    });
+
+    (fetchAdminAssignmentsByStaff as jest.Mock).mockImplementation(async ({ staffIdentityIds }) => {
+      if (staffIdentityIds.includes(33)) {
+        return {
+          items: [
+            {
+              staff_identity_id: 33,
+              assigned_count: 0,
+              assigned_patients: [],
+            },
+          ],
+        };
+      }
+      return {
+        items: [
+          {
+            staff_identity_id: 11,
+            assigned_count: 1,
+            assigned_patients: [
+              {
+                patient_id: 101,
+                case_number: "P-000101",
+                patient_full_name: "王小明",
+                gender: "male",
+                picture_url: null,
+              },
+            ],
+          },
+        ],
+      };
+    });
+
+    render(<AdminPatientAssignmentPage />);
+
+    await screen.findByText("Nurse A");
+    expect(screen.getByText(/顯示 1-1 \/ 13 位人員/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+
+    await waitFor(() => {
+      expect(fetchAdminUsersPage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          limit: 12,
+          offset: 12,
+        })
+      );
+    });
+    expect(await screen.findByText("Nurse C")).toBeInTheDocument();
   });
 });

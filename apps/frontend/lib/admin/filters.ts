@@ -30,6 +30,8 @@ export type AdminAssignmentFilters = {
   q: string;
   binding: AdminBindingFilter;
   assignment: AdminAssignmentStatusFilter;
+  staffQ: string;
+  staffPage: number;
 };
 
 const EMPTY_USERS_FILTERS: AdminUsersFilters = {
@@ -55,6 +57,8 @@ const EMPTY_ASSIGNMENT_FILTERS: AdminAssignmentFilters = {
   q: "",
   binding: "bound",
   assignment: "unassigned",
+  staffQ: "",
+  staffPage: 1,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -155,6 +159,8 @@ export function parseAssignmentFilters(searchParams: SearchParamReader): AdminAs
     q: normalizeText(searchParams.get("q")),
     binding: normalizeBinding(searchParams.get("binding")),
     assignment: normalizeAssignment(searchParams.get("assignment")),
+    staffQ: normalizeText(searchParams.get("staffQ")),
+    staffPage: normalizePage(searchParams.get("staffPage")),
   };
 }
 
@@ -186,5 +192,7 @@ export function assignmentFiltersToSearchParams(filters: AdminAssignmentFilters)
   setParam(params, "q", filters.q.trim());
   setEnumParam(params, "binding", filters.binding, EMPTY_ASSIGNMENT_FILTERS.binding);
   setEnumParam(params, "assignment", filters.assignment, EMPTY_ASSIGNMENT_FILTERS.assignment);
+  setParam(params, "staffQ", filters.staffQ.trim());
+  setEnumParam(params, "staffPage", String(filters.staffPage), String(EMPTY_ASSIGNMENT_FILTERS.staffPage));
   return params;
 }

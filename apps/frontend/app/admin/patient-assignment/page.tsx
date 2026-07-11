@@ -33,11 +33,11 @@ import {
 
 import { resolveDragEndResult } from "./drag-end";
 import type { PatientTilePatient } from "./patient-tile";
-import { StaffAssigneeCard } from "./staff-assignee-card";
+import { StaffAssigneeSection } from "./staff-assignee-section";
 import { StaffDetailSheet, type StaffSheetFocus } from "./staff-detail-sheet";
 import { UnassignedPool } from "./unassigned-pool";
 
-const STAFF_PAGE_SIZE = 200;
+const STAFF_PAGE_SIZE = 12;
 const POOL_PAGE_SIZE = 200;
 
 function useLotLayout() {
@@ -82,14 +82,19 @@ export default function AdminPatientAssignmentPage() {
 
   const [bindingFilter, setBindingFilter] = useState<AdminBindingFilter>(parsedFilters.binding);
   const [keyword, setKeyword] = useState(parsedFilters.q);
+  const [staffQuery, setStaffQuery] = useState(parsedFilters.staffQ);
+  const [staffPage, setStaffPage] = useState(parsedFilters.staffPage);
   const filterSyncKey = `${parsedFilters.binding}::${parsedFilters.q}`;
+  const staffFilterSyncKey = `${parsedFilters.staffQ}::${parsedFilters.staffPage}`;
 
   // Sync local filters when the URL changes externally (e.g. browser navigation).
   /* eslint-disable react-hooks/set-state-in-effect -- mirror URL search params into editable filter state */
   useEffect(() => {
     setBindingFilter(parsedFilters.binding);
     setKeyword(parsedFilters.q);
-  }, [parsedFilters.binding, parsedFilters.q]);
+    setStaffQuery(parsedFilters.staffQ);
+    setStaffPage(parsedFilters.staffPage);
+  }, [parsedFilters.binding, parsedFilters.q, parsedFilters.staffPage, parsedFilters.staffQ]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const [checkingAccess, setCheckingAccess] = useState(true);
@@ -122,8 +127,10 @@ export default function AdminPatientAssignmentPage() {
         q: keyword.trim(),
         binding: bindingFilter,
         assignment: "unassigned",
+        staffQ: staffQuery.trim(),
+        staffPage,
       }).toString(),
-    [bindingFilter, keyword]
+    [bindingFilter, keyword, staffPage, staffQuery]
   );
 
   const sensors = useSensors(
@@ -140,11 +147,31 @@ export default function AdminPatientAssignmentPage() {
         q: trimmed,
         binding: next.binding,
         assignment: "unassigned",
+        staffQ: staffQuery.trim(),
+        staffPage,
       }).toString();
       const href = params ? `${pathname}?${params}` : pathname;
       router.replace(href, { scroll: false });
     },
-    [pathname, router]
+    [pathname, router, staffPage, staffQuery]
+  );
+
+  const replaceStaffFilters = useCallback(
+    (next: { staffQ: string; staffPage: number }) => {
+      const trimmed = next.staffQ.trim();
+      setStaffQuery(trimmed);
+      setStaffPage(next.staffPage);
+      const params = assignmentFiltersToSearchParams({
+        q: keyword.trim(),
+        binding: bindingFilter,
+        assignment: "unassigned",
+        staffQ: trimmed,
+        staffPage: next.staffPage,
+      }).toString();
+      const href = params ? `${pathname}?${params}` : pathname;
+      router.replace(href, { scroll: false });
+    },
+    [bindingFilter, keyword, pathname, router]
   );
 
   useEffect(() => {
@@ -186,13 +213,23 @@ export default function AdminPatientAssignmentPage() {
     setUsersLoading(true);
     try {
       const data = await fetchAdminUsersPage({
+        query: staffQuery.trim() || undefined,
         limit: STAFF_PAGE_SIZE,
-        offset: 0,
+        offset: (staffPage - 1) * STAFF_PAGE_SIZE,
       });
-      const users = data.items.filter((user) => user.role === "staff" || user.role === "admin");
       setStaffTotal(data.total);
-      setAssigneeUsers(users);
-      const staffIds = users.map((user) => user.id);
+      setAssigneeUsers(data.items);
+
+      const currentOffset = (staffPage - 1) * STAFF_PAGE_SIZE;
+      if (data.total > 0 && currentOffset >= data.total) {
+        const lastPage = Math.max(1, Math.ceil(data.total / STAFF_PAGE_SIZE));
+        if (lastPage !== staffPage) {
+          replaceStaffFilters({ staffQ: staffQuery, staffPage: lastPage });
+          return;
+        }
+      }
+
+      const staffIds = data.items.map((user) => user.id);
       if (staffIds.length === 0) {
         setAssignedPatientsByStaffId({});
         return;
@@ -213,7 +250,7 @@ export default function AdminPatientAssignmentPage() {
     } finally {
       setUsersLoading(false);
     }
-  }, []);
+  }, [replaceStaffFilters, staffPage, staffQuery]);
 
   const loadPool = useCallback(async () => {
     setPoolLoading(true);
@@ -379,37 +416,25 @@ export default function AdminPatientAssignmentPage() {
           onLoadMore={() => void loadMorePool()}
         />
 
-        <section className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-zinc-900">可指派人員</h2>
-            {usersLoading ? <span className="text-xs text-zinc-500">載入中…</span> : null}
-          </div>
-          {staffTotal > assigneeUsers.length ? (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
-              僅顯示前 {assigneeUsers.length} 位人員（共 {staffTotal} 位）。請聯絡系統管理員以檢視完整名單。
-            </p>
-          ) : null}
-          {assigneeUsers.length === 0 && !usersLoading ? (
-            <p className="text-sm text-zinc-500">目前沒有可指派人員</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {assigneeUsers.map((staff) => (
-                <StaffAssigneeCard
-                  key={staff.id}
-                  staff={staff}
-                  patients={assignedPatientsByStaffId[staff.id] ?? []}
-                  capacity={lotLayout.capacity}
-                  rows={lotLayout.rows}
-                  columns={lotLayout.columns}
-                  busy={busy}
-                  onOpenCard={() => openSheet(staff.id, "assigned")}
-                  onOpenAdd={() => openSheet(staff.id, "add")}
-                  onOpenOverflow={() => openSheet(staff.id, "assigned")}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+        <StaffAssigneeSection
+          key={staffFilterSyncKey}
+          staff={assigneeUsers}
+          assignedPatientsByStaffId={assignedPatientsByStaffId}
+          total={staffTotal}
+          page={staffPage}
+          pageSize={STAFF_PAGE_SIZE}
+          loading={usersLoading}
+          initialQuery={staffQuery}
+          capacity={lotLayout.capacity}
+          rows={lotLayout.rows}
+          columns={lotLayout.columns}
+          busy={busy}
+          onSearch={(draft) => replaceStaffFilters({ staffQ: draft, staffPage: 1 })}
+          onPageChange={(nextPage) => replaceStaffFilters({ staffQ: staffQuery, staffPage: nextPage })}
+          onOpenCard={(staffId) => openSheet(staffId, "assigned")}
+          onOpenAdd={(staffId) => openSheet(staffId, "add")}
+          onOpenOverflow={(staffId) => openSheet(staffId, "assigned")}
+        />
       </DndContext>
 
       <StaffDetailSheet
