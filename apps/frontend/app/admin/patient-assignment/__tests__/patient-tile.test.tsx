@@ -90,6 +90,15 @@ describe("PatientTile", () => {
 
     expect(container.firstElementChild).toHaveClass("opacity-0");
   });
+
+  test("hides the original pool tile while dragging", () => {
+    isDragging = true;
+    const { container } = render(
+      <PatientTile patient={patient} dragId="pool-101" fromStaffId={null} className="h-12 w-[148px]" />
+    );
+
+    expect(container.firstElementChild).toHaveClass("opacity-0");
+  });
 });
 
 describe("PatientTile hover integration", () => {
