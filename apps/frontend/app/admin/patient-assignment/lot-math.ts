@@ -9,6 +9,7 @@ export type PatientLotResult = {
   visibleCount: number;
 };
 
+export const PATIENT_TILE_DRAG_WIDTH_PX = 148;
 export const PATIENT_TILE_DRAG_SIZE_CLASS = "h-12 w-[148px]";
 
 /** Desktop 2×4, mobile 1×4 — equal cells; always reserve "+" and optional "+n". */
