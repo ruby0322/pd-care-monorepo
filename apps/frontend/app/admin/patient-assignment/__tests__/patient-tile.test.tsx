@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { PATIENT_TILE_DRAG_SIZE_CLASS } from "@/app/admin/patient-assignment/lot-math";
 import { PatientTile, type PatientTilePatient } from "@/app/admin/patient-assignment/patient-tile";
 
 let isDragging = false;
@@ -30,7 +31,7 @@ describe("PatientTile", () => {
 
   test("renders chip layout with patient name", () => {
     const { container } = render(
-      <PatientTile patient={patient} dragId="pool-101" fromStaffId={null} className="h-12 w-[148px]" />
+      <PatientTile patient={patient} dragId="pool-101" fromStaffId={null} className={PATIENT_TILE_DRAG_SIZE_CLASS} />
     );
 
     expect(screen.getByText("王小明")).toBeInTheDocument();
@@ -45,7 +46,7 @@ describe("PatientTile", () => {
         dragId="pool-101"
         fromStaffId={null}
         expandOnHoverDesktop
-        className="h-12 w-[148px]"
+        className={PATIENT_TILE_DRAG_SIZE_CLASS}
       />
     );
 
@@ -65,7 +66,7 @@ describe("PatientTile", () => {
         dragId="pool-101"
         fromStaffId={null}
         expandOnHoverDesktop
-        className="h-12 w-[148px]"
+        className={PATIENT_TILE_DRAG_SIZE_CLASS}
       />
     );
 
@@ -76,7 +77,7 @@ describe("PatientTile", () => {
 
   test("does not add hover group without expandOnHoverDesktop", () => {
     const { container } = render(
-      <PatientTile patient={patient} dragId="pool-101" fromStaffId={null} className="h-12 w-[148px]" />
+      <PatientTile patient={patient} dragId="pool-101" fromStaffId={null} className={PATIENT_TILE_DRAG_SIZE_CLASS} />
     );
 
     expect(container.firstElementChild).not.toHaveClass("group/tile");
@@ -88,7 +89,7 @@ describe("PatientTile", () => {
   ])("hides the original $label tile while dragging", ({ fromStaffId, dragId }) => {
     isDragging = true;
     const { container } = render(
-      <PatientTile patient={patient} dragId={dragId} fromStaffId={fromStaffId} className="h-12 w-[148px]" />
+      <PatientTile patient={patient} dragId={dragId} fromStaffId={fromStaffId} className={PATIENT_TILE_DRAG_SIZE_CLASS} />
     );
 
     expect(container.firstElementChild).toHaveClass("opacity-0");
@@ -121,7 +122,7 @@ describe("PatientTile hover integration", () => {
         dragId="pool-101"
         fromStaffId={null}
         expandOnHoverDesktop
-        className="h-12 w-[148px]"
+        className={PATIENT_TILE_DRAG_SIZE_CLASS}
       />
     );
 

@@ -1,6 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 
+import { PATIENT_TILE_DRAG_SIZE_CLASS } from "@/app/admin/patient-assignment/lot-math";
 import AdminPatientAssignmentPage from "@/app/admin/patient-assignment/page";
 import {
   fetchAdminAssignments,
@@ -230,6 +231,7 @@ describe("AdminPatientAssignmentPage", () => {
     expect(await screen.findByText("Nurse A")).toBeInTheDocument();
     expect(await screen.findByText("Admin B")).toBeInTheDocument();
     expect(await screen.findByText("池中病患")).toBeInTheDocument();
+    expect(screen.getByText("池中病患").closest('[role="button"]')).toHaveClass(PATIENT_TILE_DRAG_SIZE_CLASS);
     expect(screen.queryByRole("columnheader", { name: "選擇" })).not.toBeInTheDocument();
   });
 
@@ -300,6 +302,12 @@ describe("AdminPatientAssignmentPage", () => {
     });
 
     expect(queryDragBackdrop()).toBeInTheDocument();
+    expect(within(getPoolSection()!).getByText("池中病患").closest('[role="button"]')).toHaveClass(
+      PATIENT_TILE_DRAG_SIZE_CLASS
+    );
+    expect(screen.getByTestId("patient-drag-overlay").querySelector('[role="button"]')).toHaveClass(
+      PATIENT_TILE_DRAG_SIZE_CLASS
+    );
     expect(screen.getByTestId("patient-drag-overlay")).toHaveTextContent("池中病患");
     expect(getPoolSection()).toHaveClass("z-40");
     expect(getStaffCard("Nurse A")).toHaveClass("z-40");

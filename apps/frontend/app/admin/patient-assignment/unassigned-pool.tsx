@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import type { AdminBindingFilter } from "@/lib/admin/filters";
 import { cn } from "@/lib/utils";
 
+import { PATIENT_TILE_DRAG_SIZE_CLASS } from "./lot-math";
 import type { PatientTilePatient } from "./patient-tile";
 import { PatientTile } from "./patient-tile";
 
@@ -116,7 +117,7 @@ export function UnassignedPool({
         </div>
       </div>
 
-      <div className="grid min-h-[64px] grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid min-h-[64px] justify-items-center grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {loading ? (
           <p className="px-1 text-xs text-zinc-500">載入中…</p>
         ) : patients.length === 0 ? (
@@ -130,7 +131,7 @@ export function UnassignedPool({
               fromStaffId={null}
               disabled={busy}
               expandOnHoverDesktop
-              className="h-12 w-full"
+              className={PATIENT_TILE_DRAG_SIZE_CLASS}
             />
           ))
         )}
