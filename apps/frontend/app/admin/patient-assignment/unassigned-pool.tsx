@@ -116,7 +116,7 @@ export function UnassignedPool({
         </div>
       </div>
 
-      <div className="grid min-h-[64px] grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid min-h-[64px] justify-items-center grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {loading ? (
           <p className="px-1 text-xs text-zinc-500">載入中…</p>
         ) : patients.length === 0 ? (
@@ -130,7 +130,7 @@ export function UnassignedPool({
               fromStaffId={null}
               disabled={busy}
               expandOnHoverDesktop
-              className="h-12 w-full"
+              className="h-12 w-[148px]"
             />
           ))
         )}

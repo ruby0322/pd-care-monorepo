@@ -230,6 +230,7 @@ describe("AdminPatientAssignmentPage", () => {
     expect(await screen.findByText("Nurse A")).toBeInTheDocument();
     expect(await screen.findByText("Admin B")).toBeInTheDocument();
     expect(await screen.findByText("池中病患")).toBeInTheDocument();
+    expect(screen.getByText("池中病患").closest('[role="button"]')).toHaveClass("w-[148px]");
     expect(screen.queryByRole("columnheader", { name: "選擇" })).not.toBeInTheDocument();
   });
 
