@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import AuthorizationAuditEvent, HealthcareAccessRequest, LiffIdentity
+from app.db.models import AuthorizationAuditEvent, HealthcareAccessRequest, LiffIdentity, StaffPatientAssignment
 from app.services.identity_validation import assert_valid_line_user_id
 
 
@@ -217,6 +217,7 @@ def list_identities(
     is_active: bool | None,
     created_from: date | None,
     created_to: date | None,
+    sort: str,
     limit: int,
     offset: int,
 ) -> tuple[list[LiffIdentity], int]:
@@ -229,6 +230,15 @@ def list_identities(
         created_to=created_to,
     )
     total = int(session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one() or 0)
+    if sort == "assigned_count_desc":
+        assigned_count = (
+            select(func.count(StaffPatientAssignment.id))
+            .where(StaffPatientAssignment.staff_identity_id == LiffIdentity.id)
+            .correlate(LiffIdentity)
+            .scalar_subquery()
+        )
+        display_name = func.lower(func.coalesce(LiffIdentity.real_name, LiffIdentity.display_name, LiffIdentity.line_user_id))
+        stmt = stmt.order_by(None).order_by(assigned_count.desc(), display_name.asc(), LiffIdentity.id.asc())
     rows = session.execute(stmt.limit(limit).offset(offset)).scalars().all()
     return rows, total
 

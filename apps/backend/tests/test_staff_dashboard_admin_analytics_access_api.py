@@ -326,7 +326,13 @@ def test_admin_assignment_filters_apply_binding_and_assignment_independently(tmp
                 full_name="Unbound Unassigned",
                 gender="unknown",
             )
-            session.add_all([bound_assigned, bound_unassigned, unbound_assigned, unbound_unassigned])
+            staff_linked_unassigned = Patient(
+                case_number="ASSIGN-SU",
+                birth_date="1992-01-01",
+                full_name="Staff Linked Unassigned",
+                gender="female",
+            )
+            session.add_all([bound_assigned, bound_unassigned, unbound_assigned, unbound_unassigned, staff_linked_unassigned])
             session.flush()
 
             session.add_all(
@@ -344,6 +350,13 @@ def test_admin_assignment_filters_apply_binding_and_assignment_independently(tmp
                         picture_url=None,
                         patient_id=bound_unassigned.id,
                         role="patient",
+                    ),
+                    LiffIdentity(
+                        line_user_id="U_STAFF_ASSIGN_SU",
+                        display_name="Staff Linked Unassigned",
+                        picture_url=None,
+                        patient_id=staff_linked_unassigned.id,
+                        role="staff",
                     ),
                 ]
             )
@@ -363,7 +376,15 @@ def test_admin_assignment_filters_apply_binding_and_assignment_independently(tmp
             headers=headers,
         )
         assert bound_unassigned_response.status_code == 200
-        assert {item["case_number"] for item in bound_unassigned_response.json()["items"]} == {"ASSIGN-BU"}
+        assert {item["case_number"] for item in bound_unassigned_response.json()["items"]} == {"ASSIGN-BU", "ASSIGN-SU"}
+
+        exclude_staff_admin_response = client.get(
+            "/v1/staff/admin/assignments?binding_filter=bound&assignment_filter=unassigned"
+            "&exclude_staff_admin_patients=true&limit=50",
+            headers=headers,
+        )
+        assert exclude_staff_admin_response.status_code == 200
+        assert {item["case_number"] for item in exclude_staff_admin_response.json()["items"]} == {"ASSIGN-BU"}
 
         unbound_assigned_response = client.get(
             "/v1/staff/admin/assignments?binding_filter=unbound_only&assignment_filter=assigned&limit=50",
@@ -377,7 +398,11 @@ def test_admin_assignment_filters_apply_binding_and_assignment_independently(tmp
             headers=headers,
         )
         assert all_unassigned_response.status_code == 200
-        assert {item["case_number"] for item in all_unassigned_response.json()["items"]} == {"ASSIGN-BU", "ASSIGN-UU"}
+        assert {item["case_number"] for item in all_unassigned_response.json()["items"]} == {
+            "ASSIGN-BU",
+            "ASSIGN-SU",
+            "ASSIGN-UU",
+        }
         for item in all_unassigned_response.json()["items"]:
             assert item["gender"] in {"male", "female", "other", "unknown"}
             assert "picture_url" in item

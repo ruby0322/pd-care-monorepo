@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { AdminStaffAssignmentSort } from "@/lib/admin/filters";
 import type { AdminIdentityItem, AdminPatientAssignmentByStaffPatientItem } from "@/lib/api/staff";
 
 import { StaffAssigneeCard } from "./staff-assignee-card";
@@ -21,8 +22,10 @@ type StaffAssigneeSectionProps = {
   columns: number;
   busy?: boolean;
   elevateForDrop?: boolean;
+  staffSort: AdminStaffAssignmentSort;
   onSearch: (query: string) => void;
   onPageChange: (page: number) => void;
+  onStaffSortChange: (sort: AdminStaffAssignmentSort) => void;
   onOpenCard: (staffId: number) => void;
   onOpenAdd: (staffId: number) => void;
   onOpenOverflow: (staffId: number) => void;
@@ -41,8 +44,10 @@ export function StaffAssigneeSection({
   columns,
   busy,
   elevateForDrop,
+  staffSort,
   onSearch,
   onPageChange,
+  onStaffSortChange,
   onOpenCard,
   onOpenAdd,
   onOpenOverflow,
@@ -62,24 +67,35 @@ export function StaffAssigneeSection({
           <h2 className="text-sm font-semibold text-zinc-900">可指派人員</h2>
           {loading ? <span className="text-xs text-zinc-500">載入中…</span> : null}
         </div>
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSearch(queryDraft);
-          }}
-        >
-          <Input
-            value={queryDraft}
-            onChange={(event) => setQueryDraft(event.target.value)}
-            placeholder="搜尋人員…"
-            aria-label="搜尋可指派人員"
-            className="h-8 w-40 text-sm sm:w-52"
-          />
-          <button type="submit" className="h-8 cursor-pointer rounded-lg bg-zinc-900 px-3 text-xs text-white">
-            搜尋
-          </button>
-        </form>
+        <div className="flex flex-wrap gap-2">
+          <form
+            className="flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSearch(queryDraft);
+            }}
+          >
+            <Input
+              value={queryDraft}
+              onChange={(event) => setQueryDraft(event.target.value)}
+              placeholder="搜尋人員…"
+              aria-label="搜尋可指派人員"
+              className="h-8 w-40 text-sm sm:w-52"
+            />
+            <button type="submit" className="h-8 cursor-pointer rounded-lg bg-zinc-900 px-3 text-xs text-white">
+              搜尋
+            </button>
+          </form>
+          <select
+            aria-label="人員排序"
+            className="h-8 cursor-pointer rounded-lg border border-zinc-200 bg-white px-2 text-xs"
+            value={staffSort}
+            onChange={(event) => onStaffSortChange(event.target.value as AdminStaffAssignmentSort)}
+          >
+            <option value="default">預設排序</option>
+            <option value="assigned_count_desc">指派病患數：多到少</option>
+          </select>
+        </div>
       </div>
 
       {staff.length === 0 && !loading ? (

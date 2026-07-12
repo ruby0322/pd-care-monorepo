@@ -210,7 +210,8 @@ describe("AdminPatientAssignmentPage", () => {
         expect.objectContaining({
           assignmentFilter: "unassigned",
           bindingFilter: "bound",
-          limit: 100,
+          excludeStaffAdminPatients: false,
+          limit: 12,
         })
       );
     });
@@ -223,7 +224,18 @@ describe("AdminPatientAssignmentPage", () => {
         expect.objectContaining({
           assignmentFilter: "unassigned",
           bindingFilter: "unbound_only",
-          limit: 100,
+          limit: 12,
+        })
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("人員身分病患"), { target: { value: "exclude" } });
+    rerenderAssignmentPage(view);
+
+    await waitFor(() => {
+      expect(fetchAdminAssignments).toHaveBeenCalledWith(
+        expect.objectContaining({
+          excludeStaffAdminPatients: true,
         })
       );
     });
@@ -366,7 +378,7 @@ describe("AdminPatientAssignmentPage", () => {
     expect(unassignAdminAssignment).not.toHaveBeenCalled();
   });
 
-  test("loads more unassigned patients when truncated", async () => {
+  test("paginates unassigned patients", async () => {
     (fetchAdminAssignments as jest.Mock)
       .mockResolvedValueOnce({
         items: [
@@ -381,8 +393,8 @@ describe("AdminPatientAssignmentPage", () => {
             staff_display_name: null,
           },
         ],
-        total: 3,
-        limit: 100,
+        total: 13,
+        limit: 12,
         offset: 0,
       })
       .mockResolvedValueOnce({
@@ -398,21 +410,22 @@ describe("AdminPatientAssignmentPage", () => {
             staff_display_name: null,
           },
         ],
-        total: 3,
-        limit: 100,
-        offset: 1,
+        total: 13,
+        limit: 12,
+        offset: 12,
       });
 
-    render(<AdminPatientAssignmentPage />);
+    const view = render(<AdminPatientAssignmentPage />);
 
-    expect(await screen.findByText("顯示 1 / 3 位未分配病患")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "載入更多" }));
+    expect(await screen.findByText("顯示 1-12 / 13 位未分配病患")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "未分配病患下一頁" }));
+    rerenderAssignmentPage(view);
 
     await waitFor(() => {
       expect(fetchAdminAssignments).toHaveBeenLastCalledWith(
         expect.objectContaining({
           assignmentFilter: "unassigned",
-          offset: 1,
+          offset: 12,
         })
       );
     });
@@ -487,6 +500,19 @@ describe("AdminPatientAssignmentPage", () => {
           isActive: true,
           limit: 12,
           offset: 0,
+        })
+      );
+    });
+  });
+
+  test("requests staff ordered by assigned patient count when selected", async () => {
+    mockSearchParams.set("staffSort", "assigned_count_desc");
+    render(<AdminPatientAssignmentPage />);
+
+    await waitFor(() => {
+      expect(fetchAdminUsersPage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sort: "assigned_count_desc",
         })
       );
     });

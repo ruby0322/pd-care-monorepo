@@ -70,6 +70,7 @@ async def list_admin_users(
     is_active: bool | None = Query(default=None),
     created_from: date | None = Query(default=None),
     created_to: date | None = Query(default=None),
+    sort: str = Query(default="default", pattern="^(default|assigned_count_desc)$"),
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     credentials=Depends(bearer_scheme),
@@ -84,6 +85,7 @@ async def list_admin_users(
         is_active=is_active,
         created_from=created_from,
         created_to=created_to,
+        sort=sort,
         limit=limit,
         offset=offset,
     )
