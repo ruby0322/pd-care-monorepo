@@ -82,10 +82,13 @@ describe("PatientTile", () => {
     expect(container.firstElementChild).not.toHaveClass("group/tile");
   });
 
-  test("hides the original assigned-patient tile while dragging", () => {
+  test.each([
+    { label: "pool", fromStaffId: null, dragId: "pool-101" },
+    { label: "assigned patient", fromStaffId: 11, dragId: "assigned-11-101" },
+  ])("hides the original $label tile while dragging", ({ fromStaffId, dragId }) => {
     isDragging = true;
     const { container } = render(
-      <PatientTile patient={patient} dragId="assigned-11-101" fromStaffId={11} className="h-12 w-[148px]" />
+      <PatientTile patient={patient} dragId={dragId} fromStaffId={fromStaffId} className="h-12 w-[148px]" />
     );
 
     expect(container.firstElementChild).toHaveClass("opacity-0");
