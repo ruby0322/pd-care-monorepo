@@ -3,6 +3,7 @@ export type AdminRoleFilter = "all" | "staff" | "admin";
 export type AdminInfectionFilter = "all" | "suspected" | "normal";
 export type AdminBindingFilter = "bound" | "all" | "unbound_only";
 export type AdminAssignmentStatusFilter = "all" | "assigned" | "unassigned";
+export type AdminStaffAssignmentSort = "default" | "assigned_count_desc";
 
 type SearchParamReader = {
   get(name: string): string | null;
@@ -30,8 +31,11 @@ export type AdminAssignmentFilters = {
   q: string;
   binding: AdminBindingFilter;
   assignment: AdminAssignmentStatusFilter;
+  excludeStaffAdminPatients: boolean;
+  poolPage: number;
   staffQ: string;
   staffPage: number;
+  staffSort: AdminStaffAssignmentSort;
 };
 
 const EMPTY_USERS_FILTERS: AdminUsersFilters = {
@@ -57,8 +61,11 @@ const EMPTY_ASSIGNMENT_FILTERS: AdminAssignmentFilters = {
   q: "",
   binding: "bound",
   assignment: "unassigned",
+  excludeStaffAdminPatients: false,
+  poolPage: 1,
   staffQ: "",
   staffPage: 1,
+  staffSort: "default",
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -97,6 +104,10 @@ function normalizeAssignment(value: string | null): AdminAssignmentStatusFilter 
     return value;
   }
   return "unassigned";
+}
+
+function normalizeStaffAssignmentSort(value: string | null): AdminStaffAssignmentSort {
+  return value === "assigned_count_desc" ? value : "default";
 }
 
 function normalizePage(value: string | null): number {
@@ -159,8 +170,11 @@ export function parseAssignmentFilters(searchParams: SearchParamReader): AdminAs
     q: normalizeText(searchParams.get("q")),
     binding: normalizeBinding(searchParams.get("binding")),
     assignment: normalizeAssignment(searchParams.get("assignment")),
+    excludeStaffAdminPatients: searchParams.get("excludeStaffAdminPatients") === "true",
+    poolPage: normalizePage(searchParams.get("poolPage")),
     staffQ: normalizeText(searchParams.get("staffQ")),
     staffPage: normalizePage(searchParams.get("staffPage")),
+    staffSort: normalizeStaffAssignmentSort(searchParams.get("staffSort")),
   };
 }
 
@@ -192,7 +206,15 @@ export function assignmentFiltersToSearchParams(filters: AdminAssignmentFilters)
   setParam(params, "q", filters.q.trim());
   setEnumParam(params, "binding", filters.binding, EMPTY_ASSIGNMENT_FILTERS.binding);
   setEnumParam(params, "assignment", filters.assignment, EMPTY_ASSIGNMENT_FILTERS.assignment);
+  setEnumParam(
+    params,
+    "excludeStaffAdminPatients",
+    String(filters.excludeStaffAdminPatients),
+    String(EMPTY_ASSIGNMENT_FILTERS.excludeStaffAdminPatients)
+  );
+  setEnumParam(params, "poolPage", String(filters.poolPage), String(EMPTY_ASSIGNMENT_FILTERS.poolPage));
   setParam(params, "staffQ", filters.staffQ.trim());
   setEnumParam(params, "staffPage", String(filters.staffPage), String(EMPTY_ASSIGNMENT_FILTERS.staffPage));
+  setEnumParam(params, "staffSort", filters.staffSort, EMPTY_ASSIGNMENT_FILTERS.staffSort);
   return params;
 }

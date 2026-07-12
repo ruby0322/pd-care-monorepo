@@ -72,7 +72,7 @@ export function PatientTile({
       className={cn(
         "relative min-h-0 min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50",
         expandOnHoverDesktop && "group/tile transition-none",
-        isDragging && "z-20 opacity-80 shadow-md",
+        isDragging && (fromStaffId === null ? "z-20 opacity-80 shadow-md" : "opacity-0"),
         disabled ? "cursor-default" : "cursor-grab active:cursor-grabbing",
         className
       )}

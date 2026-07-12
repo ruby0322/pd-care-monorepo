@@ -103,6 +103,7 @@ def list_patient_assignments(
     query: str | None,
     assignment_filter: str | None,
     binding_filter: str,
+    exclude_staff_admin_patients: bool,
     assignee_role: str,
     assignee_active: str,
     limit: int,
@@ -113,7 +114,17 @@ def list_patient_assignments(
         select(patient_identity.id)
         .where(
             patient_identity.patient_id == Patient.id,
-            patient_identity.role == "patient",
+            patient_identity.is_active.is_(True),
+        )
+        .correlate(Patient)
+        .exists()
+    )
+    staff_admin_identity_exists = (
+        select(patient_identity.id)
+        .where(
+            patient_identity.patient_id == Patient.id,
+            patient_identity.is_active.is_(True),
+            patient_identity.role.in_(("staff", "admin")),
         )
         .correlate(Patient)
         .exists()
@@ -152,6 +163,8 @@ def list_patient_assignments(
         stmt = stmt.where(patient_bound_exists)
     elif binding_filter == "unbound_only":
         stmt = stmt.where(~patient_bound_exists)
+    if exclude_staff_admin_patients:
+        stmt = stmt.where(~staff_admin_identity_exists)
 
     resolved_assignment_filter = assignment_filter or "all"
 

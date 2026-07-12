@@ -68,6 +68,9 @@ describe("admin assignment filters", () => {
     expect(filters.assignment).toBe("unassigned");
     expect(filters.staffQ).toBe("");
     expect(filters.staffPage).toBe(1);
+    expect(filters.excludeStaffAdminPatients).toBe(false);
+    expect(filters.poolPage).toBe(1);
+    expect(filters.staffSort).toBe("default");
   });
 
   test("coerces invalid binding and assignment to defaults", () => {
@@ -87,6 +90,9 @@ describe("admin assignment filters", () => {
       assignment: "unassigned",
       staffQ: "",
       staffPage: 1,
+      excludeStaffAdminPatients: false,
+      poolPage: 1,
+      staffSort: "default",
     });
 
     expect(params.get("q")).toBe("foo");
@@ -101,6 +107,9 @@ describe("admin assignment filters", () => {
       assignment: "assigned",
       staffQ: "nurse",
       staffPage: 2,
+      excludeStaffAdminPatients: true,
+      poolPage: 3,
+      staffSort: "assigned_count_desc",
     });
 
     expect(params.get("q")).toBe("foo");
@@ -108,5 +117,8 @@ describe("admin assignment filters", () => {
     expect(params.get("assignment")).toBe("assigned");
     expect(params.get("staffQ")).toBe("nurse");
     expect(params.get("staffPage")).toBe("2");
+    expect(params.get("excludeStaffAdminPatients")).toBe("true");
+    expect(params.get("poolPage")).toBe("3");
+    expect(params.get("staffSort")).toBe("assigned_count_desc");
   });
 });

@@ -20,6 +20,19 @@ const mockReplace = jest.fn((href: string) => {
   new URLSearchParams(query).forEach((value, key) => mockSearchParams.set(key, value));
 });
 
+const mediaQueries = new Map<string, { matches: boolean; listeners: Set<(event: MediaQueryListEvent) => void> }>();
+
+function setMediaQueryMatches(matches: Record<string, boolean>) {
+  for (const [query, queryMatches] of Object.entries(matches)) {
+    const mediaQuery = mediaQueries.get(query) ?? { matches: false, listeners: new Set() };
+    mediaQuery.matches = queryMatches;
+    mediaQueries.set(query, mediaQuery);
+    for (const listener of mediaQuery.listeners) {
+      listener({ matches: queryMatches, media: query } as MediaQueryListEvent);
+    }
+  }
+}
+
 function rerenderAssignmentPage(view: ReturnType<typeof render>) {
   view.rerender(<AdminPatientAssignmentPage />);
 }
@@ -108,6 +121,24 @@ describe("AdminPatientAssignmentPage", () => {
     capturedOnDragStart = null;
     capturedOnDragCancel = null;
     mockSearchParams.forEach((_, key) => mockSearchParams.delete(key));
+    mediaQueries.clear();
+    mediaQueries.set("(min-width: 1280px)", { matches: true, listeners: new Set() });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: (query: string) => {
+        const mediaQuery = mediaQueries.get(query) ?? { matches: false, listeners: new Set() };
+        mediaQueries.set(query, mediaQuery);
+        return {
+          get matches() {
+            return mediaQuery.matches;
+          },
+          media: query,
+          addEventListener: (_event: string, listener: (event: MediaQueryListEvent) => void) => mediaQuery.listeners.add(listener),
+          removeEventListener: (_event: string, listener: (event: MediaQueryListEvent) => void) =>
+            mediaQuery.listeners.delete(listener),
+        };
+      },
+    });
     (fetchStaffMe as jest.Mock).mockResolvedValue({ line_user_id: "U_ADMIN_ASSIGNMENT", role: "admin" });
     (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
       items: [
@@ -210,7 +241,8 @@ describe("AdminPatientAssignmentPage", () => {
         expect.objectContaining({
           assignmentFilter: "unassigned",
           bindingFilter: "bound",
-          limit: 100,
+          excludeStaffAdminPatients: false,
+          limit: 12,
         })
       );
     });
@@ -223,7 +255,18 @@ describe("AdminPatientAssignmentPage", () => {
         expect.objectContaining({
           assignmentFilter: "unassigned",
           bindingFilter: "unbound_only",
-          limit: 100,
+          limit: 12,
+        })
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("人員身分病患"), { target: { value: "exclude" } });
+    rerenderAssignmentPage(view);
+
+    await waitFor(() => {
+      expect(fetchAdminAssignments).toHaveBeenCalledWith(
+        expect.objectContaining({
+          excludeStaffAdminPatients: true,
         })
       );
     });
@@ -366,7 +409,7 @@ describe("AdminPatientAssignmentPage", () => {
     expect(unassignAdminAssignment).not.toHaveBeenCalled();
   });
 
-  test("loads more unassigned patients when truncated", async () => {
+  test("paginates unassigned patients", async () => {
     (fetchAdminAssignments as jest.Mock)
       .mockResolvedValueOnce({
         items: [
@@ -381,8 +424,8 @@ describe("AdminPatientAssignmentPage", () => {
             staff_display_name: null,
           },
         ],
-        total: 3,
-        limit: 100,
+        total: 13,
+        limit: 12,
         offset: 0,
       })
       .mockResolvedValueOnce({
@@ -398,25 +441,59 @@ describe("AdminPatientAssignmentPage", () => {
             staff_display_name: null,
           },
         ],
-        total: 3,
-        limit: 100,
-        offset: 1,
+        total: 13,
+        limit: 12,
+        offset: 12,
       });
 
-    render(<AdminPatientAssignmentPage />);
+    const view = render(<AdminPatientAssignmentPage />);
 
-    expect(await screen.findByText("顯示 1 / 3 位未分配病患")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "載入更多" }));
+    expect(await screen.findByText("顯示 1-12 / 13 位未分配病患")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "未分配病患下一頁" }));
+    rerenderAssignmentPage(view);
 
     await waitFor(() => {
       expect(fetchAdminAssignments).toHaveBeenLastCalledWith(
         expect.objectContaining({
           assignmentFilter: "unassigned",
-          offset: 1,
+          offset: 12,
         })
       );
     });
     expect(await screen.findByText("第二位病患")).toBeInTheDocument();
+  });
+
+  test("resets the pool page when a breakpoint changes the page size", async () => {
+    mockSearchParams.set("poolPage", "2");
+    setMediaQueryMatches({ "(min-width: 1280px)": true });
+    (fetchAdminAssignments as jest.Mock).mockResolvedValue({
+      items: [],
+      total: 24,
+      limit: 12,
+      offset: 12,
+    });
+
+    const view = render(<AdminPatientAssignmentPage />);
+
+    await waitFor(() => {
+      expect(fetchAdminAssignments).toHaveBeenCalledWith(expect.objectContaining({ limit: 12, offset: 12 }));
+    });
+    mockReplace.mockClear();
+
+    await act(async () => {
+      setMediaQueryMatches({
+        "(min-width: 1280px)": false,
+        "(min-width: 1024px)": false,
+        "(min-width: 768px)": false,
+        "(min-width: 640px)": false,
+      });
+    });
+
+    await waitFor(() => expect(mockSearchParams.get("poolPage")).toBeNull());
+    rerenderAssignmentPage(view);
+    await waitFor(() => {
+      expect(fetchAdminAssignments).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 3, offset: 0 }));
+    });
   });
 
   test("searches staff list", async () => {
@@ -487,6 +564,19 @@ describe("AdminPatientAssignmentPage", () => {
           isActive: true,
           limit: 12,
           offset: 0,
+        })
+      );
+    });
+  });
+
+  test("requests staff ordered by assigned patient count when selected", async () => {
+    mockSearchParams.set("staffSort", "assigned_count_desc");
+    render(<AdminPatientAssignmentPage />);
+
+    await waitFor(() => {
+      expect(fetchAdminUsersPage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sort: "assigned_count_desc",
         })
       );
     });

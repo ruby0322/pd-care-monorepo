@@ -16,28 +16,34 @@ type UnassignedPoolProps = {
   patients: PatientTilePatient[];
   total: number;
   loading: boolean;
-  loadingMore?: boolean;
   initialKeyword: string;
   bindingFilter: AdminBindingFilter;
+  excludeStaffAdminPatients: boolean;
+  page: number;
+  pageSize: number;
   busy?: boolean;
   elevateForDrop?: boolean;
   onKeywordSubmit: (keyword: string) => void;
   onBindingFilterChange: (value: AdminBindingFilter) => void;
-  onLoadMore: () => void;
+  onExcludeStaffAdminPatientsChange: (value: boolean) => void;
+  onPageChange: (page: number) => void;
 };
 
 export function UnassignedPool({
   patients,
   total,
   loading,
-  loadingMore,
   initialKeyword,
   bindingFilter,
+  excludeStaffAdminPatients,
+  page,
+  pageSize,
   busy,
   elevateForDrop,
   onKeywordSubmit,
   onBindingFilterChange,
-  onLoadMore,
+  onExcludeStaffAdminPatientsChange,
+  onPageChange,
 }: UnassignedPoolProps) {
   const [keywordDraft, setKeywordDraft] = useState(initialKeyword);
   const { setNodeRef, isOver } = useDroppable({
@@ -45,7 +51,9 @@ export function UnassignedPool({
     data: { type: "pool" },
   });
 
-  const hasMore = patients.length < total;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const displayFrom = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const displayTo = Math.min(page * pageSize, total);
 
   return (
     <section
@@ -93,16 +101,22 @@ export function UnassignedPool({
               <option value="unbound_only">未綁定</option>
             </select>
           </label>
+          <label className="flex items-center gap-1 text-xs text-zinc-600">
+            身分
+            <select
+              aria-label="人員身分病患"
+              className="h-8 cursor-pointer rounded-lg border border-zinc-200 bg-white px-2 text-xs"
+              value={excludeStaffAdminPatients ? "exclude" : "include"}
+              onChange={(event) => onExcludeStaffAdminPatientsChange(event.target.value === "exclude")}
+            >
+              <option value="include">包含工作人員／管理員</option>
+              <option value="exclude">隱藏工作人員／管理員</option>
+            </select>
+          </label>
         </div>
       </div>
 
-      {total > patients.length && patients.length > 0 ? (
-        <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
-          顯示 {patients.length} / {total} 位未分配病患
-        </p>
-      ) : null}
-
-      <div className="flex min-h-[64px] gap-2 overflow-x-auto pb-1">
+      <div className="grid min-h-[64px] grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {loading ? (
           <p className="px-1 text-xs text-zinc-500">載入中…</p>
         ) : patients.length === 0 ? (
@@ -116,23 +130,42 @@ export function UnassignedPool({
               fromStaffId={null}
               disabled={busy}
               expandOnHoverDesktop
-              className="h-12 w-[148px] shrink-0"
+              className="h-12 w-full"
             />
           ))
         )}
       </div>
 
-      {hasMore ? (
-        <div className="mt-2 flex justify-center">
+      {total > 0 ? (
+        <div className="mt-3 flex flex-col gap-2 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            顯示 {displayFrom}-{displayTo} / {total} 位未分配病患
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loading || busy || page <= 1}
+              onClick={() => onPageChange(page - 1)}
+              aria-label="未分配病患上一頁"
+            >
+              上一頁
+            </Button>
+            <span>
+              第 {page} / {totalPages} 頁
+            </span>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled={loading || loadingMore || busy}
-            onClick={onLoadMore}
+            disabled={loading || busy || page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+            aria-label="未分配病患下一頁"
           >
-            {loadingMore ? "載入中…" : "載入更多"}
+            下一頁
           </Button>
+          </div>
         </div>
       ) : null}
     </section>

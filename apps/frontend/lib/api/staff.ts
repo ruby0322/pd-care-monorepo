@@ -758,6 +758,7 @@ export async function fetchAdminUsersPage(params?: {
   query?: string;
   role?: "staff" | "admin";
   isActive?: boolean;
+  sort?: "default" | "assigned_count_desc";
   createdFrom?: string;
   createdTo?: string;
   limit?: number;
@@ -769,6 +770,7 @@ export async function fetchAdminUsersPage(params?: {
       role: params?.role,
       exclude_patient: true,
       is_active: params?.isActive,
+      sort: params?.sort ?? "default",
       created_from: params?.createdFrom,
       created_to: params?.createdTo,
       limit: params?.limit ?? 10,
@@ -864,6 +866,7 @@ export async function fetchAdminAssignments(params?: {
   query?: string;
   bindingFilter?: "bound" | "all" | "unbound_only";
   assignmentFilter?: "all" | "assigned" | "unassigned";
+  excludeStaffAdminPatients?: boolean;
   assigneeRole?: "all" | "staff" | "admin";
   assigneeActive?: "all" | "active" | "inactive";
   limit?: number;
@@ -874,6 +877,7 @@ export async function fetchAdminAssignments(params?: {
       query: params?.query,
       binding_filter: params?.bindingFilter,
       assignment_filter: params?.assignmentFilter,
+      exclude_staff_admin_patients: params?.excludeStaffAdminPatients ?? false,
       assignee_role: params?.assigneeRole ?? "all",
       assignee_active: params?.assigneeActive ?? "all",
       limit: params?.limit ?? 10,

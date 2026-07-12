@@ -3,13 +3,15 @@ import userEvent from "@testing-library/user-event";
 
 import { PatientTile, type PatientTilePatient } from "@/app/admin/patient-assignment/patient-tile";
 
+let isDragging = false;
+
 jest.mock("@dnd-kit/core", () => ({
   useDraggable: () => ({
     attributes: { "data-testid": "draggable" },
     listeners: {},
     setNodeRef: jest.fn(),
     transform: null,
-    isDragging: false,
+    isDragging,
   }),
 }));
 
@@ -22,6 +24,10 @@ const patient: PatientTilePatient = {
 };
 
 describe("PatientTile", () => {
+  beforeEach(() => {
+    isDragging = false;
+  });
+
   test("renders chip layout with patient name", () => {
     const { container } = render(
       <PatientTile patient={patient} dragId="pool-101" fromStaffId={null} className="h-12 w-[148px]" />
@@ -74,6 +80,15 @@ describe("PatientTile", () => {
     );
 
     expect(container.firstElementChild).not.toHaveClass("group/tile");
+  });
+
+  test("hides the original assigned-patient tile while dragging", () => {
+    isDragging = true;
+    const { container } = render(
+      <PatientTile patient={patient} dragId="assigned-11-101" fromStaffId={11} className="h-12 w-[148px]" />
+    );
+
+    expect(container.firstElementChild).toHaveClass("opacity-0");
   });
 });
 

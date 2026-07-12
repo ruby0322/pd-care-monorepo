@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import LiffIdentity
+from app.db.models import LiffIdentity, Patient, StaffPatientAssignment
 from app.main import create_app
 from tests.db_test_utils import migrated_sqlite_database_url
 
@@ -266,6 +266,44 @@ def test_admin_user_list_returns_total_with_limit_offset_pagination(tmp_path: Pa
         assert second_payload["limit"] == 10
         assert second_payload["offset"] == 10
         assert len(second_payload["items"]) == 2
+
+
+def test_admin_user_list_sorts_by_assigned_patient_count_before_pagination(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-assignment-sort.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_ASSIGNMENT_SORT", role="admin")
+        high_count_staff_id = _seed_identity(client, line_user_id="U_STAFF_ASSIGNMENT_HIGH", role="staff")
+        low_count_staff_id = _seed_identity(client, line_user_id="U_STAFF_ASSIGNMENT_LOW", role="staff")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            session.get(LiffIdentity, high_count_staff_id).created_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+            session.get(LiffIdentity, low_count_staff_id).created_at = datetime(2021, 1, 1, tzinfo=timezone.utc)
+            patients = [
+                Patient(case_number=f"SORT-{index}", birth_date="1990-01-01", full_name=f"Sort {index}")
+                for index in range(3)
+            ]
+            session.add_all(patients)
+            session.flush()
+            session.add_all(
+                [
+                    StaffPatientAssignment(staff_identity_id=low_count_staff_id, patient_id=patients[0].id),
+                    StaffPatientAssignment(staff_identity_id=high_count_staff_id, patient_id=patients[1].id),
+                    StaffPatientAssignment(staff_identity_id=high_count_staff_id, patient_id=patients[2].id),
+                ]
+            )
+            session.commit()
+
+        token = _login_token(client, "U_ADMIN_ASSIGNMENT_SORT")
+        response = client.get(
+            "/v1/staff/admin/users?role=staff&sort=assigned_count_desc&limit=1&offset=0",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["total"] == 2
+        assert [item["line_user_id"] for item in response.json()["items"]] == ["U_STAFF_ASSIGNMENT_HIGH"]
 
 
 def test_admin_user_list_includes_real_name_field_with_null_default(tmp_path: Path) -> None:
