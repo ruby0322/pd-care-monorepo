@@ -1,5 +1,6 @@
 "use client";
 
+import { PATIENT_TILE_DRAG_SIZE_CLASS } from "./lot-math";
 import type { PatientTilePatient } from "./patient-tile";
 import { PatientTile } from "./patient-tile";
 
@@ -16,7 +17,7 @@ export function PatientDragOverlay({ patient, fromStaffId }: PatientDragOverlayP
         dragId={`overlay-${patient.patient_id}`}
         fromStaffId={fromStaffId}
         disabled
-        className="h-12 w-[148px] shadow-lg"
+        className={`${PATIENT_TILE_DRAG_SIZE_CLASS} shadow-lg`}
       />
     </div>
   );

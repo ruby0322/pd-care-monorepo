@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import type { AdminBindingFilter } from "@/lib/admin/filters";
 import { cn } from "@/lib/utils";
 
+import { PATIENT_TILE_DRAG_SIZE_CLASS } from "./lot-math";
 import type { PatientTilePatient } from "./patient-tile";
 import { PatientTile } from "./patient-tile";
 
@@ -130,7 +131,7 @@ export function UnassignedPool({
               fromStaffId={null}
               disabled={busy}
               expandOnHoverDesktop
-              className="h-12 w-[148px]"
+              className={PATIENT_TILE_DRAG_SIZE_CLASS}
             />
           ))
         )}
