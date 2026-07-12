@@ -52,14 +52,14 @@ export function PatientTile({
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
   const handleMouseEnter = (event: React.MouseEvent<HTMLDivElement>) => {
-    listeners.onMouseEnter?.(event);
+    listeners?.onMouseEnter?.(event);
     if (expandOnHoverDesktop) {
       event.currentTarget.dataset.hover = "true";
     }
   };
 
   const handleMouseLeave = (event: React.MouseEvent<HTMLDivElement>) => {
-    listeners.onMouseLeave?.(event);
+    listeners?.onMouseLeave?.(event);
     if (expandOnHoverDesktop) {
       delete event.currentTarget.dataset.hover;
     }
