@@ -31,7 +31,7 @@ describe("PatientTile", () => {
     expect(container.querySelector("img")).toHaveAttribute("src", patient.picture_url);
   });
 
-  test("adds hover group and a single image when expandOnHoverDesktop is enabled", () => {
+  test("adds hover group and instant square layer when expandOnHoverDesktop is enabled", () => {
     const { container } = render(
       <PatientTile
         patient={patient}
@@ -44,16 +44,16 @@ describe("PatientTile", () => {
 
     const tile = container.firstElementChild;
     expect(tile).toHaveClass("group/tile");
-    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(tile).toHaveClass("transition-none");
+    expect(container.querySelectorAll("img")).toHaveLength(2);
 
-    const image = container.querySelector("img");
-    expect(image).toHaveClass("md:group-hover/tile:absolute");
-    expect(image).toHaveClass("md:group-hover/tile:rounded-none");
-    expect(screen.getByText("王小明")).toHaveClass("md:group-hover/tile:hidden");
+    const squareLayer = container.querySelector(".md\\:group-hover\\/tile\\:visible");
+    expect(squareLayer).toBeInTheDocument();
+    expect(screen.getByText("王小明")).toBeInTheDocument();
   });
 
-  test("uses initials placeholder without a second image when no picture is set", () => {
-    const { container } = render(
+  test("uses initials placeholder in square layer when no picture is set", () => {
+    render(
       <PatientTile
         patient={{ ...patient, picture_url: null }}
         dragId="pool-101"
@@ -63,9 +63,7 @@ describe("PatientTile", () => {
       />
     );
 
-    expect(container.querySelectorAll("img")).toHaveLength(0);
-    expect(screen.getByText("王")).toBeInTheDocument();
-    expect(screen.getByText("王")).toHaveClass("md:group-hover/tile:absolute");
+    expect(screen.getAllByText("王")).toHaveLength(2);
   });
 
   test("does not add hover group without expandOnHoverDesktop", () => {

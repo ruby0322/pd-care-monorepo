@@ -22,7 +22,7 @@ type PatientTileProps = {
   fromStaffId: number | null;
   className?: string;
   disabled?: boolean;
-  /** Desktop only: expand the avatar image to a square cover on hover. */
+  /** Desktop only: show square avatar cover on hover while defaulting to chip. */
   expandOnHoverDesktop?: boolean;
 };
 
@@ -57,7 +57,7 @@ export function PatientTile({
       style={style}
       className={cn(
         "relative min-h-0 min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50",
-        expandOnHoverDesktop && "group/tile",
+        expandOnHoverDesktop && "group/tile transition-none",
         isDragging && "z-20 opacity-80 shadow-md",
         disabled ? "cursor-default" : "cursor-grab active:cursor-grabbing",
         className
@@ -74,25 +74,21 @@ export function PatientTile({
         {genderBadgeLabel(patient.gender)}
       </span>
       {expandOnHoverDesktop ? (
-        <div className="relative flex h-full items-center justify-center gap-2 overflow-hidden px-2 py-1.5">
-          {patient.picture_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={patient.picture_url}
-              alt=""
-              className="relative z-0 h-5 w-5 shrink-0 rounded-full bg-zinc-200 object-cover transition-[border-radius,width,height] md:group-hover/tile:absolute md:group-hover/tile:inset-0 md:group-hover/tile:h-full md:group-hover/tile:w-full md:group-hover/tile:rounded-none"
-            />
-          ) : (
-            <span
-              className="relative z-0 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-300 text-[10px] font-semibold text-zinc-700 transition-[border-radius,width,height] md:group-hover/tile:absolute md:group-hover/tile:inset-0 md:group-hover/tile:flex md:group-hover/tile:h-full md:group-hover/tile:w-full md:group-hover/tile:rounded-none md:group-hover/tile:text-sm"
-              aria-hidden
-            >
-              {initial}
-            </span>
-          )}
-          <span className="relative z-10 truncate text-xs font-semibold text-zinc-800 md:group-hover/tile:hidden">
-            {name}
-          </span>
+        <div className="relative h-full w-full transition-none">
+          <div className="absolute inset-0 flex items-center justify-center gap-2 px-2 py-1.5 md:group-hover/tile:invisible">
+            <PersonAvatar name={name} pictureUrl={patient.picture_url} size="sm" />
+            <span className="truncate text-xs font-semibold text-zinc-800">{name}</span>
+          </div>
+          <div className="absolute inset-0 invisible bg-zinc-300 md:group-hover/tile:visible">
+            {patient.picture_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={patient.picture_url} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-zinc-600">
+                {initial}
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <div className="flex h-full items-center justify-center gap-2 px-2 py-1.5">
