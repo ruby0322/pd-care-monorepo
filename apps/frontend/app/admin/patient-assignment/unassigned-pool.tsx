@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 import { useDroppable } from "@dnd-kit/core";
 
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import type { AdminBindingFilter } from "@/lib/admin/filters";
 import { cn } from "@/lib/utils";
 
-import { PATIENT_TILE_DRAG_SIZE_CLASS } from "./lot-math";
+import { PATIENT_TILE_DRAG_SIZE_CLASS, PATIENT_TILE_DRAG_WIDTH_PX } from "./lot-math";
 import type { PatientTilePatient } from "./patient-tile";
 import { PatientTile } from "./patient-tile";
 
@@ -117,11 +117,14 @@ export function UnassignedPool({
         </div>
       </div>
 
-      <div className="grid min-h-[64px] justify-items-center grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div
+        className="grid min-h-[64px] justify-center gap-2 [grid-template-columns:repeat(1,var(--pool-tile-width))] sm:[grid-template-columns:repeat(2,var(--pool-tile-width))] lg:[grid-template-columns:repeat(3,var(--pool-tile-width))] xl:[grid-template-columns:repeat(4,var(--pool-tile-width))]"
+        style={{ "--pool-tile-width": `${PATIENT_TILE_DRAG_WIDTH_PX}px` } as CSSProperties}
+      >
         {loading ? (
-          <p className="px-1 text-xs text-zinc-500">載入中…</p>
+          <p className="col-span-full px-1 text-xs text-zinc-500">載入中…</p>
         ) : patients.length === 0 ? (
-          <p className="px-1 text-xs text-zinc-400">目前沒有未分配病患</p>
+          <p className="col-span-full px-1 text-xs text-zinc-400">目前沒有未分配病患</p>
         ) : (
           patients.map((patient) => (
             <PatientTile
