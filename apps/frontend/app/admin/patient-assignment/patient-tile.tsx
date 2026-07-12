@@ -51,6 +51,20 @@ export function PatientTile({
   const initial = name.slice(0, 1);
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
+  const handleMouseEnter = (event: React.MouseEvent<HTMLDivElement>) => {
+    listeners.onMouseEnter?.(event);
+    if (expandOnHoverDesktop) {
+      event.currentTarget.dataset.hover = "true";
+    }
+  };
+
+  const handleMouseLeave = (event: React.MouseEvent<HTMLDivElement>) => {
+    listeners.onMouseLeave?.(event);
+    if (expandOnHoverDesktop) {
+      delete event.currentTarget.dataset.hover;
+    }
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -62,8 +76,10 @@ export function PatientTile({
         disabled ? "cursor-default" : "cursor-grab active:cursor-grabbing",
         className
       )}
-      {...listeners}
       {...attributes}
+      {...listeners}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <span
         className={cn(
@@ -75,16 +91,25 @@ export function PatientTile({
       </span>
       {expandOnHoverDesktop ? (
         <div className="relative h-full w-full transition-none">
-          <div className="absolute inset-0 flex items-center justify-center gap-2 px-2 py-1.5 md:group-hover/tile:invisible">
+          <div
+            className="absolute inset-0 flex items-center justify-center gap-2 px-2 py-1.5 md:group-data-[hover=true]/tile:invisible"
+            data-testid="patient-tile-chip-layer"
+          >
             <PersonAvatar name={name} pictureUrl={patient.picture_url} size="sm" />
             <span className="truncate text-xs font-semibold text-zinc-800">{name}</span>
           </div>
-          <div className="absolute inset-0 invisible bg-zinc-300 md:group-hover/tile:visible">
+          <div
+            className="absolute inset-0 invisible bg-zinc-300 md:group-data-[hover=true]/tile:visible"
+            data-testid="patient-tile-square-layer"
+          >
             {patient.picture_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={patient.picture_url} alt="" className="h-full w-full object-cover" />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-zinc-600">
+              <div
+                className="flex h-full w-full items-center justify-center text-sm font-semibold text-zinc-600"
+                aria-hidden
+              >
                 {initial}
               </div>
             )}

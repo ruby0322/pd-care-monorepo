@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { PatientTile, type PatientTilePatient } from "@/app/admin/patient-assignment/patient-tile";
 
@@ -46,13 +47,12 @@ describe("PatientTile", () => {
     expect(tile).toHaveClass("group/tile");
     expect(tile).toHaveClass("transition-none");
     expect(container.querySelectorAll("img")).toHaveLength(2);
-
-    const squareLayer = container.querySelector(".md\\:group-hover\\/tile\\:visible");
-    expect(squareLayer).toBeInTheDocument();
+    expect(screen.getByTestId("patient-tile-chip-layer")).toBeInTheDocument();
+    expect(screen.getByTestId("patient-tile-square-layer")).toBeInTheDocument();
     expect(screen.getByText("王小明")).toBeInTheDocument();
   });
 
-  test("uses initials placeholder in square layer when no picture is set", () => {
+  test("uses aria-hidden initials in square layer when no picture is set", () => {
     render(
       <PatientTile
         patient={{ ...patient, picture_url: null }}
@@ -63,7 +63,9 @@ describe("PatientTile", () => {
       />
     );
 
-    expect(screen.getAllByText("王")).toHaveLength(2);
+    const squareInitial = screen.getByTestId("patient-tile-square-layer").querySelector("[aria-hidden]");
+    expect(squareInitial).toHaveTextContent("王");
+    expect(screen.getByText("王小明")).toBeInTheDocument();
   });
 
   test("does not add hover group without expandOnHoverDesktop", () => {
@@ -72,5 +74,55 @@ describe("PatientTile", () => {
     );
 
     expect(container.firstElementChild).not.toHaveClass("group/tile");
+  });
+});
+
+describe("PatientTile hover integration", () => {
+  let styleEl: HTMLStyleElement;
+
+  beforeAll(() => {
+    styleEl = document.createElement("style");
+    styleEl.textContent = `
+      [data-testid="patient-tile-chip-layer"] { visibility: visible; }
+      [data-testid="patient-tile-square-layer"] { visibility: hidden; }
+      .group\\/tile[data-hover="true"] [data-testid="patient-tile-chip-layer"] { visibility: hidden; }
+      .group\\/tile[data-hover="true"] [data-testid="patient-tile-square-layer"] { visibility: visible; }
+    `;
+    document.head.appendChild(styleEl);
+  });
+
+  afterAll(() => {
+    styleEl.remove();
+  });
+
+  test("swaps chip and square layers on hover without transition classes", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <PatientTile
+        patient={patient}
+        dragId="pool-101"
+        fromStaffId={null}
+        expandOnHoverDesktop
+        className="h-12 w-[148px]"
+      />
+    );
+
+    const tile = container.firstElementChild as HTMLElement;
+    const chipLayer = screen.getByTestId("patient-tile-chip-layer");
+    const squareLayer = screen.getByTestId("patient-tile-square-layer");
+
+    expect(getComputedStyle(chipLayer).visibility).toBe("visible");
+    expect(getComputedStyle(squareLayer).visibility).toBe("hidden");
+    expect(tile).toHaveClass("transition-none");
+
+    await user.hover(tile);
+
+    expect(getComputedStyle(chipLayer).visibility).toBe("hidden");
+    expect(getComputedStyle(squareLayer).visibility).toBe("visible");
+
+    await user.unhover(tile);
+
+    expect(getComputedStyle(chipLayer).visibility).toBe("visible");
+    expect(getComputedStyle(squareLayer).visibility).toBe("hidden");
   });
 });
