@@ -55,7 +55,7 @@ export function StaffAssigneeCard({
     <article
       ref={droppable.setNodeRef}
       className={cn(
-        "flex h-[168px] flex-col rounded-xl border border-zinc-200 bg-white p-3 shadow-sm transition-shadow md:h-[188px]",
+        "flex h-[168px] flex-col rounded-xl border border-zinc-200 bg-white p-3 shadow-sm md:h-[188px]",
         elevateForDrop && "relative z-40 shadow-lg ring-1 ring-zinc-200",
         isOver && "ring-2 ring-zinc-400"
       )}

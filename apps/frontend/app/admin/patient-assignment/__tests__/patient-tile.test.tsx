@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { PatientTile, type PatientTilePatient } from "@/app/admin/patient-assignment/patient-tile";
 
@@ -31,7 +32,7 @@ describe("PatientTile", () => {
     expect(container.querySelector("img")).toHaveAttribute("src", patient.picture_url);
   });
 
-  test("adds hover group and a single image when expandOnHoverDesktop is enabled", () => {
+  test("adds hover group and instant square layer when expandOnHoverDesktop is enabled", () => {
     const { container } = render(
       <PatientTile
         patient={patient}
@@ -44,16 +45,15 @@ describe("PatientTile", () => {
 
     const tile = container.firstElementChild;
     expect(tile).toHaveClass("group/tile");
-    expect(container.querySelectorAll("img")).toHaveLength(1);
-
-    const image = container.querySelector("img");
-    expect(image).toHaveClass("md:group-hover/tile:absolute");
-    expect(image).toHaveClass("md:group-hover/tile:rounded-none");
-    expect(screen.getByText("王小明")).toHaveClass("md:group-hover/tile:hidden");
+    expect(tile).toHaveClass("transition-none");
+    expect(container.querySelectorAll("img")).toHaveLength(2);
+    expect(screen.getByTestId("patient-tile-chip-layer")).toBeInTheDocument();
+    expect(screen.getByTestId("patient-tile-square-layer")).toBeInTheDocument();
+    expect(screen.getByText("王小明")).toBeInTheDocument();
   });
 
-  test("uses initials placeholder without a second image when no picture is set", () => {
-    const { container } = render(
+  test("uses aria-hidden initials in square layer when no picture is set", () => {
+    render(
       <PatientTile
         patient={{ ...patient, picture_url: null }}
         dragId="pool-101"
@@ -63,9 +63,9 @@ describe("PatientTile", () => {
       />
     );
 
-    expect(container.querySelectorAll("img")).toHaveLength(0);
-    expect(screen.getByText("王")).toBeInTheDocument();
-    expect(screen.getByText("王")).toHaveClass("md:group-hover/tile:absolute");
+    const squareInitial = screen.getByTestId("patient-tile-square-layer").querySelector("[aria-hidden]");
+    expect(squareInitial).toHaveTextContent("王");
+    expect(screen.getByText("王小明")).toBeInTheDocument();
   });
 
   test("does not add hover group without expandOnHoverDesktop", () => {
@@ -74,5 +74,55 @@ describe("PatientTile", () => {
     );
 
     expect(container.firstElementChild).not.toHaveClass("group/tile");
+  });
+});
+
+describe("PatientTile hover integration", () => {
+  let styleEl: HTMLStyleElement;
+
+  beforeAll(() => {
+    styleEl = document.createElement("style");
+    styleEl.textContent = `
+      [data-testid="patient-tile-chip-layer"] { visibility: visible; }
+      [data-testid="patient-tile-square-layer"] { visibility: hidden; }
+      .group\\/tile[data-hover="true"] [data-testid="patient-tile-chip-layer"] { visibility: hidden; }
+      .group\\/tile[data-hover="true"] [data-testid="patient-tile-square-layer"] { visibility: visible; }
+    `;
+    document.head.appendChild(styleEl);
+  });
+
+  afterAll(() => {
+    styleEl.remove();
+  });
+
+  test("swaps chip and square layers on hover without transition classes", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <PatientTile
+        patient={patient}
+        dragId="pool-101"
+        fromStaffId={null}
+        expandOnHoverDesktop
+        className="h-12 w-[148px]"
+      />
+    );
+
+    const tile = container.firstElementChild as HTMLElement;
+    const chipLayer = screen.getByTestId("patient-tile-chip-layer");
+    const squareLayer = screen.getByTestId("patient-tile-square-layer");
+
+    expect(getComputedStyle(chipLayer).visibility).toBe("visible");
+    expect(getComputedStyle(squareLayer).visibility).toBe("hidden");
+    expect(tile).toHaveClass("transition-none");
+
+    await user.hover(tile);
+
+    expect(getComputedStyle(chipLayer).visibility).toBe("hidden");
+    expect(getComputedStyle(squareLayer).visibility).toBe("visible");
+
+    await user.unhover(tile);
+
+    expect(getComputedStyle(chipLayer).visibility).toBe("visible");
+    expect(getComputedStyle(squareLayer).visibility).toBe("hidden");
   });
 });
