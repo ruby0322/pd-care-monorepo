@@ -10,12 +10,14 @@ type PatientDragOverlayProps = {
 
 export function PatientDragOverlay({ patient, fromStaffId }: PatientDragOverlayProps) {
   return (
-    <PatientTile
-      patient={patient}
-      dragId={`overlay-${patient.patient_id}`}
-      fromStaffId={fromStaffId}
-      disabled
-      className="h-12 w-[148px] shadow-lg"
-    />
+    <div data-testid="patient-drag-overlay">
+      <PatientTile
+        patient={patient}
+        dragId={`overlay-${patient.patient_id}`}
+        fromStaffId={fromStaffId}
+        disabled
+        className="h-12 w-[148px] shadow-lg"
+      />
+    </div>
   );
 }

@@ -102,6 +102,8 @@ jest.mock("@dnd-kit/core", () => {
       capturedOnDragCancel = onDragCancel ?? null;
       return React.createElement("div", { "data-testid": "dnd-context" }, children);
     },
+    DragOverlay: ({ children }: { children: React.ReactNode }) =>
+      children ? React.createElement("div", { "data-testid": "drag-overlay-portal" }, children) : null,
   };
 });
 
@@ -289,6 +291,7 @@ describe("AdminPatientAssignmentPage", () => {
     await screen.findByText("池中病患");
     expect(capturedOnDragStart).not.toBeNull();
     expect(queryDragBackdrop()).toBeNull();
+    expect(screen.queryByTestId("patient-drag-overlay")).not.toBeInTheDocument();
     expect(getPoolSection()).not.toHaveClass("z-40");
     expect(getStaffCard("Nurse A")).not.toHaveClass("z-40");
 
@@ -297,6 +300,7 @@ describe("AdminPatientAssignmentPage", () => {
     });
 
     expect(queryDragBackdrop()).toBeInTheDocument();
+    expect(screen.getByTestId("patient-drag-overlay")).toHaveTextContent("池中病患");
     expect(getPoolSection()).toHaveClass("z-40");
     expect(getStaffCard("Nurse A")).toHaveClass("z-40");
   });
@@ -318,11 +322,12 @@ describe("AdminPatientAssignmentPage", () => {
     });
 
     expect(queryDragBackdrop()).toBeNull();
+    expect(screen.queryByTestId("patient-drag-overlay")).not.toBeInTheDocument();
     expect(getPoolSection()).not.toHaveClass("z-40");
     expect(getStaffCard("Nurse A")).not.toHaveClass("z-40");
   });
 
-  test("clears drag backdrop and elevation on drag cancel", async () => {
+  test("clears drag overlay on drag cancel", async () => {
     render(<AdminPatientAssignmentPage />);
 
     await screen.findByText("池中病患");
@@ -336,6 +341,7 @@ describe("AdminPatientAssignmentPage", () => {
     });
 
     expect(queryDragBackdrop()).toBeNull();
+    expect(screen.queryByTestId("patient-drag-overlay")).not.toBeInTheDocument();
     expect(getPoolSection()).not.toHaveClass("z-40");
     expect(getStaffCard("Nurse A")).not.toHaveClass("z-40");
   });
