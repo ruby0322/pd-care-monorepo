@@ -9,8 +9,20 @@ export type PatientLotResult = {
   visibleCount: number;
 };
 
-export const PATIENT_TILE_DRAG_WIDTH_PX = 148;
+const PATIENT_TILE_GAP_PX = 8;
+const POOL_PAGE_ROWS = 3;
+
+export const PATIENT_TILE_WIDTH_PX = 148;
 export const PATIENT_TILE_DRAG_SIZE_CLASS = "h-12 w-[148px]";
+
+export function poolPageSizeForWidth(containerWidth: number): number {
+  const availableWidth = Math.max(0, containerWidth);
+  const columns = Math.max(
+    1,
+    Math.floor((availableWidth + PATIENT_TILE_GAP_PX) / (PATIENT_TILE_WIDTH_PX + PATIENT_TILE_GAP_PX))
+  );
+  return columns * POOL_PAGE_ROWS;
+}
 
 /** Desktop 2×4, mobile 1×4 — equal cells; always reserve "+" and optional "+n". */
 export function buildPatientLot(patientCount: number, capacity: number): PatientLotResult {

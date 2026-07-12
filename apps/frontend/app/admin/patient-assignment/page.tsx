@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   type DragEndEvent,
@@ -53,16 +53,8 @@ const LOT_LAYOUT_MEDIA_QUERIES = [
   "(min-width: 640px)",
 ];
 
-function useLotLayout(onPoolPageSizeChange: () => void) {
-  const [layout, setLayout] = useState({ rows: 2, columns: 4, capacity: 8, poolPageSize: 12 });
-  const onPoolPageSizeChangeRef = useRef(onPoolPageSizeChange);
-  const poolPageSizeRef = useRef(layout.poolPageSize);
-  const isInitialLayoutRef = useRef(true);
-
-  useEffect(() => {
-    onPoolPageSizeChangeRef.current = onPoolPageSizeChange;
-  }, [onPoolPageSizeChange]);
-
+function useLotLayout() {
+  const [layout, setLayout] = useState({ rows: 2, columns: 4, capacity: 8 });
   useEffect(() => {
     if (typeof window.matchMedia !== "function") {
       return;
@@ -70,30 +62,21 @@ function useLotLayout(onPoolPageSizeChange: () => void) {
     const apply = () => {
       let nextLayout: typeof layout;
       if (window.matchMedia("(min-width: 1280px)").matches) {
-        nextLayout = { rows: 2, columns: 4, capacity: 8, poolPageSize: 12 };
+        nextLayout = { rows: 2, columns: 4, capacity: 8 };
       } else if (window.matchMedia("(min-width: 1024px)").matches) {
-        nextLayout = { rows: 2, columns: 4, capacity: 8, poolPageSize: 9 };
+        nextLayout = { rows: 2, columns: 4, capacity: 8 };
       } else if (window.matchMedia("(min-width: 768px)").matches) {
-        nextLayout = { rows: 2, columns: 4, capacity: 8, poolPageSize: 6 };
+        nextLayout = { rows: 2, columns: 4, capacity: 8 };
       } else if (window.matchMedia("(min-width: 640px)").matches) {
-        nextLayout = { rows: 1, columns: 4, capacity: 4, poolPageSize: 6 };
+        nextLayout = { rows: 1, columns: 4, capacity: 4 };
       } else {
-        nextLayout = { rows: 1, columns: 4, capacity: 4, poolPageSize: 3 };
-      }
-
-      const pageSizeChanged = poolPageSizeRef.current !== nextLayout.poolPageSize;
-      poolPageSizeRef.current = nextLayout.poolPageSize;
-      if (isInitialLayoutRef.current) {
-        isInitialLayoutRef.current = false;
-      } else if (pageSizeChanged) {
-        onPoolPageSizeChangeRef.current();
+        nextLayout = { rows: 1, columns: 4, capacity: 4 };
       }
 
       setLayout((current) =>
         current.rows === nextLayout.rows &&
         current.columns === nextLayout.columns &&
-        current.capacity === nextLayout.capacity &&
-        current.poolPageSize === nextLayout.poolPageSize
+        current.capacity === nextLayout.capacity
           ? current
           : nextLayout
       );
@@ -145,6 +128,7 @@ export default function AdminPatientAssignmentPage() {
   const [poolPatients, setPoolPatients] = useState<PatientTilePatient[]>([]);
   const [poolTotal, setPoolTotal] = useState(0);
   const [poolLoading, setPoolLoading] = useState(false);
+  const [poolPageSize, setPoolPageSize] = useState(12);
   const [staffTotal, setStaffTotal] = useState(0);
   const [assignedPatientsByStaffId, setAssignedPatientsByStaffId] = useState<
     Record<number, AdminPatientAssignmentByStaffPatientItem[]>
@@ -183,11 +167,19 @@ export default function AdminPatientAssignmentPage() {
     },
     [parsedFilters, pathname, router]
   );
-  const lotLayout = useLotLayout(() => {
-    if (parsedFilters.poolPage > 1) {
-      replaceAssignmentUrl({ poolPage: 1 });
-    }
-  });
+  const lotLayout = useLotLayout();
+  const handlePoolPageSizeChange = useCallback(
+    (nextPageSize: number) => {
+      if (nextPageSize === poolPageSize) {
+        return;
+      }
+      setPoolPageSize(nextPageSize);
+      if (parsedFilters.poolPage > 1) {
+        replaceAssignmentUrl({ poolPage: 1 });
+      }
+    },
+    [parsedFilters.poolPage, poolPageSize, replaceAssignmentUrl]
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -268,14 +260,14 @@ export default function AdminPatientAssignmentPage() {
         bindingFilter: parsedFilters.binding,
         assignmentFilter: "unassigned",
         excludeStaffAdminPatients: parsedFilters.excludeStaffAdminPatients,
-        limit: lotLayout.poolPageSize,
-        offset: (parsedFilters.poolPage - 1) * lotLayout.poolPageSize,
+        limit: poolPageSize,
+        offset: (parsedFilters.poolPage - 1) * poolPageSize,
       });
       setPoolTotal(data.total);
       setPoolPatients(data.items.map(toTilePatient));
-      const currentOffset = (parsedFilters.poolPage - 1) * lotLayout.poolPageSize;
+      const currentOffset = (parsedFilters.poolPage - 1) * poolPageSize;
       if (data.total > 0 && currentOffset >= data.total) {
-        replaceAssignmentUrl({ poolPage: Math.max(1, Math.ceil(data.total / lotLayout.poolPageSize)) });
+        replaceAssignmentUrl({ poolPage: Math.max(1, Math.ceil(data.total / poolPageSize)) });
       }
     } catch (requestError) {
       setError(getReadableApiError(requestError));
@@ -283,7 +275,7 @@ export default function AdminPatientAssignmentPage() {
       setPoolLoading(false);
     }
   }, [
-    lotLayout.poolPageSize,
+    poolPageSize,
     parsedFilters.binding,
     parsedFilters.excludeStaffAdminPatients,
     parsedFilters.poolPage,
@@ -443,7 +435,7 @@ export default function AdminPatientAssignmentPage() {
           bindingFilter={parsedFilters.binding}
           excludeStaffAdminPatients={parsedFilters.excludeStaffAdminPatients}
           page={parsedFilters.poolPage}
-          pageSize={lotLayout.poolPageSize}
+          pageSize={poolPageSize}
           busy={busy}
           elevateForDrop={Boolean(activeDragPatient)}
           onKeywordSubmit={(draft) => replaceAssignmentUrl({ q: draft, binding: parsedFilters.binding, poolPage: 1 })}
@@ -452,6 +444,7 @@ export default function AdminPatientAssignmentPage() {
             replaceAssignmentUrl({ excludeStaffAdminPatients: value, poolPage: 1 })
           }
           onPageChange={(poolPage) => replaceAssignmentUrl({ poolPage })}
+          onPageSizeChange={handlePoolPageSizeChange}
         />
 
         <StaffAssigneeSection

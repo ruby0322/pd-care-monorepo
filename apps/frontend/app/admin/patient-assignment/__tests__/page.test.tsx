@@ -23,17 +23,6 @@ const mockReplace = jest.fn((href: string) => {
 
 const mediaQueries = new Map<string, { matches: boolean; listeners: Set<(event: MediaQueryListEvent) => void> }>();
 
-function setMediaQueryMatches(matches: Record<string, boolean>) {
-  for (const [query, queryMatches] of Object.entries(matches)) {
-    const mediaQuery = mediaQueries.get(query) ?? { matches: false, listeners: new Set() };
-    mediaQuery.matches = queryMatches;
-    mediaQueries.set(query, mediaQuery);
-    for (const listener of mediaQuery.listeners) {
-      listener({ matches: queryMatches, media: query } as MediaQueryListEvent);
-    }
-  }
-}
-
 function rerenderAssignmentPage(view: ReturnType<typeof render>) {
   view.rerender(<AdminPatientAssignmentPage />);
 }
@@ -41,6 +30,7 @@ function rerenderAssignmentPage(view: ReturnType<typeof render>) {
 let capturedOnDragEnd: ((event: DragEndEvent) => void) | null = null;
 let capturedOnDragStart: ((event: DragStartEvent) => void) | null = null;
 let capturedOnDragCancel: (() => void) | null = null;
+let capturedResizeObserverCallback: ResizeObserverCallback | null = null;
 
 function queryDragBackdrop() {
   return document.querySelector(".pointer-events-none.fixed.inset-0.z-30");
@@ -123,6 +113,7 @@ describe("AdminPatientAssignmentPage", () => {
     capturedOnDragEnd = null;
     capturedOnDragStart = null;
     capturedOnDragCancel = null;
+    capturedResizeObserverCallback = null;
     mockSearchParams.forEach((_, key) => mockSearchParams.delete(key));
     mediaQueries.clear();
     mediaQueries.set("(min-width: 1280px)", { matches: true, listeners: new Set() });
@@ -140,6 +131,18 @@ describe("AdminPatientAssignmentPage", () => {
           removeEventListener: (_event: string, listener: (event: MediaQueryListEvent) => void) =>
             mediaQuery.listeners.delete(listener),
         };
+      },
+    });
+    Object.defineProperty(window, "ResizeObserver", {
+      configurable: true,
+      value: class {
+        constructor(callback: ResizeObserverCallback) {
+          capturedResizeObserverCallback = callback;
+        }
+
+        observe() {}
+        unobserve() {}
+        disconnect() {}
       },
     });
     (fetchStaffMe as jest.Mock).mockResolvedValue({ line_user_id: "U_ADMIN_ASSIGNMENT", role: "admin" });
@@ -232,6 +235,8 @@ describe("AdminPatientAssignmentPage", () => {
     expect(await screen.findByText("Admin B")).toBeInTheDocument();
     expect(await screen.findByText("池中病患")).toBeInTheDocument();
     expect(screen.getByText("池中病患").closest('[role="button"]')).toHaveClass(PATIENT_TILE_DRAG_SIZE_CLASS);
+    expect(screen.getByTestId("unassigned-pool-list")).toHaveClass("flex", "flex-wrap", "justify-start");
+    expect(screen.getByTestId("unassigned-pool-list")).not.toHaveClass("grid");
     expect(screen.queryByRole("columnheader", { name: "選擇" })).not.toBeInTheDocument();
   });
 
@@ -477,9 +482,8 @@ describe("AdminPatientAssignmentPage", () => {
     expect(await screen.findByText("第二位病患")).toBeInTheDocument();
   });
 
-  test("resets the pool page when a breakpoint changes the page size", async () => {
+  test("derives pool page size from container width and resets the current page", async () => {
     mockSearchParams.set("poolPage", "2");
-    setMediaQueryMatches({ "(min-width: 1280px)": true });
     (fetchAdminAssignments as jest.Mock).mockResolvedValue({
       items: [],
       total: 24,
@@ -494,19 +498,18 @@ describe("AdminPatientAssignmentPage", () => {
     });
     mockReplace.mockClear();
 
+    expect(capturedResizeObserverCallback).not.toBeNull();
     await act(async () => {
-      setMediaQueryMatches({
-        "(min-width: 1280px)": false,
-        "(min-width: 1024px)": false,
-        "(min-width: 768px)": false,
-        "(min-width: 640px)": false,
-      });
+      capturedResizeObserverCallback?.(
+        [{ contentRect: { width: 460 } } as ResizeObserverEntry],
+        {} as ResizeObserver
+      );
     });
 
     await waitFor(() => expect(mockSearchParams.get("poolPage")).toBeNull());
     rerenderAssignmentPage(view);
     await waitFor(() => {
-      expect(fetchAdminAssignments).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 3, offset: 0 }));
+      expect(fetchAdminAssignments).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 9, offset: 0 }));
     });
   });
 
