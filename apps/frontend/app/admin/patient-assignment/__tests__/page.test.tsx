@@ -20,6 +20,19 @@ const mockReplace = jest.fn((href: string) => {
   new URLSearchParams(query).forEach((value, key) => mockSearchParams.set(key, value));
 });
 
+const mediaQueries = new Map<string, { matches: boolean; listeners: Set<(event: MediaQueryListEvent) => void> }>();
+
+function setMediaQueryMatches(matches: Record<string, boolean>) {
+  for (const [query, queryMatches] of Object.entries(matches)) {
+    const mediaQuery = mediaQueries.get(query) ?? { matches: false, listeners: new Set() };
+    mediaQuery.matches = queryMatches;
+    mediaQueries.set(query, mediaQuery);
+    for (const listener of mediaQuery.listeners) {
+      listener({ matches: queryMatches, media: query } as MediaQueryListEvent);
+    }
+  }
+}
+
 function rerenderAssignmentPage(view: ReturnType<typeof render>) {
   view.rerender(<AdminPatientAssignmentPage />);
 }
@@ -108,6 +121,24 @@ describe("AdminPatientAssignmentPage", () => {
     capturedOnDragStart = null;
     capturedOnDragCancel = null;
     mockSearchParams.forEach((_, key) => mockSearchParams.delete(key));
+    mediaQueries.clear();
+    mediaQueries.set("(min-width: 1280px)", { matches: true, listeners: new Set() });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: (query: string) => {
+        const mediaQuery = mediaQueries.get(query) ?? { matches: false, listeners: new Set() };
+        mediaQueries.set(query, mediaQuery);
+        return {
+          get matches() {
+            return mediaQuery.matches;
+          },
+          media: query,
+          addEventListener: (_event: string, listener: (event: MediaQueryListEvent) => void) => mediaQuery.listeners.add(listener),
+          removeEventListener: (_event: string, listener: (event: MediaQueryListEvent) => void) =>
+            mediaQuery.listeners.delete(listener),
+        };
+      },
+    });
     (fetchStaffMe as jest.Mock).mockResolvedValue({ line_user_id: "U_ADMIN_ASSIGNMENT", role: "admin" });
     (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
       items: [
@@ -430,6 +461,39 @@ describe("AdminPatientAssignmentPage", () => {
       );
     });
     expect(await screen.findByText("第二位病患")).toBeInTheDocument();
+  });
+
+  test("resets the pool page when a breakpoint changes the page size", async () => {
+    mockSearchParams.set("poolPage", "2");
+    setMediaQueryMatches({ "(min-width: 1280px)": true });
+    (fetchAdminAssignments as jest.Mock).mockResolvedValue({
+      items: [],
+      total: 24,
+      limit: 12,
+      offset: 12,
+    });
+
+    const view = render(<AdminPatientAssignmentPage />);
+
+    await waitFor(() => {
+      expect(fetchAdminAssignments).toHaveBeenCalledWith(expect.objectContaining({ limit: 12, offset: 12 }));
+    });
+    mockReplace.mockClear();
+
+    await act(async () => {
+      setMediaQueryMatches({
+        "(min-width: 1280px)": false,
+        "(min-width: 1024px)": false,
+        "(min-width: 768px)": false,
+        "(min-width: 640px)": false,
+      });
+    });
+
+    await waitFor(() => expect(mockSearchParams.get("poolPage")).toBeNull());
+    rerenderAssignmentPage(view);
+    await waitFor(() => {
+      expect(fetchAdminAssignments).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 3, offset: 0 }));
+    });
   });
 
   test("searches staff list", async () => {

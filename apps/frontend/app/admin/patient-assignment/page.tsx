@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   type DragEndEvent,
@@ -46,35 +46,68 @@ type ActiveDragPatient = {
   fromStaffId: number | null;
 };
 
-function useLotLayout() {
+const LOT_LAYOUT_MEDIA_QUERIES = [
+  "(min-width: 1280px)",
+  "(min-width: 1024px)",
+  "(min-width: 768px)",
+  "(min-width: 640px)",
+];
+
+function useLotLayout(onPoolPageSizeChange: () => void) {
   const [layout, setLayout] = useState({ rows: 2, columns: 4, capacity: 8, poolPageSize: 12 });
+  const onPoolPageSizeChangeRef = useRef(onPoolPageSizeChange);
+  const poolPageSizeRef = useRef(layout.poolPageSize);
+  const isInitialLayoutRef = useRef(true);
+
+  useEffect(() => {
+    onPoolPageSizeChangeRef.current = onPoolPageSizeChange;
+  }, [onPoolPageSizeChange]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") {
       return;
     }
     const apply = () => {
+      let nextLayout: typeof layout;
       if (window.matchMedia("(min-width: 1280px)").matches) {
-        setLayout({ rows: 2, columns: 4, capacity: 8, poolPageSize: 12 });
-        return;
+        nextLayout = { rows: 2, columns: 4, capacity: 8, poolPageSize: 12 };
+      } else if (window.matchMedia("(min-width: 1024px)").matches) {
+        nextLayout = { rows: 2, columns: 4, capacity: 8, poolPageSize: 9 };
+      } else if (window.matchMedia("(min-width: 768px)").matches) {
+        nextLayout = { rows: 2, columns: 4, capacity: 8, poolPageSize: 6 };
+      } else if (window.matchMedia("(min-width: 640px)").matches) {
+        nextLayout = { rows: 1, columns: 4, capacity: 4, poolPageSize: 6 };
+      } else {
+        nextLayout = { rows: 1, columns: 4, capacity: 4, poolPageSize: 3 };
       }
-      if (window.matchMedia("(min-width: 1024px)").matches) {
-        setLayout({ rows: 2, columns: 4, capacity: 8, poolPageSize: 9 });
-        return;
+
+      const pageSizeChanged = poolPageSizeRef.current !== nextLayout.poolPageSize;
+      poolPageSizeRef.current = nextLayout.poolPageSize;
+      if (isInitialLayoutRef.current) {
+        isInitialLayoutRef.current = false;
+      } else if (pageSizeChanged) {
+        onPoolPageSizeChangeRef.current();
       }
-      if (window.matchMedia("(min-width: 768px)").matches) {
-        setLayout({ rows: 2, columns: 4, capacity: 8, poolPageSize: 6 });
-        return;
-      }
-      if (window.matchMedia("(min-width: 640px)").matches) {
-        setLayout({ rows: 1, columns: 4, capacity: 4, poolPageSize: 6 });
-        return;
-      }
-      setLayout({ rows: 1, columns: 4, capacity: 4, poolPageSize: 3 });
+
+      setLayout((current) =>
+        current.rows === nextLayout.rows &&
+        current.columns === nextLayout.columns &&
+        current.capacity === nextLayout.capacity &&
+        current.poolPageSize === nextLayout.poolPageSize
+          ? current
+          : nextLayout
+      );
     };
     apply();
-    window.addEventListener("resize", apply);
-    return () => window.removeEventListener("resize", apply);
+    const mediaQueries = LOT_LAYOUT_MEDIA_QUERIES.map((query) => window.matchMedia(query));
+    for (const mediaQuery of mediaQueries) {
+      mediaQuery.addEventListener("change", apply);
+    }
+    return () => {
+      for (const mediaQuery of mediaQueries) {
+        mediaQuery.removeEventListener("change", apply);
+      }
+    };
   }, []);
 
   return layout;
@@ -99,7 +132,6 @@ export default function AdminPatientAssignmentPage() {
     () => parseAssignmentFilters(new URLSearchParams(searchParamsKey)),
     [searchParamsKey]
   );
-  const lotLayout = useLotLayout();
 
   const filterSyncKey = `${parsedFilters.binding}::${parsedFilters.excludeStaffAdminPatients}::${parsedFilters.q}::${parsedFilters.poolPage}`;
   const staffFilterSyncKey = `${parsedFilters.staffQ}::${parsedFilters.staffPage}::${parsedFilters.staffSort}`;
@@ -151,6 +183,11 @@ export default function AdminPatientAssignmentPage() {
     },
     [parsedFilters, pathname, router]
   );
+  const lotLayout = useLotLayout(() => {
+    if (parsedFilters.poolPage > 1) {
+      replaceAssignmentUrl({ poolPage: 1 });
+    }
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
