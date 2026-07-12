@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useDroppable } from "@dnd-kit/core";
 
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import type { AdminBindingFilter } from "@/lib/admin/filters";
 import { cn } from "@/lib/utils";
 
-import { PATIENT_TILE_DRAG_SIZE_CLASS, PATIENT_TILE_DRAG_WIDTH_PX } from "./lot-math";
+import { PATIENT_TILE_DRAG_SIZE_CLASS, poolPageSizeForWidth } from "./lot-math";
 import type { PatientTilePatient } from "./patient-tile";
 import { PatientTile } from "./patient-tile";
 
@@ -28,6 +28,7 @@ type UnassignedPoolProps = {
   onBindingFilterChange: (value: AdminBindingFilter) => void;
   onExcludeStaffAdminPatientsChange: (value: boolean) => void;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
 };
 
 export function UnassignedPool({
@@ -45,8 +46,10 @@ export function UnassignedPool({
   onBindingFilterChange,
   onExcludeStaffAdminPatientsChange,
   onPageChange,
+  onPageSizeChange,
 }: UnassignedPoolProps) {
   const [keywordDraft, setKeywordDraft] = useState(initialKeyword);
+  const listRef = useRef<HTMLDivElement>(null);
   const { setNodeRef, isOver } = useDroppable({
     id: "unassigned-pool",
     data: { type: "pool" },
@@ -55,6 +58,20 @@ export function UnassignedPool({
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const displayFrom = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const displayTo = Math.min(page * pageSize, total);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver !== "function") {
+      return;
+    }
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) {
+        onPageSizeChange(poolPageSizeForWidth(entry.contentRect.width));
+      }
+    });
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [onPageSizeChange]);
 
   return (
     <section
@@ -118,13 +135,14 @@ export function UnassignedPool({
       </div>
 
       <div
-        className="grid min-h-[64px] justify-center gap-2 [grid-template-columns:repeat(1,var(--pool-tile-width))] sm:[grid-template-columns:repeat(2,var(--pool-tile-width))] lg:[grid-template-columns:repeat(3,var(--pool-tile-width))] xl:[grid-template-columns:repeat(4,var(--pool-tile-width))]"
-        style={{ "--pool-tile-width": `${PATIENT_TILE_DRAG_WIDTH_PX}px` } as CSSProperties}
+        ref={listRef}
+        className="flex min-h-[64px] flex-wrap justify-start gap-2"
+        data-testid="unassigned-pool-list"
       >
         {loading ? (
-          <p className="col-span-full px-1 text-xs text-zinc-500">載入中…</p>
+          <p className="w-full px-1 text-xs text-zinc-500">載入中…</p>
         ) : patients.length === 0 ? (
-          <p className="col-span-full px-1 text-xs text-zinc-400">目前沒有未分配病患</p>
+          <p className="w-full px-1 text-xs text-zinc-400">目前沒有未分配病患</p>
         ) : (
           patients.map((patient) => (
             <PatientTile

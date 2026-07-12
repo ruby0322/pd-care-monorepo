@@ -1,4 +1,11 @@
-import { buildPatientLot, genderBadgeLabel, staffDisplayName } from "@/app/admin/patient-assignment/lot-math";
+import {
+  buildPatientLot,
+  genderBadgeLabel,
+  PATIENT_TILE_DRAG_SIZE_CLASS,
+  PATIENT_TILE_WIDTH_PX,
+  poolPageSizeForWidth,
+  staffDisplayName,
+} from "@/app/admin/patient-assignment/lot-math";
 
 describe("buildPatientLot", () => {
   test("pads to capacity when few patients", () => {
@@ -29,6 +36,22 @@ describe("buildPatientLot", () => {
       { type: "overflow", count: 4 },
       { type: "add" },
     ]);
+  });
+});
+
+describe("poolPageSizeForWidth", () => {
+  test("uses the same card width as the shared tile size class", () => {
+    expect(PATIENT_TILE_DRAG_SIZE_CLASS).toContain(`w-[${PATIENT_TILE_WIDTH_PX}px]`);
+  });
+
+  test.each([
+    { width: 147, expected: 3 },
+    { width: 148, expected: 3 },
+    { width: 304, expected: 6 },
+    { width: 460, expected: 9 },
+    { width: 616, expected: 12 },
+  ])("fits three rows of cards into a $width px container", ({ width, expected }) => {
+    expect(poolPageSizeForWidth(width)).toBe(expected);
   });
 });
 
