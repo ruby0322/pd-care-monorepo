@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AppSelectionPage from "@/app/apps/page";
 import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
+import { buildPatientOnboardingPath } from "@/lib/auth/patient-onboarding-intent";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import { clearAuthState, setActiveApp } from "@/lib/auth/principal-session";
 import { getStaffSession } from "@/lib/auth/staff-session";
@@ -86,13 +87,16 @@ describe("AppSelectionPage", () => {
     expect(buildLoginPath).not.toHaveBeenCalled();
   });
 
-  it("shows only admin card when patient session is unavailable", async () => {
+  it("shows patient onboarding entry when patient session is unavailable", async () => {
     render(<AppSelectionPage />);
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /護理師後台/ })).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: /病患 App/ })).not.toBeInTheDocument();
+    const patientButton = screen.getByRole("button", { name: /病患 App/ });
+    expect(patientButton).toBeInTheDocument();
+    fireEvent.click(patientButton);
+    expect(mockPush).toHaveBeenCalledWith(buildPatientOnboardingPath(true));
   });
 
   it("shows both cards when patient session exists and routes correctly", async () => {

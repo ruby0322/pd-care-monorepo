@@ -4,7 +4,9 @@ import PatientPage from "@/app/patient/page";
 import { fetchIdentityStatus } from "@/lib/api/identity";
 import { fetchPatientMessages, fetchUploadHistoryByMonthWindow } from "@/lib/api/upload-history";
 import { getLiffLoginProof } from "@/lib/auth/liff";
+import { buildPatientOnboardingPath } from "@/lib/auth/patient-onboarding-intent";
 import { getPatientSession } from "@/lib/auth/patient-session";
+import { getStaffSession } from "@/lib/auth/staff-session";
 
 const mockRouter = {
   push: jest.fn(),
@@ -21,6 +23,7 @@ jest.mock("@/lib/auth/patient-session", () => ({
 }));
 
 jest.mock("@/lib/auth/staff-session", () => ({
+  getStaffSession: jest.fn(),
   setStaffSession: jest.fn(),
 }));
 
@@ -98,6 +101,7 @@ describe("PatientPage month window prefetch flow", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (getStaffSession as jest.Mock).mockReturnValue(null);
   });
 
   test("redirects users without patient session to patient onboarding", async () => {
@@ -106,7 +110,49 @@ describe("PatientPage month window prefetch flow", () => {
     render(<PatientPage />);
 
     await waitFor(() => {
-      expect(mockRouter.replace).toHaveBeenCalledWith("/onboarding/patient");
+      expect(mockRouter.replace).toHaveBeenCalledWith(buildPatientOnboardingPath(false));
+    });
+    expect(fetchUploadHistoryByMonthWindow).not.toHaveBeenCalled();
+    expect(fetchPatientMessages).not.toHaveBeenCalled();
+  });
+
+  test("redirects staff/admin deep-links without patient session to onboarding intent path", async () => {
+    (getPatientSession as jest.Mock).mockReturnValue(null);
+    (getStaffSession as jest.Mock).mockReturnValue({
+      accessToken: "staff-token",
+      expiresAt: Date.now() + 3600 * 1000,
+      role: "staff",
+      lineUserId: "line-staff",
+    });
+
+    render(<PatientPage />);
+
+    await waitFor(() => {
+      expect(mockRouter.replace).toHaveBeenCalledWith(buildPatientOnboardingPath(true));
+    });
+  });
+
+  test("redirects staff/admin without matched patient identity to onboarding intent path", async () => {
+    (getPatientSession as jest.Mock).mockReturnValue({
+      accessToken: "token",
+      expiresAt: Date.now() + 3600 * 1000,
+      role: "staff",
+      lineUserId: "line-id",
+    });
+    (getLiffLoginProof as jest.Mock).mockResolvedValue({
+      idToken: "id.token.value",
+      profile: { displayName: "Staff User" },
+    });
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({
+      status: "unbound",
+      patient_id: null,
+      can_upload: false,
+    });
+
+    render(<PatientPage />);
+
+    await waitFor(() => {
+      expect(mockRouter.replace).toHaveBeenCalledWith(buildPatientOnboardingPath(true));
     });
     expect(fetchUploadHistoryByMonthWindow).not.toHaveBeenCalled();
     expect(fetchPatientMessages).not.toHaveBeenCalled();

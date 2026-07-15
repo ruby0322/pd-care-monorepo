@@ -2,7 +2,7 @@
 
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
 import { getApiErrorDetail } from "@/lib/api/client";
-import { bindIdentity, IdentityStatus } from "@/lib/api/identity";
+import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
 import {
     fetchPatientMessages,
     fetchUploadHistoryByMonthWindow,
@@ -12,9 +12,10 @@ import {
     UploadHistorySummary28d,
 } from "@/lib/api/upload-history";
 import { getLiffLoginProof } from "@/lib/auth/liff";
+import { buildPatientOnboardingPath } from "@/lib/auth/patient-onboarding-intent";
 import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
 import { setActiveApp } from "@/lib/auth/principal-session";
-import { setStaffSession } from "@/lib/auth/staff-session";
+import { getStaffSession, setStaffSession } from "@/lib/auth/staff-session";
 import { Camera, MessageSquare, UserRound } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -170,13 +171,26 @@ export default function PatientPage() {
         setError(null);
         const existingSession = getPatientSession();
         if (!existingSession) {
+          const staffSession = getStaffSession();
           clearPatientSession();
-          router.replace("/onboarding/patient");
+          router.replace(buildPatientOnboardingPath(staffSession !== null));
           return;
         }
 
         setUserRole(existingSession.role);
         const proof = await getLiffLoginProof();
+        const bindStatus = await fetchIdentityStatus(proof.idToken);
+        if (cancelled) {
+          return;
+        }
+        if (bindStatus.status !== "matched") {
+          const onboardingPath =
+            existingSession.role === "staff" || existingSession.role === "admin"
+              ? buildPatientOnboardingPath(true)
+              : buildPatientOnboardingPath(false);
+          router.replace(onboardingPath);
+          return;
+        }
         if (!cancelled) {
           setProfile({ displayName: proof.profile.displayName });
           setStatus("matched");

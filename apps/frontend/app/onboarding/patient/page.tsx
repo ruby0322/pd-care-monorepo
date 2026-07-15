@@ -1,19 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { bindIdentity, fetchAuthBootstrap, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
 import { getApiErrorDetail } from "@/lib/api/client";
 import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
+import { PATIENT_ONBOARDING_INTENT } from "@/lib/auth/patient-onboarding-intent";
 
 type LiffProfileState = {
   displayName: string;
 };
 
-export default function PatientOnboardingPage() {
+function PatientOnboardingPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [profile, setProfile] = useState<LiffProfileState | null>(null);
   const [status, setStatus] = useState<IdentityStatus | null>(null);
   const [caseNumber, setCaseNumber] = useState("");
@@ -21,6 +23,8 @@ export default function PatientOnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const patientIntent = searchParams.get("intent");
+  const fromAppSelectionPatientIntent = patientIntent === PATIENT_ONBOARDING_INTENT;
 
   useEffect(() => {
     let cancelled = false;
@@ -38,7 +42,10 @@ export default function PatientOnboardingPage() {
         if (cancelled) {
           return;
         }
-        if (bootstrap.next_step === "app_selection") {
+        if (
+          bootstrap.next_step === "app_selection" &&
+          !(fromAppSelectionPatientIntent && (bootstrap.role === "staff" || bootstrap.role === "admin"))
+        ) {
           router.replace(buildLoginPath("/apps"));
           return;
         }
@@ -70,7 +77,7 @@ export default function PatientOnboardingPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [fromAppSelectionPatientIntent, router]);
 
   async function submitBinding() {
     if (!caseNumber.trim() || !birthDate) {
@@ -175,5 +182,13 @@ export default function PatientOnboardingPage() {
         取消並返回首頁
       </Link>
     </div>
+  );
+}
+
+export default function PatientOnboardingPage() {
+  return (
+    <Suspense>
+      <PatientOnboardingPageInner />
+    </Suspense>
   );
 }
