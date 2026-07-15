@@ -107,7 +107,9 @@ function migrateLegacySessions(): PrincipalSession | null {
   const legacyCandidates = [
     parseLegacySession(window.localStorage.getItem(STAFF_SESSION_STORAGE_KEY), "admin"),
     parseLegacySession(window.localStorage.getItem(PATIENT_SESSION_STORAGE_KEY), "patient"),
-  ].filter((candidate): candidate is LegacySession => Boolean(candidate) && Date.now() < candidate.expiresAt);
+  ]
+    .filter((candidate): candidate is LegacySession => candidate !== null)
+    .filter((candidate) => Date.now() < candidate.expiresAt);
 
   clearLegacySessions();
   if (legacyCandidates.length === 0) {
