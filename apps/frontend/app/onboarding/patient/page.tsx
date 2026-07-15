@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { bindIdentity, fetchAuthBootstrap, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
@@ -14,6 +14,7 @@ type LiffProfileState = {
 
 export default function PatientOnboardingPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [profile, setProfile] = useState<LiffProfileState | null>(null);
   const [status, setStatus] = useState<IdentityStatus | null>(null);
   const [caseNumber, setCaseNumber] = useState("");
@@ -21,6 +22,8 @@ export default function PatientOnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const patientIntent = searchParams.get("intent");
+  const fromAppSelectionPatientIntent = patientIntent === "register-patient";
 
   useEffect(() => {
     let cancelled = false;
@@ -38,7 +41,10 @@ export default function PatientOnboardingPage() {
         if (cancelled) {
           return;
         }
-        if (bootstrap.next_step === "app_selection") {
+        if (
+          bootstrap.next_step === "app_selection" &&
+          !(fromAppSelectionPatientIntent && (bootstrap.role === "staff" || bootstrap.role === "admin"))
+        ) {
           router.replace(buildLoginPath("/apps"));
           return;
         }
@@ -70,7 +76,7 @@ export default function PatientOnboardingPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [fromAppSelectionPatientIntent, router]);
 
   async function submitBinding() {
     if (!caseNumber.trim() || !birthDate) {

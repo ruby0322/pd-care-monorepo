@@ -112,6 +112,32 @@ describe("PatientPage month window prefetch flow", () => {
     expect(fetchPatientMessages).not.toHaveBeenCalled();
   });
 
+  test("redirects staff/admin without matched patient identity to onboarding intent path", async () => {
+    (getPatientSession as jest.Mock).mockReturnValue({
+      accessToken: "token",
+      expiresAt: Date.now() + 3600 * 1000,
+      role: "staff",
+      lineUserId: "line-id",
+    });
+    (getLiffLoginProof as jest.Mock).mockResolvedValue({
+      idToken: "id.token.value",
+      profile: { displayName: "Staff User" },
+    });
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({
+      status: "unbound",
+      patient_id: null,
+      can_upload: false,
+    });
+
+    render(<PatientPage />);
+
+    await waitFor(() => {
+      expect(mockRouter.replace).toHaveBeenCalledWith("/onboarding/patient?intent=register-patient");
+    });
+    expect(fetchUploadHistoryByMonthWindow).not.toHaveBeenCalled();
+    expect(fetchPatientMessages).not.toHaveBeenCalled();
+  });
+
   test("loads current month window and progressively prefetches older windows", async () => {
     (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
     jest.useFakeTimers();

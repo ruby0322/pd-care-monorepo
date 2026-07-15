@@ -106,24 +106,28 @@ export default function AppSelectionPage() {
             </div>
           </button>
 
-          {access === "ready:with-patient" ? (
-            <button
-              type="button"
-              onClick={() => {
+          <button
+            type="button"
+            onClick={() => {
+              if (access === "ready:with-patient") {
                 setActiveApp("patient");
                 router.push("/patient");
-              }}
-              className="group flex w-full items-center justify-between rounded-2xl border border-zinc-200 px-5 py-4 text-zinc-900 transition-colors hover:bg-zinc-50"
-            >
-              <div className="text-left">
-                <div className="text-sm font-medium">病患 App</div>
-                <div className="mt-0.5 text-xs text-zinc-400">症狀回報與出口拍攝</div>
+                return;
+              }
+              router.push("/onboarding/patient?intent=register-patient");
+            }}
+            className="group flex w-full items-center justify-between rounded-2xl border border-zinc-200 px-5 py-4 text-zinc-900 transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-left">
+              <div className="text-sm font-medium">病患 App</div>
+              <div className="mt-0.5 text-xs text-zinc-400">
+                {access === "ready:with-patient" ? "症狀回報與出口拍攝" : "註冊病患身分後可使用病患功能"}
               </div>
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-100 transition-colors group-hover:bg-zinc-200">
-                <Activity className="h-4 w-4 text-zinc-600" strokeWidth={1.5} />
-              </div>
-            </button>
-          ) : null}
+            </div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-100 transition-colors group-hover:bg-zinc-200">
+              <Activity className="h-4 w-4 text-zinc-600" strokeWidth={1.5} />
+            </div>
+          </button>
         </div>
       </div>
     </div>

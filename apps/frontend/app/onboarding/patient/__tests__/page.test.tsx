@@ -5,10 +5,14 @@ import { fetchAuthBootstrap, fetchIdentityStatus } from "@/lib/api/identity";
 import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
 
 const mockReplace = jest.fn();
+const mockSearchParamsGet = jest.fn();
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({
     replace: mockReplace,
+  }),
+  useSearchParams: () => ({
+    get: mockSearchParamsGet,
   }),
 }));
 
@@ -25,6 +29,7 @@ jest.mock("@/lib/api/identity", () => ({
 describe("PatientOnboardingPage", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSearchParamsGet.mockReturnValue(null);
     (getLiffLoginProof as jest.Mock).mockResolvedValue({
       idToken: "token",
       profile: { displayName: "Patient" },
@@ -62,5 +67,18 @@ describe("PatientOnboardingPage", () => {
     render(<PatientOnboardingPage />);
 
     expect(await screen.findByText("病患註冊審核中")).toBeInTheDocument();
+  });
+
+  it("stays on patient onboarding when app-selection intent is present for staff/admin", async () => {
+    mockSearchParamsGet.mockImplementation((key: string) => (key === "intent" ? "register-patient" : null));
+    (fetchAuthBootstrap as jest.Mock).mockResolvedValue({
+      next_step: "app_selection",
+      role: "staff",
+    });
+
+    render(<PatientOnboardingPage />);
+
+    expect(await screen.findByText("病患身分註冊")).toBeInTheDocument();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 });

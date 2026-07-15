@@ -2,7 +2,7 @@
 
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
 import { getApiErrorDetail } from "@/lib/api/client";
-import { bindIdentity, IdentityStatus } from "@/lib/api/identity";
+import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
 import {
     fetchPatientMessages,
     fetchUploadHistoryByMonthWindow,
@@ -177,6 +177,18 @@ export default function PatientPage() {
 
         setUserRole(existingSession.role);
         const proof = await getLiffLoginProof();
+        const bindStatus = await fetchIdentityStatus(proof.idToken);
+        if (cancelled) {
+          return;
+        }
+        if (bindStatus.status !== "matched") {
+          const onboardingPath =
+            existingSession.role === "staff" || existingSession.role === "admin"
+              ? "/onboarding/patient?intent=register-patient"
+              : "/onboarding/patient";
+          router.replace(onboardingPath);
+          return;
+        }
         if (!cancelled) {
           setProfile({ displayName: proof.profile.displayName });
           setStatus("matched");
