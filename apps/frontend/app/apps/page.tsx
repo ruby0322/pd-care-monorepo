@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { resolveSessionlessBootstrapDestination } from "@/lib/auth/bootstrap-routing";
 import { buildLoginPath } from "@/lib/auth/liff";
+import { buildPatientOnboardingPath } from "@/lib/auth/patient-onboarding-intent";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import { clearAuthState, setActiveApp } from "@/lib/auth/principal-session";
 import { getLiffLoginProof } from "@/lib/auth/liff";
@@ -114,7 +115,7 @@ export default function AppSelectionPage() {
                 router.push("/patient");
                 return;
               }
-              router.push("/onboarding/patient?intent=register-patient");
+              router.push(buildPatientOnboardingPath(true));
             }}
             className="group flex w-full items-center justify-between rounded-2xl border border-zinc-200 px-5 py-4 text-zinc-900 transition-colors hover:bg-zinc-50"
           >

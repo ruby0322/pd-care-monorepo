@@ -2,17 +2,18 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { bindIdentity, fetchAuthBootstrap, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
 import { getApiErrorDetail } from "@/lib/api/client";
 import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
+import { PATIENT_ONBOARDING_INTENT } from "@/lib/auth/patient-onboarding-intent";
 
 type LiffProfileState = {
   displayName: string;
 };
 
-export default function PatientOnboardingPage() {
+function PatientOnboardingPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [profile, setProfile] = useState<LiffProfileState | null>(null);
@@ -23,7 +24,7 @@ export default function PatientOnboardingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const patientIntent = searchParams.get("intent");
-  const fromAppSelectionPatientIntent = patientIntent === "register-patient";
+  const fromAppSelectionPatientIntent = patientIntent === PATIENT_ONBOARDING_INTENT;
 
   useEffect(() => {
     let cancelled = false;
@@ -181,5 +182,13 @@ export default function PatientOnboardingPage() {
         取消並返回首頁
       </Link>
     </div>
+  );
+}
+
+export default function PatientOnboardingPage() {
+  return (
+    <Suspense>
+      <PatientOnboardingPageInner />
+    </Suspense>
   );
 }

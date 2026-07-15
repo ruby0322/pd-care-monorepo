@@ -12,9 +12,10 @@ import {
     UploadHistorySummary28d,
 } from "@/lib/api/upload-history";
 import { getLiffLoginProof } from "@/lib/auth/liff";
+import { buildPatientOnboardingPath } from "@/lib/auth/patient-onboarding-intent";
 import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
 import { setActiveApp } from "@/lib/auth/principal-session";
-import { setStaffSession } from "@/lib/auth/staff-session";
+import { getStaffSession, setStaffSession } from "@/lib/auth/staff-session";
 import { Camera, MessageSquare, UserRound } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -170,8 +171,9 @@ export default function PatientPage() {
         setError(null);
         const existingSession = getPatientSession();
         if (!existingSession) {
+          const staffSession = getStaffSession();
           clearPatientSession();
-          router.replace("/onboarding/patient");
+          router.replace(buildPatientOnboardingPath(staffSession !== null));
           return;
         }
 
@@ -184,8 +186,8 @@ export default function PatientPage() {
         if (bindStatus.status !== "matched") {
           const onboardingPath =
             existingSession.role === "staff" || existingSession.role === "admin"
-              ? "/onboarding/patient?intent=register-patient"
-              : "/onboarding/patient";
+              ? buildPatientOnboardingPath(true)
+              : buildPatientOnboardingPath(false);
           router.replace(onboardingPath);
           return;
         }
