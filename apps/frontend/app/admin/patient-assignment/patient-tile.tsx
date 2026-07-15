@@ -70,7 +70,7 @@ export function PatientTile({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "relative min-h-0 min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 select-none",
+        "relative min-h-0 min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 select-none touch-none",
         expandOnHoverDesktop && "group/tile transition-none",
         isDragging && "opacity-0",
         disabled ? "cursor-default" : "cursor-grab active:cursor-grabbing",
