@@ -38,6 +38,7 @@ describe("PatientTile", () => {
     expect(screen.getByText("男")).toBeInTheDocument();
     expect(container.querySelector("img")).toHaveAttribute("src", patient.picture_url);
     expect(container.firstElementChild).toHaveClass("select-none");
+    expect(container.firstElementChild).toHaveClass("touch-none");
   });
 
   test("adds hover group and instant square layer when expandOnHoverDesktop is enabled", () => {
