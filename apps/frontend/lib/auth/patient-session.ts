@@ -1,5 +1,14 @@
 "use client";
 
+import {
+  canAccessApp,
+  clearAuthState,
+  getAppAccessToken,
+  getPrincipalSession,
+  setPrincipalSession,
+  type AllowedApp,
+} from "@/lib/auth/principal-session";
+
 type PatientRole = "patient" | "staff" | "admin";
 
 type PatientSession = {
@@ -9,64 +18,51 @@ type PatientSession = {
   lineUserId: string;
 };
 
-const PATIENT_SESSION_STORAGE_KEY = "pdCare.patientSession";
-
-function isBrowser(): boolean {
-  return typeof window !== "undefined";
-}
-
-function parseSession(raw: string | null): PatientSession | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<PatientSession>;
-    if (!parsed.accessToken || !parsed.expiresAt || !parsed.role || !parsed.lineUserId) {
-      return null;
-    }
-    if (parsed.role !== "patient" && parsed.role !== "staff" && parsed.role !== "admin") {
-      return null;
-    }
-    return {
-      accessToken: parsed.accessToken,
-      expiresAt: parsed.expiresAt,
-      role: parsed.role,
-      lineUserId: parsed.lineUserId,
-    };
-  } catch {
-    return null;
-  }
-}
-
 export function getPatientSession(): PatientSession | null {
-  if (!isBrowser()) {
+  if (!canAccessApp("patient")) {
     return null;
   }
-  const session = parseSession(window.localStorage.getItem(PATIENT_SESSION_STORAGE_KEY));
+  const session = getPrincipalSession();
   if (!session) {
     return null;
   }
-  if (Date.now() >= session.expiresAt) {
-    clearPatientSession();
-    return null;
-  }
-  return session;
+  return {
+    accessToken: session.accessToken,
+    expiresAt: session.expiresAt,
+    role: session.role,
+    lineUserId: session.lineUserId,
+  };
 }
 
 export function setPatientSession(session: PatientSession): void {
-  if (!isBrowser()) {
-    return;
-  }
-  window.localStorage.setItem(PATIENT_SESSION_STORAGE_KEY, JSON.stringify(session));
+  const existing = getPrincipalSession();
+  const nextAllowedApps = new Set<AllowedApp>(existing?.allowedApps ?? []);
+  nextAllowedApps.add("patient");
+  setPrincipalSession({
+    accessToken: session.accessToken,
+    expiresAt: session.expiresAt,
+    role: session.role,
+    lineUserId: session.lineUserId,
+    allowedApps: Array.from(nextAllowedApps),
+  });
 }
 
 export function clearPatientSession(): void {
-  if (!isBrowser()) {
+  const existing = getPrincipalSession();
+  if (!existing) {
     return;
   }
-  window.localStorage.removeItem(PATIENT_SESSION_STORAGE_KEY);
+  const nextAllowedApps = existing.allowedApps.filter((app) => app !== "patient");
+  if (nextAllowedApps.length === 0) {
+    clearAuthState();
+    return;
+  }
+  setPrincipalSession({
+    ...existing,
+    allowedApps: nextAllowedApps,
+  });
 }
 
 export function getPatientAccessToken(): string | null {
-  return getPatientSession()?.accessToken ?? null;
+  return getAppAccessToken("patient");
 }

@@ -1,5 +1,14 @@
 "use client";
 
+import {
+  canAccessApp,
+  clearAuthState,
+  getAppAccessToken,
+  getPrincipalSession,
+  setPrincipalSession,
+  type AllowedApp,
+} from "@/lib/auth/principal-session";
+
 type StaffRole = "staff" | "admin";
 
 type StaffSession = {
@@ -9,66 +18,53 @@ type StaffSession = {
   lineUserId: string;
 };
 
-const STAFF_SESSION_STORAGE_KEY = "pdCare.staffSession";
-
-function isBrowser(): boolean {
-  return typeof window !== "undefined";
-}
-
-function parseSession(raw: string | null): StaffSession | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<StaffSession>;
-    if (!parsed.accessToken || !parsed.expiresAt || !parsed.role || !parsed.lineUserId) {
-      return null;
-    }
-    if (parsed.role !== "staff" && parsed.role !== "admin") {
-      return null;
-    }
-    return {
-      accessToken: parsed.accessToken,
-      expiresAt: parsed.expiresAt,
-      role: parsed.role,
-      lineUserId: parsed.lineUserId,
-    };
-  } catch {
-    return null;
-  }
-}
-
 export function getStaffSession(): StaffSession | null {
-  if (!isBrowser()) {
+  if (!canAccessApp("admin")) {
     return null;
   }
-  const session = parseSession(window.localStorage.getItem(STAFF_SESSION_STORAGE_KEY));
-  if (!session) {
+  const session = getPrincipalSession();
+  if (!session || (session.role !== "staff" && session.role !== "admin")) {
     return null;
   }
-  if (Date.now() >= session.expiresAt) {
-    clearStaffSession();
-    return null;
-  }
-  return session;
+  return {
+    accessToken: session.accessToken,
+    expiresAt: session.expiresAt,
+    role: session.role,
+    lineUserId: session.lineUserId,
+  };
 }
 
 export function setStaffSession(session: StaffSession): void {
-  if (!isBrowser()) {
-    return;
-  }
-  window.localStorage.setItem(STAFF_SESSION_STORAGE_KEY, JSON.stringify(session));
+  const existing = getPrincipalSession();
+  const nextAllowedApps = new Set<AllowedApp>(existing?.allowedApps ?? []);
+  nextAllowedApps.add("admin");
+  setPrincipalSession({
+    accessToken: session.accessToken,
+    expiresAt: session.expiresAt,
+    role: session.role,
+    lineUserId: session.lineUserId,
+    allowedApps: Array.from(nextAllowedApps),
+  });
 }
 
 export function clearStaffSession(): void {
-  if (!isBrowser()) {
+  const existing = getPrincipalSession();
+  if (!existing) {
     return;
   }
-  window.localStorage.removeItem(STAFF_SESSION_STORAGE_KEY);
+  const nextAllowedApps = existing.allowedApps.filter((app) => app !== "admin");
+  if (nextAllowedApps.length === 0) {
+    clearAuthState();
+    return;
+  }
+  setPrincipalSession({
+    ...existing,
+    allowedApps: nextAllowedApps,
+  });
 }
 
 export function getStaffAccessToken(): string | null {
-  return getStaffSession()?.accessToken ?? null;
+  return getAppAccessToken("admin");
 }
 
 export function getStaffRole(): StaffRole | null {

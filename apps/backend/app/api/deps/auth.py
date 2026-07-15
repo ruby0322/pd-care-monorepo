@@ -4,7 +4,7 @@ from fastapi import HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.db.models import LiffIdentity
+from app.db.models import LiffIdentity, Patient
 from app.services.auth import AuthPrincipal, AuthTokenService
 
 
@@ -34,10 +34,39 @@ def get_current_principal(
 
     token_service = get_token_service(request)
     try:
-        principal = token_service.verify_token(credentials.credentials)
+        token_principal = token_service.verify_token(credentials.credentials)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-    return principal
+
+    session = get_session(request)
+    try:
+        identity = session.get(LiffIdentity, token_principal.identity_id)
+        if identity is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Identity not found")
+        if identity.line_user_id != token_principal.line_user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token subject mismatch")
+        if not identity.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Identity is inactive")
+
+        role = identity.role.strip().lower()
+        if role not in {"patient", "staff", "admin"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Identity role is not allowed")
+
+        patient_id: int | None = None
+        if identity.patient_id is not None:
+            patient = session.get(Patient, identity.patient_id)
+            if patient is not None and patient.is_active:
+                patient_id = patient.id
+
+        return AuthPrincipal(
+            identity_id=identity.id,
+            line_user_id=identity.line_user_id,
+            role=role,
+            patient_id=patient_id,
+            expires_at=token_principal.expires_at,
+        )
+    finally:
+        session.close()
 
 
 def get_optional_principal(

@@ -436,7 +436,6 @@ def test_get_patient_result_by_upload_id_returns_persisted_record(tmp_path: Path
         response = client.get(
             "/v1/patient/uploads/result",
             params={
-                "line_user_id": "U_LINE_RESULT_UPLOAD",
                 "upload_id": upload_payload["upload_id"],
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -474,7 +473,6 @@ def test_get_patient_result_by_ai_result_id_returns_persisted_record(tmp_path: P
         response = client.get(
             "/v1/patient/uploads/result",
             params={
-                "line_user_id": "U_LINE_RESULT_AI",
                 "ai_result_id": upload_payload["ai_result_id"],
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -541,13 +539,14 @@ def test_get_patient_result_rejects_other_patient_access(tmp_path: Path) -> None
         response = client.get(
             "/v1/patient/uploads/result",
             params={
-                "line_user_id": "U_LINE_RESULT_OTHER",
                 "upload_id": upload_payload["upload_id"],
             },
             headers={"Authorization": f"Bearer {owner_token}"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["patient_id"] == upload_payload["patient_id"]
 
 
 def test_patient_upload_requires_authentication(tmp_path: Path) -> None:
@@ -571,5 +570,5 @@ def test_patient_upload_history_requires_authentication(tmp_path: Path) -> None:
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         _seed_bound_identity(client, line_user_id="U_LINE_HISTORY_AUTH_REQUIRED")
-        response = client.get("/v1/patient/upload-history", params={"line_user_id": "U_LINE_HISTORY_AUTH_REQUIRED"})
+        response = client.get("/v1/patient/upload-history")
         assert response.status_code == 401

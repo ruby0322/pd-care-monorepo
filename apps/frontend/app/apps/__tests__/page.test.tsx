@@ -3,8 +3,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AppSelectionPage from "@/app/apps/page";
 import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
-import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
-import { clearStaffSession, getStaffSession } from "@/lib/auth/staff-session";
+import { getPatientSession } from "@/lib/auth/patient-session";
+import { clearAuthState, setActiveApp } from "@/lib/auth/principal-session";
+import { getStaffSession } from "@/lib/auth/staff-session";
 
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
@@ -23,12 +24,15 @@ jest.mock("@/lib/auth/liff", () => ({
 
 jest.mock("@/lib/auth/staff-session", () => ({
   getStaffSession: jest.fn(),
-  clearStaffSession: jest.fn(),
 }));
 
 jest.mock("@/lib/auth/patient-session", () => ({
   getPatientSession: jest.fn(),
-  clearPatientSession: jest.fn(),
+}));
+
+jest.mock("@/lib/auth/principal-session", () => ({
+  clearAuthState: jest.fn(),
+  setActiveApp: jest.fn(),
 }));
 
 jest.mock("@/lib/api/identity", () => ({
@@ -65,8 +69,7 @@ describe("AppSelectionPage", () => {
     render(<AppSelectionPage />);
 
     await waitFor(() => {
-      expect(clearStaffSession).toHaveBeenCalled();
-      expect(clearPatientSession).toHaveBeenCalled();
+      expect(clearAuthState).toHaveBeenCalled();
       expect(mockReplace).toHaveBeenCalledWith("/role-select");
     });
   });
@@ -103,6 +106,8 @@ describe("AppSelectionPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /護理師後台/ }));
     fireEvent.click(screen.getByRole("button", { name: /病患 App/ }));
 
+    expect(setActiveApp).toHaveBeenNthCalledWith(1, "admin");
+    expect(setActiveApp).toHaveBeenNthCalledWith(2, "patient");
     expect(mockPush).toHaveBeenNthCalledWith(1, "/admin");
     expect(mockPush).toHaveBeenNthCalledWith(2, "/patient");
   });

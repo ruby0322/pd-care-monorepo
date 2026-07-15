@@ -102,7 +102,8 @@ class AuthService:
         allowed_apps: list[str] = []
         if role in {"staff", "admin"} and is_active:
             allowed_apps.append("admin")
-        if patient_binding_status == "matched" and is_active:
+            allowed_apps.append("patient")
+        elif patient_binding_status == "matched" and is_active:
             allowed_apps.append("patient")
         return allowed_apps
 

@@ -11,6 +11,7 @@ import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { isAdminIntent, isPatientRoute, resolveBootstrapDestination, resolveRoleSelectDestination } from "@/lib/auth/bootstrap-routing";
 import { getLiffLoginProof, readSafeNextPath } from "@/lib/auth/liff";
 import { setPatientSession } from "@/lib/auth/patient-session";
+import { setActiveApp } from "@/lib/auth/principal-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
 
 type LoginResponse = {
@@ -100,6 +101,7 @@ function LoginPageInner() {
         if (bootstrap.allowed_apps.includes("patient")) {
           setPatientSession(session);
         }
+        setActiveApp(null);
         const destination = resolveBootstrapDestination(bootstrap.next_step, {
           appSelectionDestination,
         });
@@ -115,6 +117,7 @@ function LoginPageInner() {
           role: "patient",
           lineUserId: payload.line_user_id,
         });
+        setActiveApp("patient");
         const destination = resolveBootstrapDestination(bootstrap.next_step, {
           patientAppDestination,
         });

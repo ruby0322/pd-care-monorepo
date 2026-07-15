@@ -205,37 +205,89 @@ def test_admin_token_can_access_admin_probe(tmp_path: Path) -> None:
         assert response.json()["role"] == "admin"
 
 
-def test_admin_token_can_access_patient_endpoint(tmp_path: Path) -> None:
+def test_admin_token_can_access_own_patient_endpoint_when_bound(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "admin-patient-access.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_identity(client, line_user_id="U_ADMIN_2", role="admin")
-        _seed_patient(client, line_user_id="U_PATIENT_MATCHED")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            patient = Patient(
+                case_number="CASE-U_ADMIN_2",
+                birth_date="1980-01-02",
+                full_name="Patient U_ADMIN_2",
+                is_active=True,
+            )
+            session.add(patient)
+            session.flush()
+            session.add(
+                LiffIdentity(
+                    line_user_id="U_ADMIN_2",
+                    display_name="U_ADMIN_2",
+                    picture_url=None,
+                    patient_id=patient.id,
+                    role="admin",
+                    is_active=True,
+                )
+            )
+            session.commit()
         token = _login_and_get_token(client, "U_ADMIN_2")
 
         response = client.get(
             "/v1/patient/upload-history",
-            params={"line_user_id": "U_PATIENT_MATCHED"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
         assert response.json()["status"] == "matched"
 
 
-def test_staff_token_is_denied_for_patient_endpoint(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path / "staff-patient-denied.db")
+def test_staff_token_can_access_own_patient_endpoint_when_bound(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-patient-self-access.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_identity(client, line_user_id="U_STAFF_PATIENT_DENY", role="staff")
-        _seed_patient(client, line_user_id="U_PATIENT_X")
-        token = _login_and_get_token(client, "U_STAFF_PATIENT_DENY")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            patient = Patient(
+                case_number="CASE-U_STAFF_PATIENT",
+                birth_date="1980-01-02",
+                full_name="Patient U_STAFF_PATIENT",
+                is_active=True,
+            )
+            session.add(patient)
+            session.flush()
+            session.add(
+                LiffIdentity(
+                    line_user_id="U_STAFF_PATIENT",
+                    display_name="U_STAFF_PATIENT",
+                    picture_url=None,
+                    patient_id=patient.id,
+                    role="staff",
+                    is_active=True,
+                )
+            )
+            session.commit()
+        token = _login_and_get_token(client, "U_STAFF_PATIENT")
 
         response = client.get(
             "/v1/patient/upload-history",
-            params={"line_user_id": "U_PATIENT_X"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert response.status_code == 403
+        assert response.status_code == 200
+        assert response.json()["status"] == "matched"
+
+
+def test_patient_endpoint_rejects_legacy_line_user_id_query_param(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "patient-line-user-query-rejected.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_patient(client, line_user_id="U_PATIENT_LEGACY_QUERY")
+        token = _login_and_get_token(client, "U_PATIENT_LEGACY_QUERY")
+
+        response = client.get(
+            "/v1/patient/upload-history",
+            params={"line_user_id": "U_PATIENT_LEGACY_QUERY"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 400
 
 
 def test_login_rejects_invalid_stub_token(tmp_path: Path) -> None:
@@ -326,7 +378,7 @@ def test_auth_bootstrap_routes_active_staff_to_app_selection(tmp_path: Path) -> 
         assert response.status_code == 200
         payload = response.json()
         assert payload["next_step"] == "app_selection"
-        assert payload["allowed_apps"] == ["admin"]
+        assert payload["allowed_apps"] == ["admin", "patient"]
 
 
 def test_auth_bootstrap_routes_active_patient_to_patient_app(tmp_path: Path) -> None:

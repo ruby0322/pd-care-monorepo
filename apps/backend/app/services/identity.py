@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from app.db.models import LiffIdentity, Patient, PendingBinding
+from app.db.models import AuthorizationAuditEvent, LiffIdentity, Patient, PendingBinding
 from app.services.identity_validation import assert_valid_line_user_id
 
 
@@ -48,6 +48,8 @@ def bind_identity(
         identity.display_name = display_name
         identity.picture_url = picture_url
 
+    before_patient_id = identity.patient_id
+
     # Once a LINE user is bound to a patient, do not downgrade it back to pending.
     # This keeps access stable across repeated login/bind attempts.
     if identity.patient_id is not None:
@@ -55,6 +57,12 @@ def bind_identity(
         if active_patient is not None and active_patient.is_active:
             identity.is_active = True
             _resolve_pending_bindings(session, line_user_id=line_user_id)
+            _record_patient_binding_audit(
+                session,
+                identity=identity,
+                before_patient_id=before_patient_id,
+                reason="identity_bind_reconfirm",
+            )
             session.commit()
             return ("matched", identity.patient_id, True)
         identity.patient_id = None
@@ -63,6 +71,12 @@ def bind_identity(
         identity.patient_id = patient.id
         identity.is_active = True
         _resolve_pending_bindings(session, line_user_id=line_user_id)
+        _record_patient_binding_audit(
+            session,
+            identity=identity,
+            before_patient_id=before_patient_id,
+            reason="identity_bind_matched",
+        )
         session.commit()
         return ("matched", patient.id, True)
 
@@ -77,6 +91,12 @@ def bind_identity(
             birth_date=birth_date,
             status="pending",
         )
+    )
+    _record_patient_binding_audit(
+        session,
+        identity=identity,
+        before_patient_id=before_patient_id,
+        reason="identity_bind_pending",
     )
     session.commit()
     return ("pending", None, False)
@@ -110,12 +130,19 @@ def get_identity_status(session: Session, *, line_user_id: str) -> tuple[str, in
         select(LiffIdentity).where(LiffIdentity.line_user_id == line_user_id)
     ).scalar_one_or_none()
     if identity and identity.patient_id is not None:
+        before_patient_id = identity.patient_id
         patient = session.get(Patient, identity.patient_id)
         if patient is not None and patient.is_active:
             return ("matched", identity.patient_id, True)
         identity.patient_id = None
         if identity.role == "patient":
             identity.is_active = False
+        _record_patient_binding_audit(
+            session,
+            identity=identity,
+            before_patient_id=before_patient_id,
+            reason="identity_status_unbound_inactive_patient",
+        )
         session.commit()
 
     has_pending = session.execute(
@@ -128,6 +155,29 @@ def get_identity_status(session: Session, *, line_user_id: str) -> tuple[str, in
         return ("pending", None, False)
 
     return ("unbound", None, False)
+
+
+def _record_patient_binding_audit(
+    session: Session,
+    *,
+    identity: LiffIdentity,
+    before_patient_id: int | None,
+    reason: str,
+) -> None:
+    after_patient_id = identity.patient_id
+    if before_patient_id == after_patient_id or identity.id is None:
+        return
+    session.add(
+        AuthorizationAuditEvent(
+            actor_identity_id=identity.id,
+            actor_role=identity.role,
+            target_identity_id=identity.id,
+            action="identity_patient_binding_update",
+            before_value=str(before_patient_id) if before_patient_id is not None else None,
+            after_value=str(after_patient_id) if after_patient_id is not None else None,
+            reason=reason,
+        )
+    )
 
 
 @dataclass(frozen=True)
