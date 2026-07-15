@@ -516,6 +516,7 @@ def test_get_patient_result_rejects_other_patient_access(tmp_path: Path) -> None
         )
         client.app.state.storage_service = _FakeStorageService()
         owner_token = _issue_token_for_line_user(client, line_user_id="U_LINE_RESULT_OWNER")
+        other_token = _issue_token_for_line_user(client, line_user_id="U_LINE_RESULT_OTHER")
 
         upload_response = client.post(
             "/v1/patient/uploads",
@@ -524,7 +525,6 @@ def test_get_patient_result_rejects_other_patient_access(tmp_path: Path) -> None
         )
         assert upload_response.status_code == 200
         upload_payload = upload_response.json()
-        other_token = _issue_token_for_line_user(client, line_user_id="U_LINE_RESULT_OTHER")
 
         owner_response = client.get(
             "/v1/patient/uploads/result",
@@ -534,6 +534,8 @@ def test_get_patient_result_rejects_other_patient_access(tmp_path: Path) -> None
             headers={"Authorization": f"Bearer {owner_token}"},
         )
         assert owner_response.status_code == 200
+        owner_payload = owner_response.json()
+        assert owner_payload["patient_id"] == upload_payload["patient_id"]
 
         forbidden_response = client.get(
             "/v1/patient/uploads/result",
