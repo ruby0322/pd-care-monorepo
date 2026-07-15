@@ -25,7 +25,7 @@ from app.schemas.upload_history import (
 )
 from app.schemas.upload import PatientUploadResponse, PatientUploadResultResponse
 from app.services.auth.token_service import AuthPrincipal
-from app.services.identity import get_identity_profile, get_identity_status
+from app.services.identity import get_identity_profile_by_identity_id, get_identity_status_for_principal
 from app.services.model_loader import LoadedModel
 from app.services.prescreen import LoadedPrescreenModel
 from app.services.storage import StorageService
@@ -69,50 +69,26 @@ def _get_loaded_prescreen_model(request: Request) -> LoadedPrescreenModel | None
     return getattr(request.app.state, "loaded_prescreen_model", None)
 
 
-def _resolve_patient_line_user_id(
+def _resolve_self_identity_status(
+    session: Session,
     *,
     principal: AuthPrincipal,
-    provided_line_user_id: str | None,
-) -> str:
-    if principal.role == "staff":
-        raise HTTPException(status_code=403, detail="Staff role cannot access patient endpoints")
-
-    if principal.role == "admin":
-        if provided_line_user_id:
-            return provided_line_user_id
-        return principal.line_user_id
-
-    if provided_line_user_id and provided_line_user_id != principal.line_user_id:
-        raise HTTPException(status_code=403, detail="Patient token cannot access another patient's records")
-    return principal.line_user_id
+) -> tuple[str, int | None, bool]:
+    return get_identity_status_for_principal(session, principal=principal)
 
 
-def _resolve_matched_patient_id(session: Session, *, line_user_id: str) -> int:
-    status, patient_id, can_upload = get_identity_status(session, line_user_id=line_user_id)
+def _resolve_matched_patient_id(
+    session: Session,
+    *,
+    principal: AuthPrincipal,
+) -> int:
+    status, patient_id, can_upload = _resolve_self_identity_status(session, principal=principal)
     if status != "matched" or patient_id is None or not can_upload:
         raise HTTPException(
             status_code=403,
             detail="Patient identity is not bound or pending approval; clinical uploads are not allowed",
         )
     return patient_id
-
-
-def _resolve_message_patient_id(
-    session: Session,
-    *,
-    principal: AuthPrincipal,
-    provided_line_user_id: str | None,
-) -> int:
-    if principal.role == "staff":
-        if principal.patient_id is None:
-            raise HTTPException(status_code=403, detail="Staff identity is not bound to a patient profile")
-        return principal.patient_id
-
-    resolved_line_user_id = _resolve_patient_line_user_id(
-        principal=principal,
-        provided_line_user_id=provided_line_user_id,
-    )
-    return _resolve_matched_patient_id(session, line_user_id=resolved_line_user_id)
 
 
 def _normalize_screening_result(
@@ -127,20 +103,21 @@ def _normalize_screening_result(
     return "technical_error"
 
 
+def _reject_legacy_line_user_id(request: Request) -> None:
+    if "line_user_id" in request.query_params:
+        raise HTTPException(status_code=400, detail="line_user_id query parameter is no longer supported")
+
+
 @router.get("/v1/patient/upload-history", response_model=UploadHistoryResponse)
 async def patient_upload_history(
     request: Request,
-    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> UploadHistoryResponse:
+    _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
-    resolved_line_user_id = _resolve_patient_line_user_id(
-        principal=principal,
-        provided_line_user_id=line_user_id,
-    )
     session = _get_session(request)
     try:
-        status, patient_id, can_upload = get_identity_status(session, line_user_id=resolved_line_user_id)
+        status, patient_id, can_upload = _resolve_self_identity_status(session, principal=principal)
         if status != "matched" or patient_id is None:
             return UploadHistoryResponse(
                 status=status,
@@ -181,19 +158,15 @@ async def patient_upload_history(
 @router.get("/v1/patient/profile", response_model=PatientProfileResponse)
 async def patient_profile(
     request: Request,
-    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientProfileResponse:
+    _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
-    resolved_line_user_id = _resolve_patient_line_user_id(
-        principal=principal,
-        provided_line_user_id=line_user_id,
-    )
     session = _get_session(request)
     try:
-        status, patient_id, can_upload = get_identity_status(session, line_user_id=resolved_line_user_id)
+        status, patient_id, can_upload = _resolve_self_identity_status(session, principal=principal)
         try:
-            profile = get_identity_profile(session, line_user_id=resolved_line_user_id)
+            profile = get_identity_profile_by_identity_id(session, identity_id=principal.identity_id)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -216,14 +189,10 @@ async def patient_profile(
 async def patient_uploads_by_day(
     request: Request,
     date_key: str = Query(alias="date", min_length=10, max_length=10),
-    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientDayUploadListResponse:
+    _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
-    resolved_line_user_id = _resolve_patient_line_user_id(
-        principal=principal,
-        provided_line_user_id=line_user_id,
-    )
     try:
         local_day = date.fromisoformat(date_key)
     except ValueError as exc:
@@ -231,7 +200,7 @@ async def patient_uploads_by_day(
 
     session = _get_session(request)
     try:
-        patient_id = _resolve_matched_patient_id(session, line_user_id=resolved_line_user_id)
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
         items = list_patient_uploads_by_local_day(session, patient_id=patient_id, local_day=local_day)
         return PatientDayUploadListResponse(
             date=local_day.isoformat(),
@@ -261,17 +230,13 @@ async def patient_uploads_by_day(
 async def patient_upload_detail(
     request: Request,
     upload_id: int,
-    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientUploadDetailResponse:
+    _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
-    resolved_line_user_id = _resolve_patient_line_user_id(
-        principal=principal,
-        provided_line_user_id=line_user_id,
-    )
     session = _get_session(request)
     try:
-        patient_id = _resolve_matched_patient_id(session, line_user_id=resolved_line_user_id)
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
         try:
             detail = get_patient_upload_detail(session, patient_id=patient_id, upload_id=upload_id)
         except LookupError as exc:
@@ -347,20 +312,16 @@ async def patient_upload_image_public(
 @router.get("/v1/patient/messages", response_model=PatientMessageListResponse)
 async def patient_messages(
     request: Request,
-    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     unread_only: bool = Query(default=False),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientMessageListResponse:
+    _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
     session = _get_session(request)
     try:
-        patient_id = _resolve_message_patient_id(
-            session,
-            principal=principal,
-            provided_line_user_id=line_user_id,
-        )
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
         rows, total, unread_count = list_patient_annotation_messages(
             session,
             patient_id=patient_id,
@@ -400,17 +361,13 @@ async def patient_messages(
 @router.post("/v1/patient/messages/read-all", response_model=PatientMarkAllMessagesReadResponse)
 async def mark_all_patient_messages_read(
     request: Request,
-    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientMarkAllMessagesReadResponse:
+    _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
     session = _get_session(request)
     try:
-        patient_id = _resolve_message_patient_id(
-            session,
-            principal=principal,
-            provided_line_user_id=line_user_id,
-        )
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
         updated_count = mark_all_patient_annotation_messages_read(session, patient_id=patient_id)
         return PatientMarkAllMessagesReadResponse(updated_count=updated_count, unread_count=0)
     finally:
@@ -421,17 +378,13 @@ async def mark_all_patient_messages_read(
 async def mark_patient_message_read(
     request: Request,
     annotation_id: int,
-    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientMessageItemResponse:
+    _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
     session = _get_session(request)
     try:
-        patient_id = _resolve_message_patient_id(
-            session,
-            principal=principal,
-            provided_line_user_id=line_user_id,
-        )
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
         try:
             annotation = mark_patient_annotation_message_read(
                 session,
@@ -465,7 +418,6 @@ async def mark_patient_message_read(
 @router.post("/v1/patient/uploads", response_model=PatientUploadResponse)
 async def upload_patient_image(
     request: Request,
-    line_user_id: str | None = Form(default=None, min_length=1, max_length=128),
     pain: bool = Form(default=False),
     discharge: bool = Form(default=False),
     pus: bool = Form(default=False),
@@ -473,10 +425,9 @@ async def upload_patient_image(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientUploadResponse:
     principal = get_current_principal(request, credentials)
-    resolved_line_user_id = _resolve_patient_line_user_id(
-        principal=principal,
-        provided_line_user_id=line_user_id,
-    )
+    form = await request.form()
+    if "line_user_id" in form:
+        raise HTTPException(status_code=400, detail="line_user_id form field is no longer supported")
     settings = request.app.state.settings
     loaded_model = _get_loaded_model(request)
     loaded_prescreen_model = _get_loaded_prescreen_model(request)
@@ -501,7 +452,7 @@ async def upload_patient_image(
 
     session = _get_session(request)
     try:
-        status, patient_id, can_upload = get_identity_status(session, line_user_id=resolved_line_user_id)
+        status, patient_id, can_upload = _resolve_self_identity_status(session, principal=principal)
         if status != "matched" or patient_id is None or not can_upload:
             raise HTTPException(
                 status_code=403,
@@ -542,16 +493,12 @@ async def upload_patient_image(
 @router.get("/v1/patient/uploads/result", response_model=PatientUploadResultResponse)
 async def get_patient_upload_result(
     request: Request,
-    line_user_id: str | None = Query(default=None, min_length=1, max_length=128),
     upload_id: int | None = Query(default=None, ge=1),
     ai_result_id: int | None = Query(default=None, ge=1),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientUploadResultResponse:
+    _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
-    resolved_line_user_id = _resolve_patient_line_user_id(
-        principal=principal,
-        provided_line_user_id=line_user_id,
-    )
     if upload_id is None and ai_result_id is None:
         raise HTTPException(status_code=400, detail="Either upload_id or ai_result_id is required")
 
@@ -560,7 +507,7 @@ async def get_patient_upload_result(
         try:
             persisted = get_patient_result_for_line_user(
                 session,
-                line_user_id=resolved_line_user_id,
+                line_user_id=principal.line_user_id,
                 upload_id=upload_id,
                 ai_result_id=ai_result_id,
             )

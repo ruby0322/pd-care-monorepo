@@ -7,8 +7,8 @@ import { useEffect, useState } from "react";
 import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { resolveSessionlessBootstrapDestination } from "@/lib/auth/bootstrap-routing";
 import { buildLoginPath } from "@/lib/auth/liff";
-import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
-import { clearStaffSession } from "@/lib/auth/staff-session";
+import { getPatientSession } from "@/lib/auth/patient-session";
+import { clearAuthState, setActiveApp } from "@/lib/auth/principal-session";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { getStaffSession } from "@/lib/auth/staff-session";
 import { useClientSnapshot } from "@/lib/utils/use-client-snapshot";
@@ -48,8 +48,7 @@ export default function AppSelectionPage() {
           }
 
           if (bootstrap.next_step !== "app_selection" && bootstrap.next_step !== "patient_app") {
-            clearStaffSession();
-            clearPatientSession();
+            clearAuthState();
           }
 
           const destination = resolveSessionlessBootstrapDestination(bootstrap.next_step, {
@@ -92,7 +91,10 @@ export default function AppSelectionPage() {
         <div className="mt-5 flex flex-col gap-3">
           <button
             type="button"
-            onClick={() => router.push("/admin")}
+            onClick={() => {
+              setActiveApp("admin");
+              router.push("/admin");
+            }}
             className="group flex w-full items-center justify-between rounded-2xl bg-zinc-900 px-5 py-4 text-white transition-colors hover:bg-zinc-800"
           >
             <div className="text-left">
@@ -107,7 +109,10 @@ export default function AppSelectionPage() {
           {access === "ready:with-patient" ? (
             <button
               type="button"
-              onClick={() => router.push("/patient")}
+              onClick={() => {
+                setActiveApp("patient");
+                router.push("/patient");
+              }}
               className="group flex w-full items-center justify-between rounded-2xl border border-zinc-200 px-5 py-4 text-zinc-900 transition-colors hover:bg-zinc-50"
             >
               <div className="text-left">

@@ -55,6 +55,7 @@ def _seed_matched_identity(
     *,
     case_number: str = "P111111",
     birth_date: str = "1981-01-01",
+    role: str = "patient",
 ) -> int:
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
@@ -67,6 +68,7 @@ def _seed_matched_identity(
                 display_name="Patient A",
                 picture_url=None,
                 patient_id=patient.id,
+                role=role,
             )
         )
         session.commit()
@@ -179,7 +181,6 @@ def test_upload_history_returns_aggregated_days_for_matched_patient(tmp_path: Pa
 
         response = client.get(
             "/v1/patient/upload-history",
-            params={"line_user_id": "U_LINE_HISTORY"},
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -206,7 +207,6 @@ def test_upload_history_returns_pending_status_without_day_data(tmp_path: Path) 
 
         response = client.get(
             "/v1/patient/upload-history",
-            params={"line_user_id": "U_LINE_PENDING"},
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -253,7 +253,6 @@ def test_upload_history_groups_by_taipei_local_date_boundary(tmp_path: Path) -> 
 
         response = client.get(
             "/v1/patient/upload-history",
-            params={"line_user_id": "U_LINE_TZ_BOUNDARY"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -278,7 +277,6 @@ def test_patient_profile_returns_basic_profile_and_line_avatar(tmp_path: Path) -
 
         response = client.get(
             "/v1/patient/profile",
-            params={"line_user_id": "U_LINE_PROFILE"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -330,7 +328,6 @@ def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: P
 
         response = client.get(
             "/v1/patient/upload-history",
-            params={"line_user_id": "U_LINE_SUMMARY_ANNOTATION"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -380,7 +377,6 @@ def test_upload_history_excludes_rejected_from_summary_and_daily_counts(tmp_path
 
         response = client.get(
             "/v1/patient/upload-history",
-            params={"line_user_id": "U_LINE_SUMMARY_REJECTED"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -402,7 +398,7 @@ def test_patient_uploads_by_day_returns_day_scoped_records(tmp_path: Path) -> No
 
         response = client.get(
             "/v1/patient/uploads/by-day",
-            params={"date": "2026-05-08", "line_user_id": "U_LINE_BY_DAY"},
+            params={"date": "2026-05-08"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -453,7 +449,6 @@ def test_patient_upload_detail_returns_prev_next_and_latest_annotation(tmp_path:
 
         response = client.get(
             f"/v1/patient/uploads/{target_upload_id}/detail",
-            params={"line_user_id": "U_LINE_DETAIL"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -495,14 +490,12 @@ def test_patient_upload_detail_rejects_other_patient_access(tmp_path: Path) -> N
 
         owner_response = client.get(
             f"/v1/patient/uploads/{target_upload_id}/detail",
-            params={"line_user_id": "U_LINE_DETAIL_OWNER"},
             headers={"Authorization": f"Bearer {owner_token}"},
         )
         assert owner_response.status_code == 200
 
         forbidden_response = client.get(
             f"/v1/patient/uploads/{target_upload_id}/detail",
-            params={"line_user_id": "U_LINE_DETAIL_OTHER"},
             headers={"Authorization": f"Bearer {other_token}"},
         )
         assert forbidden_response.status_code == 404
@@ -551,7 +544,7 @@ def test_patient_messages_returns_latest_annotations_with_unread_filter(tmp_path
 
         unread_only_response = client.get(
             "/v1/patient/messages",
-            params={"line_user_id": "U_LINE_MESSAGES", "limit": 10, "offset": 0, "unread_only": True},
+            params={"limit": 10, "offset": 0, "unread_only": True},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert unread_only_response.status_code == 200
@@ -598,7 +591,6 @@ def test_patient_message_mark_read_updates_read_state(tmp_path: Path) -> None:
 
         response = client.post(
             f"/v1/patient/messages/{annotation_id}/read",
-            params={"line_user_id": "U_LINE_MESSAGES_READ"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -608,7 +600,7 @@ def test_patient_message_mark_read_updates_read_state(tmp_path: Path) -> None:
 
         unread_after = client.get(
             "/v1/patient/messages",
-            params={"line_user_id": "U_LINE_MESSAGES_READ", "unread_only": True},
+            params={"unread_only": True},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert unread_after.status_code == 200
@@ -658,7 +650,6 @@ def test_patient_message_mark_all_read_updates_all_unread(tmp_path: Path) -> Non
 
         response = client.post(
             "/v1/patient/messages/read-all",
-            params={"line_user_id": "U_LINE_MESSAGES_READ_ALL"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -668,7 +659,7 @@ def test_patient_message_mark_all_read_updates_all_unread(tmp_path: Path) -> Non
 
         unread_after = client.get(
             "/v1/patient/messages",
-            params={"line_user_id": "U_LINE_MESSAGES_READ_ALL", "unread_only": True},
+            params={"unread_only": True},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert unread_after.status_code == 200
@@ -680,7 +671,7 @@ def test_staff_with_bound_patient_can_access_patient_messages(tmp_path: Path) ->
     settings = make_settings(tmp_path / "patient-messages-staff-role.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_MESSAGES_STAFF")
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_MESSAGES_STAFF", role="staff")
         _seed_upload_history(client, patient_id=patient_id)
         token = _issue_token_for_line_user(client, line_user_id="U_LINE_MESSAGES_STAFF", role="staff")
         client.app.state.storage_service = _FakeStorageService()
@@ -710,7 +701,6 @@ def test_staff_with_bound_patient_can_access_patient_messages(tmp_path: Path) ->
 
         response = client.get(
             "/v1/patient/messages",
-            params={"line_user_id": "U_LINE_MESSAGES_STAFF"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200

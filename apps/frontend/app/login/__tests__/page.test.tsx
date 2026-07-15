@@ -6,6 +6,7 @@ import { apiClient, getApiErrorCode, getApiErrorDetail } from "@/lib/api/client"
 import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { setPatientSession } from "@/lib/auth/patient-session";
+import { setActiveApp } from "@/lib/auth/principal-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
 
 const mockReplace = jest.fn();
@@ -43,6 +44,10 @@ jest.mock("@/lib/auth/patient-session", () => ({
 
 jest.mock("@/lib/auth/staff-session", () => ({
   setStaffSession: jest.fn(),
+}));
+
+jest.mock("@/lib/auth/principal-session", () => ({
+  setActiveApp: jest.fn(),
 }));
 
 describe("LoginPage", () => {
@@ -125,6 +130,7 @@ describe("LoginPage", () => {
 
     await waitFor(() => {
       expect(setStaffSession).toHaveBeenCalled();
+      expect(setActiveApp).toHaveBeenCalledWith(null);
       expect(mockReplace).toHaveBeenCalledWith("/apps");
     });
   });
@@ -160,6 +166,7 @@ describe("LoginPage", () => {
           lineUserId: "line-admin",
         })
       );
+      expect(setActiveApp).toHaveBeenCalledWith(null);
       expect(mockReplace).toHaveBeenCalledWith("/apps");
     });
   });
@@ -189,6 +196,7 @@ describe("LoginPage", () => {
           lineUserId: "line-patient",
         })
       );
+      expect(setActiveApp).toHaveBeenCalledWith("patient");
       expect(mockReplace).toHaveBeenCalledWith("/patient/capture");
     });
   });

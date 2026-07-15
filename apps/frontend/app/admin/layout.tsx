@@ -26,8 +26,8 @@ import { apiClient } from "@/lib/api/client";
 import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { resolveSessionlessBootstrapDestination } from "@/lib/auth/bootstrap-routing";
 import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
-import { clearPatientSession } from "@/lib/auth/patient-session";
-import { clearStaffSession, getStaffSession } from "@/lib/auth/staff-session";
+import { clearAuthState } from "@/lib/auth/principal-session";
+import { getStaffSession } from "@/lib/auth/staff-session";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -57,8 +57,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           const { idToken } = await getLiffLoginProof();
           const bootstrap = await fetchAuthBootstrap(idToken);
           if (bootstrap.next_step !== "app_selection") {
-            clearStaffSession();
-            clearPatientSession();
+            clearAuthState();
             if (!cancelled) {
               setIsVerified(false);
               const destination = resolveSessionlessBootstrapDestination(bootstrap.next_step, {
@@ -75,7 +74,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           setIsVerified(true);
         }
       } catch {
-        clearStaffSession();
+        clearAuthState();
         if (!cancelled) {
           setIsVerified(false);
           const nextPath = pathname === "/admin/login" ? "/admin" : pathname;

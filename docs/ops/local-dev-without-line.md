@@ -48,8 +48,8 @@ before picking a new dev user. Either:
 - Append `?dev_line_user_id=<ID>` to any URL (e.g. `http://localhost:3000/login?dev_line_user_id=U_DEV_ADMIN&next=/admin`), **or**
 - Run in the browser console:
   ```js
-  localStorage.removeItem("pdCare.staffSession");
-  localStorage.removeItem("pdCare.patientSession");
+  localStorage.removeItem("pdCare.principalSession");
+  localStorage.removeItem("pdCare.activeApp");
   localStorage.setItem("pdCare.devLineUserId", "U_DEV_ADMIN");
   ```
 
@@ -67,7 +67,7 @@ validation (`^U[A-Za-z0-9_-]{5,127}$`).
 | *(unset)* `U_DEV_NEW` | No `liff_identities` row                 | Landing → role-select → patient/admin onboarding |
 | `U_DEV_PAT_PEND`      | `patient`, inactive + `pending_bindings` | Patient "等待護理師審核" screen                                     |
 | `U_DEV_PAT_MATCH`     | `patient`, matched to `P-DEV-MATCH-001`  | Patient dashboard after login                                |
-| `U_DEV_STAFF`         | `staff`, active                          | Staff login → `/apps` (admin card only)                      |
+| `U_DEV_STAFF`         | `staff`, active                          | Staff login → `/apps` (admin + patient cards; patient leads to onboarding when unbound) |
 | `U_DEV_ADMIN`         | `admin`, active                          | Admin login → `/apps` → `/admin`                             |
 | `U_DEV_DUAL`          | `admin`, active + matched patient        | `/apps` shows both admin and patient cards                   |
 
@@ -95,7 +95,8 @@ flowchart TD
     ONBA -->|我是醫護人員，請求權限| ONBAREQ[Submit healthcare-access-request]
 
     APPS -->|護理師後台| ADMIN["/admin"]
-    APPS -->|病患 App, only if patientSession set - U_DEV_DUAL| PAT
+    APPS -->|病患 App（active staff/admin 一律顯示）| PAT
+    PAT -->|unbound/pending staff/admin| ONBP
 ```
 
 
@@ -129,8 +130,8 @@ flowchart TD
   ```
 - [ ] **Staff/admin login →** `/apps` **→** `/admin`: `?dev_line_user_id=U_DEV_STAFF` (or
   ```
-  `U_DEV_ADMIN`), visit `/login?next=/apps`. Confirm `/apps` shows only the 護理師後台 card,
-  and clicking it reaches `/admin`.
+  `U_DEV_ADMIN`), visit `/login?next=/apps`. Confirm `/apps` shows 護理師後台與病患 App card；
+  clicking 護理師後台 reaches `/admin`, and clicking病患 App routes to patient onboarding when unbound.
   ```
 - [ ] **Dual-role** `/apps` **both cards**: `?dev_line_user_id=U_DEV_DUAL`, visit `/login?next=/apps`.
   ```
@@ -153,7 +154,7 @@ flowchart TD
 `LINE_VERIFY_MODE=stub` in `apps/backend/.env`, or `NEXT_PUBLIC_LIFF_ID` is still set somewhere
 frontend-side (check both `.env` and `.env.local`).
 - **Persona doesn't behave as expected**: sessions are sticky in `localStorage`; clear
-`pdCare.staffSession` / `pdCare.patientSession` before switching personas (Section 3).
+`pdCare.principalSession` / `pdCare.activeApp` before switching personas (Section 3).
 - **Persona data looks stale or missing**: re-run `npm run seed:dev-personas` — it's idempotent
 and safe to run repeatedly.
 - **Frontend hangs on "compiling"**: if Turbopack loops on missing modules, use webpack dev mode

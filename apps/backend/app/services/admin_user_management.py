@@ -196,7 +196,7 @@ def _build_list_identities_stmt(
     if role:
         stmt = stmt.where(LiffIdentity.role == role)
     if exclude_patient:
-        stmt = stmt.where(LiffIdentity.role != "patient")
+        stmt = stmt.where(LiffIdentity.role.in_(("staff", "admin")))
     if is_active is not None:
         stmt = stmt.where(LiffIdentity.is_active.is_(is_active))
     if created_from is not None:

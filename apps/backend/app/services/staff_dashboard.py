@@ -133,8 +133,9 @@ def list_patient_assignments(
         select(patient_identity.picture_url)
         .where(
             patient_identity.patient_id == Patient.id,
-            patient_identity.role == "patient",
+            patient_identity.is_active.is_(True),
         )
+        .order_by(case((patient_identity.role == "patient", 0), else_=1), patient_identity.id.asc())
         .correlate(Patient)
         .limit(1)
         .scalar_subquery()
@@ -218,8 +219,9 @@ def list_patient_assignments_by_staff(
         select(patient_identity.picture_url)
         .where(
             patient_identity.patient_id == Patient.id,
-            patient_identity.role == "patient",
+            patient_identity.is_active.is_(True),
         )
+        .order_by(case((patient_identity.role == "patient", 0), else_=1), patient_identity.id.asc())
         .correlate(Patient)
         .limit(1)
         .scalar_subquery()

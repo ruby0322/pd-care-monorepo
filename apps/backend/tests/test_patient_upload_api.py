@@ -180,7 +180,6 @@ def test_patient_upload_persists_upload_and_ai_result(tmp_path: Path) -> None:
         response = client.post(
             "/v1/patient/uploads",
             data={
-                "line_user_id": "U_LINE_BOUND",
                 "pain": "true",
                 "discharge": "true",
                 "pus": "false",
@@ -230,7 +229,6 @@ def test_patient_upload_creates_notification_for_suspected_risk(tmp_path: Path) 
         response = client.post(
             "/v1/patient/uploads",
             data={
-                "line_user_id": "U_LINE_BOUND_2",
                 "pain": "false",
                 "discharge": "true",
                 "pus": "true",
@@ -280,7 +278,6 @@ def test_patient_upload_rejected_when_prescreen_detects_non_exit_site(
 
         response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_PRESCREEN_REJECT"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -334,7 +331,6 @@ def test_patient_upload_fails_open_when_prescreen_inference_errors(
 
         response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_PRESCREEN_FAIL_OPEN"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -368,7 +364,6 @@ def test_patient_upload_rejects_unsupported_media_type(tmp_path: Path) -> None:
 
         response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_BOUND_3"},
             files={"file": ("capture.txt", b"not-image", "text/plain")},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -386,7 +381,6 @@ def test_patient_upload_rejects_pending_identity(tmp_path: Path) -> None:
 
         response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_PENDING"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -405,7 +399,6 @@ def test_patient_upload_storage_failure_does_not_persist_partial_records(tmp_pat
         with pytest.raises(RuntimeError, match="storage write failed"):
             client.post(
                 "/v1/patient/uploads",
-                data={"line_user_id": "U_LINE_BOUND_4"},
                 files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
                 headers={"Authorization": f"Bearer {token}"},
             )
@@ -426,7 +419,6 @@ def test_get_patient_result_by_upload_id_returns_persisted_record(tmp_path: Path
 
         upload_response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_RESULT_UPLOAD"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -436,7 +428,6 @@ def test_get_patient_result_by_upload_id_returns_persisted_record(tmp_path: Path
         response = client.get(
             "/v1/patient/uploads/result",
             params={
-                "line_user_id": "U_LINE_RESULT_UPLOAD",
                 "upload_id": upload_payload["upload_id"],
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -464,7 +455,6 @@ def test_get_patient_result_by_ai_result_id_returns_persisted_record(tmp_path: P
 
         upload_response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_RESULT_AI"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -474,7 +464,6 @@ def test_get_patient_result_by_ai_result_id_returns_persisted_record(tmp_path: P
         response = client.get(
             "/v1/patient/uploads/result",
             params={
-                "line_user_id": "U_LINE_RESULT_AI",
                 "ai_result_id": upload_payload["ai_result_id"],
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -502,7 +491,6 @@ def test_patient_upload_defaults_symptoms_to_false_when_omitted(tmp_path: Path) 
 
         response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_DEFAULT_SYMPTOMS"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -528,26 +516,35 @@ def test_get_patient_result_rejects_other_patient_access(tmp_path: Path) -> None
         )
         client.app.state.storage_service = _FakeStorageService()
         owner_token = _issue_token_for_line_user(client, line_user_id="U_LINE_RESULT_OWNER")
+        other_token = _issue_token_for_line_user(client, line_user_id="U_LINE_RESULT_OTHER")
 
         upload_response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_RESULT_OWNER"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {owner_token}"},
         )
         assert upload_response.status_code == 200
         upload_payload = upload_response.json()
 
-        response = client.get(
+        owner_response = client.get(
             "/v1/patient/uploads/result",
             params={
-                "line_user_id": "U_LINE_RESULT_OTHER",
                 "upload_id": upload_payload["upload_id"],
             },
             headers={"Authorization": f"Bearer {owner_token}"},
         )
+        assert owner_response.status_code == 200
+        owner_payload = owner_response.json()
+        assert owner_payload["patient_id"] == upload_payload["patient_id"]
 
-        assert response.status_code == 403
+        forbidden_response = client.get(
+            "/v1/patient/uploads/result",
+            params={
+                "upload_id": upload_payload["upload_id"],
+            },
+            headers={"Authorization": f"Bearer {other_token}"},
+        )
+        assert forbidden_response.status_code == 403
 
 
 def test_patient_upload_requires_authentication(tmp_path: Path) -> None:
@@ -559,11 +556,29 @@ def test_patient_upload_requires_authentication(tmp_path: Path) -> None:
 
         response = client.post(
             "/v1/patient/uploads",
-            data={"line_user_id": "U_LINE_AUTH_REQUIRED"},
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
         )
 
         assert response.status_code == 401
+
+
+def test_patient_upload_rejects_legacy_line_user_id_form_field(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path / "upload-legacy-line-user-id.db")
+    app = create_app(settings=settings, loaded_model=_make_loaded_model(_NormalModel(), settings))
+    with TestClient(app) as client:
+        _seed_bound_identity(client, line_user_id="U_LINE_LEGACY_FIELD")
+        client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_LEGACY_FIELD")
+
+        response = client.post(
+            "/v1/patient/uploads",
+            data={"line_user_id": "U_LINE_LEGACY_FIELD"},
+            files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "line_user_id form field is no longer supported"
 
 
 def test_patient_upload_history_requires_authentication(tmp_path: Path) -> None:
@@ -571,5 +586,5 @@ def test_patient_upload_history_requires_authentication(tmp_path: Path) -> None:
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         _seed_bound_identity(client, line_user_id="U_LINE_HISTORY_AUTH_REQUIRED")
-        response = client.get("/v1/patient/upload-history", params={"line_user_id": "U_LINE_HISTORY_AUTH_REQUIRED"})
+        response = client.get("/v1/patient/upload-history")
         assert response.status_code == 401

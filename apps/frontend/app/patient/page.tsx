@@ -13,6 +13,7 @@ import {
 } from "@/lib/api/upload-history";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
+import { setActiveApp } from "@/lib/auth/principal-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
 import { Camera, MessageSquare, UserRound } from "lucide-react";
 import Image from "next/image";
@@ -379,6 +380,7 @@ export default function PatientPage() {
                       lineUserId: session.lineUserId,
                     });
                   }
+                  setActiveApp("admin");
                   router.push("/admin");
                 }}
                 className="text-xs text-zinc-400 underline underline-offset-4"

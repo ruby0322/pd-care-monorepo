@@ -4,14 +4,14 @@ import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 
 import { buildLoginPath } from "@/lib/auth/liff";
-import { clearStaffSession, getStaffRole } from "@/lib/auth/staff-session";
+import { clearAuthState, getPrincipalSession } from "@/lib/auth/principal-session";
 
 export function AdminSessionActions() {
   const router = useRouter();
-  const role = useMemo(() => getStaffRole(), []);
+  const role = useMemo(() => getPrincipalSession()?.role ?? null, []);
 
   function handleSignOut() {
-    clearStaffSession();
+    clearAuthState();
     router.replace(buildLoginPath("/admin"));
     router.refresh();
   }

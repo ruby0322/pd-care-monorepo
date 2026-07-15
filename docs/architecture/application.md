@@ -13,7 +13,9 @@ the AI screening pipeline.
 
 RBAC rule: `admin > staff > patient`. Staff endpoints enforce role and patient
 assignment scope; admins bypass assignment filters where documented in
-[`admin-dashboard-prd.md`](../product/admin-dashboard-prd.md).
+[`admin-dashboard-prd.md`](../product/admin-dashboard-prd.md). Patient endpoints
+(`/v1/patient/*`) are self-service only and resolve the target patient from the
+authenticated identity's active binding (no client-selected `line_user_id`).
 
 ### Frontend (`apps/frontend`)
 
