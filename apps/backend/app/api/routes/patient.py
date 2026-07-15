@@ -25,7 +25,7 @@ from app.schemas.upload_history import (
 )
 from app.schemas.upload import PatientUploadResponse, PatientUploadResultResponse
 from app.services.auth.token_service import AuthPrincipal
-from app.services.identity import get_identity_profile, get_identity_status
+from app.services.identity import get_identity_profile_by_identity_id, get_identity_status_for_principal
 from app.services.model_loader import LoadedModel
 from app.services.prescreen import LoadedPrescreenModel
 from app.services.storage import StorageService
@@ -74,7 +74,7 @@ def _resolve_self_identity_status(
     *,
     principal: AuthPrincipal,
 ) -> tuple[str, int | None, bool]:
-    return get_identity_status(session, line_user_id=principal.line_user_id)
+    return get_identity_status_for_principal(session, principal=principal)
 
 
 def _resolve_matched_patient_id(
@@ -166,7 +166,7 @@ async def patient_profile(
     try:
         status, patient_id, can_upload = _resolve_self_identity_status(session, principal=principal)
         try:
-            profile = get_identity_profile(session, line_user_id=principal.line_user_id)
+            profile = get_identity_profile_by_identity_id(session, identity_id=principal.identity_id)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -425,6 +425,9 @@ async def upload_patient_image(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientUploadResponse:
     principal = get_current_principal(request, credentials)
+    form = await request.form()
+    if "line_user_id" in form:
+        raise HTTPException(status_code=400, detail="line_user_id form field is no longer supported")
     settings = request.app.state.settings
     loaded_model = _get_loaded_model(request)
     loaded_prescreen_model = _get_loaded_prescreen_model(request)

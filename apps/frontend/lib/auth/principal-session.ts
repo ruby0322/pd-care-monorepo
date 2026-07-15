@@ -14,6 +14,8 @@ export type PrincipalSession = {
 
 const PRINCIPAL_SESSION_STORAGE_KEY = "pdCare.principalSession";
 const ACTIVE_APP_STORAGE_KEY = "pdCare.activeApp";
+const STAFF_SESSION_STORAGE_KEY = "pdCare.staffSession";
+const PATIENT_SESSION_STORAGE_KEY = "pdCare.patientSession";
 
 function isBrowser(): boolean {
   return typeof window !== "undefined";
@@ -58,11 +60,82 @@ function normalizeAllowedApps(session: PrincipalSession): AllowedApp[] {
   return Array.from(allowed);
 }
 
+type LegacySession = {
+  accessToken: string;
+  expiresAt: number;
+  role: PrincipalRole;
+  lineUserId: string;
+  allowedApp: AllowedApp;
+};
+
+function parseLegacySession(raw: string | null, allowedApp: AllowedApp): LegacySession | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<PrincipalSession>;
+    if (!parsed.accessToken || !parsed.expiresAt || !parsed.role || !parsed.lineUserId) {
+      return null;
+    }
+    if (parsed.role !== "patient" && parsed.role !== "staff" && parsed.role !== "admin") {
+      return null;
+    }
+    return {
+      accessToken: parsed.accessToken,
+      expiresAt: parsed.expiresAt,
+      role: parsed.role,
+      lineUserId: parsed.lineUserId,
+      allowedApp,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearLegacySessions(): void {
+  window.localStorage.removeItem(STAFF_SESSION_STORAGE_KEY);
+  window.localStorage.removeItem(PATIENT_SESSION_STORAGE_KEY);
+}
+
+function migrateLegacySessions(): PrincipalSession | null {
+  const existing = parseSession(window.localStorage.getItem(PRINCIPAL_SESSION_STORAGE_KEY));
+  if (existing) {
+    clearLegacySessions();
+    return existing;
+  }
+
+  const legacyCandidates = [
+    parseLegacySession(window.localStorage.getItem(STAFF_SESSION_STORAGE_KEY), "admin"),
+    parseLegacySession(window.localStorage.getItem(PATIENT_SESSION_STORAGE_KEY), "patient"),
+  ].filter((candidate): candidate is LegacySession => Boolean(candidate) && Date.now() < candidate.expiresAt);
+
+  clearLegacySessions();
+  if (legacyCandidates.length === 0) {
+    return null;
+  }
+
+  const base = [...legacyCandidates].sort((a, b) => b.expiresAt - a.expiresAt)[0];
+  const allowedApps = Array.from(new Set(legacyCandidates.map((candidate) => candidate.allowedApp)));
+  const migratedSession: PrincipalSession = {
+    accessToken: base.accessToken,
+    expiresAt: base.expiresAt,
+    role: base.role,
+    lineUserId: base.lineUserId,
+    allowedApps,
+  };
+  setPrincipalSession(migratedSession);
+  return migratedSession;
+}
+
 export function getPrincipalSession(): PrincipalSession | null {
   if (!isBrowser()) {
     return null;
   }
-  const session = parseSession(window.localStorage.getItem(PRINCIPAL_SESSION_STORAGE_KEY));
+  const existing = parseSession(window.localStorage.getItem(PRINCIPAL_SESSION_STORAGE_KEY));
+  if (existing) {
+    clearLegacySessions();
+  }
+  const session = existing ?? migrateLegacySessions();
   if (!session) {
     return null;
   }
@@ -100,14 +173,6 @@ export function canAccessApp(app: AllowedApp): boolean {
     return false;
   }
   return session.allowedApps.includes(app);
-}
-
-export function getActiveApp(): ActiveApp {
-  if (!isBrowser()) {
-    return null;
-  }
-  const value = window.localStorage.getItem(ACTIVE_APP_STORAGE_KEY);
-  return value === "patient" || value === "admin" ? value : null;
 }
 
 export function setActiveApp(app: ActiveApp): void {

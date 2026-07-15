@@ -6,6 +6,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AuthorizationAuditEvent, LiffIdentity, Patient, PendingBinding
+from app.services.auth.token_service import AuthPrincipal
 from app.services.identity_validation import assert_valid_line_user_id
 
 
@@ -157,6 +158,28 @@ def get_identity_status(session: Session, *, line_user_id: str) -> tuple[str, in
     return ("unbound", None, False)
 
 
+def get_identity_status_for_principal(
+    session: Session,
+    *,
+    principal: AuthPrincipal,
+) -> tuple[str, int | None, bool]:
+    if principal.patient_id is not None:
+        patient = session.get(Patient, principal.patient_id)
+        if patient is not None and patient.is_active:
+            return ("matched", patient.id, True)
+
+    has_pending = session.execute(
+        select(PendingBinding.id).where(
+            PendingBinding.line_user_id == principal.line_user_id,
+            PendingBinding.status == "pending",
+        )
+    ).scalar_one_or_none()
+    if has_pending is not None:
+        return ("pending", None, False)
+
+    return ("unbound", None, False)
+
+
 def _record_patient_binding_audit(
     session: Session,
     *,
@@ -196,6 +219,23 @@ def get_identity_profile(session: Session, *, line_user_id: str) -> IdentityProf
     identity = session.execute(
         select(LiffIdentity).where(LiffIdentity.line_user_id == line_user_id)
     ).scalar_one_or_none()
+    if identity is None:
+        raise LookupError("Identity not found")
+
+    patient = session.get(Patient, identity.patient_id) if identity.patient_id is not None else None
+    return IdentityProfile(
+        line_user_id=identity.line_user_id,
+        display_name=identity.display_name,
+        picture_url=identity.picture_url,
+        patient_id=identity.patient_id,
+        full_name=patient.full_name if patient else None,
+        case_number=patient.case_number if patient else None,
+        birth_date=patient.birth_date if patient else None,
+    )
+
+
+def get_identity_profile_by_identity_id(session: Session, *, identity_id: int) -> IdentityProfile:
+    identity = session.get(LiffIdentity, identity_id)
     if identity is None:
         raise LookupError("Identity not found")
 
