@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import os
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.config import get_settings
 from app.db.base import Base
 from app.db import models as _models  # noqa: F401  # Ensure metadata imports all models.
+from app.db.migrations import resolve_alembic_database_url
 
 config = context.config
 
@@ -19,14 +18,7 @@ target_metadata = Base.metadata
 
 
 def _resolve_database_url() -> str:
-    # Priority: alembic config override, explicit env override, then app settings.
-    configured = config.get_main_option("sqlalchemy.url")
-    if configured:
-        return configured
-    explicit = os.getenv("ALEMBIC_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if explicit:
-        return explicit
-    return get_settings().database_url
+    return resolve_alembic_database_url(configured=config.get_main_option("sqlalchemy.url"))
 
 
 def run_migrations_offline() -> None:

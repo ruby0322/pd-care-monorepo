@@ -195,6 +195,23 @@ Prod migration sequencing is encoded in manifests:
 
 This ensures schema migration runs before backend deployment updates.
 
+**Do not** apply the Job manifest alone:
+
+```bash
+# Wrong: image stays pd-care-backend:latest → ImagePullBackOff; skips kustomize tag rewrite
+kubectl apply -f k8s/overlays/prod/migrate-job.yaml -n pd-care-prod
+
+# Prefer Argo CD sync of pd-care-prod. Manual fallback uses kustomize:
+kubectl apply -k k8s/overlays/prod
+```
+
+`kubectl apply -k` is intentional for image-tag rewrite but applies the **entire** prod
+overlay (deployments, ingress, Job), not a Job-only patch — prefer Argo CD when possible.
+
+Alembic honors `DATABASE_URL` from the Job secret (Postgres). Job `Complete` alone is not
+enough if an older image still preferred `alembic.ini` SQLite — after sync, confirm prod
+Postgres head (see §8).
+
 ### Stuck `backend-migrate` hook
 
 If a prod sync used a nonexistent GHCR tag (for example `ghcr.io/.../backend:latest`), the
@@ -233,7 +250,7 @@ automatically (`HookFailed`) or time out (`activeDeadlineSeconds`).
 5. Confirm Argo CD syncs `pd-care-dev` healthy.
 6. Trigger `CD Promote Prod` with matching tags.
 7. Confirm `k8s/overlays/prod/kustomization.yaml` receives promotion commit.
-8. Confirm Argo CD syncs `pd-care-prod`, `backend-migrate` PreSync hook completes, and pods become healthy.
+8. Confirm Argo CD syncs `pd-care-prod`, `backend-migrate` PreSync hook completes (logs show `PostgresqlImpl`), pods become healthy, and prod `alembic_version` matches the promoted image head.
 
 If bootstrap skipped `GHCR_TOKEN`, create `ghcr-pull-secret` first (§2), then re-run:
 
@@ -249,10 +266,15 @@ After each dev sync or prod promotion:
 kubectl get pods -n pd-care-dev
 kubectl get pods -n pd-care-prod
 kubectl get job/backend-migrate -n pd-care-prod
+kubectl logs job/backend-migrate -n pd-care-prod | grep -E 'PostgresqlImpl|SQLiteImpl|Running upgrade'
+kubectl exec -n pd-care-prod postgres-0 -- psql -U postgres -d pd_care -c "SELECT version_num FROM alembic_version;"
 kubectl get deploy backend frontend -n pd-care-prod
 curl -fsS https://pd.lu.im.ntu.edu.tw/api/readyz
 curl -fsS https://pd.lu.im.ntu.edu.tw/
 ```
+
+`/readyz` only checks model load — also verify Postgres `alembic_version` (and that migrate
+logs used `PostgresqlImpl`, not `SQLiteImpl`).
 
 ## 9) Rollback
 

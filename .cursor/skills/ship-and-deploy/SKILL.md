@@ -212,16 +212,20 @@ No migration Job. Prod frontend runs `replicas: 2` with `maxUnavailable: 0`.
 eval "$(minikube docker-env)"
 docker build -t pd-care-backend:latest ./apps/backend
 
-# Run migrations once via Job (required when apps/backend/migrations/** changed)
+# Prefer Argo CD sync. Manual migrate: use kustomize so Job image tag is rewritten
+# (apply -f migrate-job.yaml alone → pd-care-backend:latest ImagePullBackOff).
+# apply -k updates the entire prod overlay, not Job-only.
 kubectl delete job backend-migrate -n pd-care-prod --ignore-not-found
-kubectl apply -f k8s/overlays/prod/migrate-job.yaml -n pd-care-prod
+kubectl apply -k k8s/overlays/prod
 kubectl wait --for=condition=complete job/backend-migrate -n pd-care-prod --timeout=300s
+kubectl logs job/backend-migrate -n pd-care-prod | grep PostgresqlImpl
 
 kubectl rollout restart deploy/backend -n pd-care-prod
 kubectl rollout status deploy/backend -n pd-care-prod --timeout=600s
 ```
 
-Prod backend pods set `RUN_DB_MIGRATIONS=false`; Alembic runs only in the Job. If the diff has **no** migration files, the Job is still safe (idempotent `upgrade head`) but can be skipped when you are certain schema is unchanged.
+Prod backend pods set `RUN_DB_MIGRATIONS=false`; Alembic runs only in the Job (and must honor
+`DATABASE_URL` Postgres, not `alembic.ini` SQLite). If the diff has **no** migration files, the Job is still safe (idempotent `upgrade head`) but can be skipped when you are certain schema is unchanged.
 
 `pd-care-backend` bakes model artifacts at build time. Set `HF_TOKEN` when private Hub access or rate limits require auth.
 

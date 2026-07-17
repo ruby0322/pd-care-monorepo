@@ -4,6 +4,7 @@ Track skill updates separately from application commits so drift is auditable.
 
 | Date | Version | Commit audited | Change |
 | --- | --- | --- | --- |
+| 2026-07-17 | 1.5.3 | 95616b8 | Align prod migrate docs to `kubectl apply -k` (image rewrite); note full-overlay scope vs Job-only; prefer Argo CD |
 | 2026-07-04 | 1.5.2 | d20d28a | Ingress bridge docs: host `:80` + `:443` for cert-manager HTTP-01; K8s TLS notes in reference |
 | 2026-07-02 | 1.5.1 | cea9e69 | Add Argo CD bootstrap/verify scripts and document CI-gated promotion follow-ups |
 | 2026-07-02 | 1.5.0 | 113c8df | Document Argo CD hardening updates: CI-gated dev CD, GHCR pull-secret requirement, and promotion tag validation |
