@@ -300,18 +300,39 @@ async def get_admin_today_suspected_summary(
 async def get_admin_suspected_summary(
     request: Request,
     months: int | None = Query(default=None, ge=1, le=60),
+    age_min: int | None = Query(default=None, ge=0),
+    age_max: int | None = Query(default=None, ge=0),
+    infection_status: str = Query(default="all", pattern="^(all|suspected|normal)$"),
+    is_active_filter: str = Query(default="all", pattern="^(all|active|inactive)$"),
     credentials=Depends(bearer_scheme),
     session: Session = Depends(get_staff_session),
 ) -> StaffTodaySuspectedSummaryResponse:
-    """Today summary when months is omitted; otherwise aggregate from staff patient-list month cutoff."""
+    """Today summary when months is omitted; otherwise aggregate from staff patient-list month cutoff.
+
+    Age / infection / active filters use the same patient set as the staff patient list
+    (months=1 when summarizing today).
+    """
     require_admin(get_current_principal(request, credentials))
+    filter_months = months if months is not None else 1
+    filtered_patient_ids = _list_filtered_patient_ids_for_admin_analytics(
+        session,
+        query=None,
+        months=filter_months,
+        age_min=age_min,
+        age_max=age_max,
+        infection_status=infection_status,
+        binding_filter="all",
+        is_active_filter=is_active_filter,
+        created_from=None,
+        created_to=None,
+    )
     if months is None:
         summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads, suspected_users, symptom_elevated_users = (
-            get_today_suspected_summary(session, accessible_patient_ids=None)
+            get_today_suspected_summary(session, accessible_patient_ids=filtered_patient_ids)
         )
     else:
         summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads, suspected_users, symptom_elevated_users = (
-            get_period_suspected_summary(session, months=months, accessible_patient_ids=None)
+            get_period_suspected_summary(session, months=months, accessible_patient_ids=filtered_patient_ids)
         )
     normal_uploads = max(total_uploads - suspected_uploads - symptom_elevated_uploads, 0)
     ratio = (suspected_uploads / total_uploads) if total_uploads > 0 else 0.0

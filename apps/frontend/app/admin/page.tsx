@@ -94,8 +94,6 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState({
     totalPatients: 0,
     totalUploads: 0,
-    suspectedPatients: 0,
-    symptomElevatedPatients: 0,
   });
   const [selectedCandidate, setSelectedCandidate] = useState<Record<number, string>>({});
   const [workingPendingId, setWorkingPendingId] = useState<number | null>(null);
@@ -158,8 +156,6 @@ export default function AdminDashboard() {
         setStats({
           totalPatients: patientsData.total_patients,
           totalUploads: patientsData.total_uploads,
-          suspectedPatients: patientsData.suspected_patients,
-          symptomElevatedPatients: patientsData.symptom_elevated_patients ?? 0,
         });
         setQueue(queueData.items);
         setPending(pendingData);
@@ -180,10 +176,16 @@ export default function AdminDashboard() {
     async function loadAnalytics() {
       setAnalyticsError(null);
       try {
+        const summaryFilters = {
+          ageMin: ageMin ? Number(ageMin) : undefined,
+          ageMax: ageMax ? Number(ageMax) : undefined,
+          infectionStatus,
+          isActiveFilter: "active" as const,
+        };
         const [riskData, activeData, dailyData] = await Promise.all([
           months === "today"
-            ? fetchAdminSuspectedSummary()
-            : fetchAdminSuspectedSummary({ months }),
+            ? fetchAdminSuspectedSummary(summaryFilters)
+            : fetchAdminSuspectedSummary({ months, ...summaryFilters }),
           fetchAdminActiveUsersSeries({
             activeWindowDays,
             lookbackDays: activeLookbackDays,
@@ -207,7 +209,7 @@ export default function AdminDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [activeInterval, activeLookbackDays, activeWindowDays, dailyLookbackDays, months]);
+  }, [activeInterval, activeLookbackDays, activeWindowDays, ageMax, ageMin, dailyLookbackDays, infectionStatus, months]);
 
   const pendingItems = useMemo(() => pending.filter((item) => item.status === "pending"), [pending]);
   const visibleNotifications = useMemo(
@@ -293,16 +295,8 @@ export default function AdminDashboard() {
           symptom_elevated_uploads: { label: "症狀高風險", color: "#f97316" },
           ratio_pct: { label: "疑似比例(%)", color: "#2563eb" },
         };
-  const suspectedKpi = getSuspectedKpi(
-    months,
-    stats.suspectedPatients,
-    riskSummary?.suspected_users
-  );
-  const elevatedKpi = getElevatedUserKpi(
-    months,
-    stats.symptomElevatedPatients,
-    riskSummary?.symptom_elevated_users
-  );
+  const suspectedKpi = getSuspectedKpi(months, riskSummary?.suspected_users);
+  const elevatedKpi = getElevatedUserKpi(months, riskSummary?.symptom_elevated_users);
   const riskChartTitle = months === "today" ? "今日疑似感染" : `${months} 月疑似感染`;
 
   async function refreshPending() {

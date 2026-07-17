@@ -720,18 +720,23 @@ export async function fetchAdminGenderDistribution(
   return data;
 }
 
-export async function fetchAdminTodaySuspectedSummary(): Promise<AdminTodaySuspectedSummaryResponse> {
-  const { data } = await apiClient.get<AdminTodaySuspectedSummaryResponse>("/v1/staff/admin/analytics/suspected-infections/today");
-  return data;
-}
-
 export async function fetchAdminSuspectedSummary(params?: {
   months?: number;
+  ageMin?: number;
+  ageMax?: number;
+  infectionStatus?: "all" | "suspected" | "normal";
+  isActiveFilter?: "all" | "active" | "inactive";
 }): Promise<AdminTodaySuspectedSummaryResponse> {
   const { data } = await apiClient.get<AdminTodaySuspectedSummaryResponse>(
     "/v1/staff/admin/analytics/suspected-infections/summary",
     {
-      params: params?.months != null ? { months: params.months } : undefined,
+      params: {
+        months: params?.months,
+        age_min: params?.ageMin,
+        age_max: params?.ageMax,
+        infection_status: params?.infectionStatus ?? "all",
+        is_active_filter: params?.isActiveFilter ?? "all",
+      },
     }
   );
   return data;

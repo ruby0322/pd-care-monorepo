@@ -366,13 +366,7 @@ def list_staff_patients(
     created_to: date | None,
     accessible_patient_ids: set[int] | None = None,
 ) -> list[StaffPatientRow]:
-    cutoff = datetime.now(tz=timezone.utc).replace(day=1)
-    month = cutoff.month - months
-    year = cutoff.year
-    while month <= 0:
-        month += 12
-        year -= 1
-    cutoff = cutoff.replace(year=year, month=month)
+    cutoff = _months_upload_cutoff(months)
 
     patient_query: Select = select(Patient)
     if is_active_filter == "active":
