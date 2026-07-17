@@ -31,7 +31,7 @@ import { getElevatedUserKpi, getSuspectedKpi } from "@/lib/admin/dashboard-kpi";
 import {
   fetchAdminActiveUsersSeries,
   fetchAdminDailySuspectedSeries,
-  fetchAdminTodaySuspectedSummary,
+  fetchAdminSuspectedSummary,
   approvePendingBinding,
   fetchPendingBindings,
   fetchStaffPatients,
@@ -110,7 +110,7 @@ export default function AdminDashboard() {
   const [activeLookbackDays, setActiveLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
   const [activeInterval, setActiveInterval] = useState<"day" | "week">("day");
   const [dailyLookbackDays, setDailyLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
-  const [todaySummary, setTodaySummary] = useState<{
+  const [riskSummary, setRiskSummary] = useState<{
     total_uploads: number;
     suspected_uploads: number;
     symptom_elevated_uploads: number;
@@ -180,8 +180,10 @@ export default function AdminDashboard() {
     async function loadAnalytics() {
       setAnalyticsError(null);
       try {
-        const [todayData, activeData, dailyData] = await Promise.all([
-          fetchAdminTodaySuspectedSummary(),
+        const [riskData, activeData, dailyData] = await Promise.all([
+          months === "today"
+            ? fetchAdminSuspectedSummary()
+            : fetchAdminSuspectedSummary({ months }),
           fetchAdminActiveUsersSeries({
             activeWindowDays,
             lookbackDays: activeLookbackDays,
@@ -192,7 +194,7 @@ export default function AdminDashboard() {
         if (cancelled) {
           return;
         }
-        setTodaySummary(todayData);
+        setRiskSummary(riskData);
         setActiveUsersSeries(activeData.items);
         setDailySuspectedSeries(dailyData.items);
       } catch (error) {
@@ -205,7 +207,7 @@ export default function AdminDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [activeInterval, activeLookbackDays, activeWindowDays, dailyLookbackDays]);
+  }, [activeInterval, activeLookbackDays, activeWindowDays, dailyLookbackDays, months]);
 
   const pendingItems = useMemo(() => pending.filter((item) => item.status === "pending"), [pending]);
   const visibleNotifications = useMemo(
@@ -217,10 +219,10 @@ export default function AdminDashboard() {
     () => (showAllPending ? pendingItems : pendingItems.slice(0, 3)),
     [pendingItems, showAllPending]
   );
-  const todayChartData = useMemo(() => {
-    const suspected = todaySummary?.suspected_uploads ?? 0;
-    const elevated = todaySummary?.symptom_elevated_uploads ?? 0;
-    const normal = todaySummary?.normal_uploads ?? 0;
+  const riskChartData = useMemo(() => {
+    const suspected = riskSummary?.suspected_uploads ?? 0;
+    const elevated = riskSummary?.symptom_elevated_uploads ?? 0;
+    const normal = riskSummary?.normal_uploads ?? 0;
     if (riskChartMode === "aggregate") {
       return [
         { key: "risk", label: "風險合計", count: suspected + elevated, fill: "#dc2626" },
@@ -232,7 +234,7 @@ export default function AdminDashboard() {
       { key: "elevated", label: "症狀高風險", count: elevated, fill: "#f97316" },
       { key: "normal", label: "正常", count: normal, fill: "#16a34a" },
     ];
-  }, [riskChartMode, todaySummary]);
+  }, [riskChartMode, riskSummary]);
   const activeUserChartData = useMemo(
     () =>
       activeUsersSeries.map((point) => ({
@@ -259,17 +261,17 @@ export default function AdminDashboard() {
       }),
     [dailySuspectedSeries, riskChartMode]
   );
-  const todayRiskRatio = useMemo(() => {
-    if (!todaySummary || todaySummary.total_uploads <= 0) {
+  const riskChartRatio = useMemo(() => {
+    if (!riskSummary || riskSummary.total_uploads <= 0) {
       return 0;
     }
     if (riskChartMode === "aggregate") {
       return (
-        (todaySummary.suspected_uploads + todaySummary.symptom_elevated_uploads) / todaySummary.total_uploads
+        (riskSummary.suspected_uploads + riskSummary.symptom_elevated_uploads) / riskSummary.total_uploads
       );
     }
-    return todaySummary.suspected_ratio;
-  }, [riskChartMode, todaySummary]);
+    return riskSummary.suspected_ratio;
+  }, [riskChartMode, riskSummary]);
   const todayChartConfig: ChartConfig = {
     suspected: { label: "疑似感染", color: "#dc2626" },
     elevated: { label: "症狀高風險", color: "#f97316" },
@@ -291,8 +293,17 @@ export default function AdminDashboard() {
           symptom_elevated_uploads: { label: "症狀高風險", color: "#f97316" },
           ratio_pct: { label: "疑似比例(%)", color: "#2563eb" },
         };
-  const suspectedKpi = getSuspectedKpi(months, stats.suspectedPatients, todaySummary?.suspected_users);
-  const elevatedKpi = getElevatedUserKpi(months, stats.symptomElevatedPatients, todaySummary?.symptom_elevated_users);
+  const suspectedKpi = getSuspectedKpi(
+    months,
+    stats.suspectedPatients,
+    riskSummary?.suspected_users
+  );
+  const elevatedKpi = getElevatedUserKpi(
+    months,
+    stats.symptomElevatedPatients,
+    riskSummary?.symptom_elevated_users
+  );
+  const riskChartTitle = months === "today" ? "今日疑似感染" : `${months} 月疑似感染`;
 
   async function refreshPending() {
     const items = await fetchPendingBindings();
@@ -505,7 +516,7 @@ export default function AdminDashboard() {
           {
             icon: Upload,
             label: months === "today" ? "今日上傳次數" : `${months} 月上傳次數`,
-            value: months === "today" ? (todaySummary?.total_uploads ?? stats.totalUploads) : stats.totalUploads,
+            value: riskSummary?.total_uploads ?? stats.totalUploads,
           },
           { icon: AlertTriangle, label: suspectedKpi.label, value: suspectedKpi.value },
           { icon: AlertTriangle, label: elevatedKpi.label, value: elevatedKpi.value },
@@ -531,7 +542,7 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <div className="space-y-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-medium text-zinc-900">今日疑似感染</h3>
+              <h3 className="text-sm font-medium text-zinc-900">{riskChartTitle}</h3>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
                   <button
@@ -577,17 +588,17 @@ export default function AdminDashboard() {
             </div>
             <p className="mb-2 text-xs text-zinc-500">
               {riskChartMode === "aggregate" ? "風險比例" : "疑似比例"}{" "}
-              {(todayRiskRatio * 100).toFixed(1)}%（共 {todaySummary?.total_uploads ?? 0} 筆）
+              {(riskChartRatio * 100).toFixed(1)}%（共 {riskSummary?.total_uploads ?? 0} 筆）
             </p>
             <ChartContainer className="h-64 w-full" config={todayChartConfig}>
               {todayChartType === "bar" ? (
-                <BarChart data={todayChartData}>
+                <BarChart data={riskChartData}>
                   <CartesianGrid vertical={false} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar dataKey="count" radius={6}>
-                    {todayChartData.map((item) => (
+                    {riskChartData.map((item) => (
                       <Cell key={item.key} fill={item.fill} />
                     ))}
                   </Bar>
@@ -595,8 +606,8 @@ export default function AdminDashboard() {
               ) : (
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Pie data={todayChartData} dataKey="count" nameKey="label" outerRadius={90}>
-                    {todayChartData.map((item) => (
+                  <Pie data={riskChartData} dataKey="count" nameKey="label" outerRadius={90}>
+                    {riskChartData.map((item) => (
                       <Cell key={item.key} fill={item.fill} />
                     ))}
                   </Pie>

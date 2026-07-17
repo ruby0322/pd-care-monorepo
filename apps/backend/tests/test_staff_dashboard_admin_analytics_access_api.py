@@ -88,6 +88,21 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         assert today_payload["normal_uploads"] == 1
         assert today_payload["suspected_ratio"] == 0.5
 
+        summary_today = client.get("/v1/staff/admin/analytics/suspected-infections/summary", headers=headers)
+        assert summary_today.status_code == 200
+        assert summary_today.json()["total_uploads"] == today_payload["total_uploads"]
+
+        summary_period = client.get(
+            "/v1/staff/admin/analytics/suspected-infections/summary?months=12",
+            headers=headers,
+        )
+        assert summary_period.status_code == 200
+        period_payload = summary_period.json()
+        assert period_payload["total_uploads"] >= today_payload["total_uploads"]
+        assert "suspected_uploads" in period_payload
+        assert "symptom_elevated_uploads" in period_payload
+        assert "normal_uploads" in period_payload
+
         histogram_response = client.get("/v1/staff/admin/analytics/age-histogram?bucket_size=10", headers=headers)
         assert histogram_response.status_code == 200
         histogram_payload = histogram_response.json()

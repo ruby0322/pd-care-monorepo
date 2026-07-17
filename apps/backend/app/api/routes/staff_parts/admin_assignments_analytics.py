@@ -35,6 +35,7 @@ from app.services.staff_dashboard import (
     get_active_users_series,
     get_age_histogram,
     get_daily_suspected_series,
+    get_period_suspected_summary,
     get_today_suspected_summary,
     list_patient_assignments,
     list_patient_assignments_by_staff,
@@ -281,6 +282,37 @@ async def get_admin_today_suspected_summary(
     summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads, suspected_users, symptom_elevated_users = (
         get_today_suspected_summary(session, accessible_patient_ids=None)
     )
+    normal_uploads = max(total_uploads - suspected_uploads - symptom_elevated_uploads, 0)
+    ratio = (suspected_uploads / total_uploads) if total_uploads > 0 else 0.0
+    return StaffTodaySuspectedSummaryResponse(
+        date=summary_date.isoformat(),
+        total_uploads=total_uploads,
+        suspected_uploads=suspected_uploads,
+        symptom_elevated_uploads=symptom_elevated_uploads,
+        suspected_users=suspected_users,
+        symptom_elevated_users=symptom_elevated_users,
+        normal_uploads=normal_uploads,
+        suspected_ratio=ratio,
+    )
+
+
+@router.get("/v1/staff/admin/analytics/suspected-infections/summary", response_model=StaffTodaySuspectedSummaryResponse)
+async def get_admin_suspected_summary(
+    request: Request,
+    months: int | None = Query(default=None, ge=1, le=60),
+    credentials=Depends(bearer_scheme),
+    session: Session = Depends(get_staff_session),
+) -> StaffTodaySuspectedSummaryResponse:
+    """Today summary when months is omitted; otherwise aggregate from staff patient-list month cutoff."""
+    require_admin(get_current_principal(request, credentials))
+    if months is None:
+        summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads, suspected_users, symptom_elevated_users = (
+            get_today_suspected_summary(session, accessible_patient_ids=None)
+        )
+    else:
+        summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads, suspected_users, symptom_elevated_users = (
+            get_period_suspected_summary(session, months=months, accessible_patient_ids=None)
+        )
     normal_uploads = max(total_uploads - suspected_uploads - symptom_elevated_uploads, 0)
     ratio = (suspected_uploads / total_uploads) if total_uploads > 0 else 0.0
     return StaffTodaySuspectedSummaryResponse(

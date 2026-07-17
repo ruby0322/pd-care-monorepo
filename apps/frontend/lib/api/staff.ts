@@ -725,6 +725,18 @@ export async function fetchAdminTodaySuspectedSummary(): Promise<AdminTodaySuspe
   return data;
 }
 
+export async function fetchAdminSuspectedSummary(params?: {
+  months?: number;
+}): Promise<AdminTodaySuspectedSummaryResponse> {
+  const { data } = await apiClient.get<AdminTodaySuspectedSummaryResponse>(
+    "/v1/staff/admin/analytics/suspected-infections/summary",
+    {
+      params: params?.months != null ? { months: params.months } : undefined,
+    }
+  );
+  return data;
+}
+
 export async function fetchAdminAgeHistogram(params?: AdminPatientAnalyticsFilters & {
   bucketSize?: number;
   includeInactive?: boolean;

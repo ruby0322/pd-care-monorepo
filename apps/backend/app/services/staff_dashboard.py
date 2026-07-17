@@ -957,6 +957,48 @@ def list_gender_distribution(
     return [(key, counts.get(key, 0)) for key in ordered_keys]
 
 
+def _months_upload_cutoff(months: int) -> datetime:
+    cutoff = datetime.now(tz=timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month = cutoff.month - months
+    year = cutoff.year
+    while month <= 0:
+        month += 12
+        year -= 1
+    return cutoff.replace(year=year, month=month)
+
+
+def _summarize_tiered_uploads(
+    rows: list[tuple[Upload, AIResult]],
+    *,
+    latest_annotation_by_upload: dict[int, Annotation],
+) -> tuple[int, int, int, int, int]:
+    total_uploads = len(rows)
+    suspected_uploads = 0
+    symptom_elevated_uploads = 0
+    suspected_patient_ids: set[int] = set()
+    elevated_patient_ids: set[int] = set()
+    for upload, ai_result in rows:
+        tier = _tier_for_upload(
+            upload=upload,
+            screening_result=ai_result.screening_result,
+            annotation=latest_annotation_by_upload.get(upload.id),
+        )
+        if tier == "suspected":
+            suspected_uploads += 1
+            suspected_patient_ids.add(upload.patient_id)
+        elif tier == "elevated":
+            symptom_elevated_uploads += 1
+            elevated_patient_ids.add(upload.patient_id)
+    elevated_patient_ids -= suspected_patient_ids
+    return (
+        total_uploads,
+        suspected_uploads,
+        symptom_elevated_uploads,
+        len(suspected_patient_ids),
+        len(elevated_patient_ids),
+    )
+
+
 def get_today_suspected_summary(
     session: Session,
     *,
@@ -980,34 +1022,43 @@ def get_today_suspected_summary(
     rows = session.execute(base_query).all()
     upload_ids = {upload.id for upload, _ in rows}
     latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
-
-    total_uploads = len(rows)
-    suspected_uploads = 0
-    symptom_elevated_uploads = 0
-    suspected_patient_ids: set[int] = set()
-    elevated_patient_ids: set[int] = set()
-    for upload, ai_result in rows:
-        tier = _tier_for_upload(
-            upload=upload,
-            screening_result=ai_result.screening_result,
-            annotation=latest_annotation_by_upload.get(upload.id),
-        )
-        if tier == "suspected":
-            suspected_uploads += 1
-            suspected_patient_ids.add(upload.patient_id)
-        elif tier == "elevated":
-            symptom_elevated_uploads += 1
-            elevated_patient_ids.add(upload.patient_id)
-    # Patient buckets are mutually exclusive: any suspected upload wins over elevated-only.
-    elevated_patient_ids -= suspected_patient_ids
-    return (
-        today,
-        total_uploads,
-        suspected_uploads,
-        symptom_elevated_uploads,
-        len(suspected_patient_ids),
-        len(elevated_patient_ids),
+    total, suspected, elevated, suspected_users, elevated_users = _summarize_tiered_uploads(
+        rows,
+        latest_annotation_by_upload=latest_annotation_by_upload,
     )
+    return today, total, suspected, elevated, suspected_users, elevated_users
+
+
+def get_period_suspected_summary(
+    session: Session,
+    *,
+    months: int,
+    accessible_patient_ids: set[int] | None = None,
+) -> tuple[date, int, int, int, int, int]:
+    """Aggregate upload tiers from the same month cutoff used by staff patient list."""
+    today, _, _ = resolve_taipei_day_bounds()
+    cutoff = _months_upload_cutoff(months)
+    base_query: Select = (
+        select(Upload, AIResult)
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .join(Patient, Patient.id == Upload.patient_id)
+        .where(
+            Upload.created_at >= cutoff,
+            AIResult.screening_result != "rejected",
+        )
+    )
+    if accessible_patient_ids is not None:
+        if not accessible_patient_ids:
+            return today, 0, 0, 0, 0, 0
+        base_query = base_query.where(Patient.id.in_(accessible_patient_ids))
+    rows = session.execute(base_query).all()
+    upload_ids = {upload.id for upload, _ in rows}
+    latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
+    total, suspected, elevated, suspected_users, elevated_users = _summarize_tiered_uploads(
+        rows,
+        latest_annotation_by_upload=latest_annotation_by_upload,
+    )
+    return today, total, suspected, elevated, suspected_users, elevated_users
 
 
 def get_age_histogram(
