@@ -16,8 +16,8 @@ from app.services.model_loader import decode_image, resolve_device
 LOGGER = get_logger(__name__)
 DEFAULT_CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 DEFAULT_THRESHOLD = 0.5
-# Live capture guidance is slightly more lenient than final upload gate.
-LIVE_PRESCREEN_THRESHOLD_FACTOR = 0.9
+# Live capture guidance is more lenient than final upload gate (80% of upload threshold).
+LIVE_PRESCREEN_THRESHOLD_FACTOR = 0.8
 
 _IMPORT_ERROR: Exception | None = None
 try:  # pragma: no cover - import guard
