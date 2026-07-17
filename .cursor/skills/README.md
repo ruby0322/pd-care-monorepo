@@ -8,6 +8,7 @@ Cursor Agent Skills scoped to this repository. Each skill lives in its own direc
 | --- | --- | --- |
 | Stage, Commit, Push | [stage-commit-push/SKILL.md](stage-commit-push/SKILL.md) | Stage/commit/push on ruby0322's behalf — no deploy |
 | Ship & Deploy | [ship-and-deploy/SKILL.md](ship-and-deploy/SKILL.md) | Staging, committing, pushing, or redeploying — with production data safety and scoped redeploy |
+| K8s Minikube recovery | [k8s-minikube-recovery/SKILL.md](k8s-minikube-recovery/SKILL.md) | Reboot / disk-full / volume bind-mount move / missing `/etc/kubernetes` or CNI after Minikube container recreate |
 
 ## Maintenance policy
 
