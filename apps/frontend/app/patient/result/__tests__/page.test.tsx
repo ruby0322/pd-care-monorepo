@@ -129,7 +129,9 @@ describe("Patient ResultPage v6 layout", () => {
         "src",
         "https://example.test/upload-128.jpg"
       );
-      expect(screen.getByText(formatResultTimestamp(new Date("2026-07-17T09:00:00+00:00")))).toBeInTheDocument();
+      expect(
+        screen.getByText(formatResultTimestamp(new Date("2026-07-17T09:00:00+00:00")))
+      ).toBeInTheDocument();
     });
 
     expect(screen.getByRole("link", { name: /回到追蹤日曆/ })).toBeInTheDocument();

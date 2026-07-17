@@ -27,14 +27,17 @@ const EDUCATION_MATERIALS = [
 ] as const;
 
 export function formatResultTimestamp(date: Date): string {
-  return date.toLocaleString("zh-TW", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return date
+    .toLocaleString("zh-TW", {
+      timeZone: "Asia/Taipei",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+    // ICU may insert narrow no-break spaces (U+202F); normalize for stable UI + tests.
+    .replace(/[\u00A0\u202F]/g, " ");
 }
 
 function SignalDot({ tone }: { tone: "green" | "orange" | "amber" | "zinc" }) {
