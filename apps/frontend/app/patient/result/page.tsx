@@ -36,8 +36,8 @@ export function formatResultTimestamp(date: Date): string {
       hour: "2-digit",
       minute: "2-digit",
     })
-    // ICU may insert narrow no-break spaces (U+202F); normalize for stable UI + tests.
-    .replace(/[\u00A0\u202F]/g, " ");
+    // ICU may insert NBSP / narrow NBSP / other Zs separators; keep ASCII spaces only.
+    .replace(/\p{Zs}/gu, " ");
 }
 
 function SignalDot({ tone }: { tone: "green" | "orange" | "amber" | "zinc" }) {

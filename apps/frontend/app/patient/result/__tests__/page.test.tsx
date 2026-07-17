@@ -48,6 +48,10 @@ function setParams(entries: Record<string, string>) {
   next.forEach((value, key) => mockSearchParams.set(key, value));
 }
 
+function normalizeTimestampText(value: string): string {
+  return value.replace(/\p{Zs}/gu, " ").replace(/\s+/g, " ").trim();
+}
+
 describe("Patient ResultPage v6 layout", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -129,10 +133,22 @@ describe("Patient ResultPage v6 layout", () => {
         "src",
         "https://example.test/upload-128.jpg"
       );
-      expect(
-        screen.getByText(formatResultTimestamp(new Date("2026-07-17T09:00:00+00:00")))
-      ).toBeInTheDocument();
     });
+
+    const expectedTimestamp = normalizeTimestampText(
+      formatResultTimestamp(new Date("2026-07-17T09:00:00+00:00"))
+    );
+    expect(
+      screen.getByText((_, element) => {
+        if (!(element instanceof HTMLElement) || element.tagName !== "SPAN") {
+          return false;
+        }
+        if (element.childElementCount > 0) {
+          return false;
+        }
+        return normalizeTimestampText(element.textContent ?? "") === expectedTimestamp;
+      })
+    ).toBeInTheDocument();
 
     expect(screen.getByRole("link", { name: /回到追蹤日曆/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /返回追蹤首頁/ })).not.toBeInTheDocument();
