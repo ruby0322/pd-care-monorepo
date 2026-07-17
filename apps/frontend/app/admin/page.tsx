@@ -27,7 +27,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { getReadableApiError } from "@/lib/api/client";
-import { getSuspectedKpi } from "@/lib/admin/dashboard-kpi";
+import { getElevatedUserKpi, getSuspectedKpi } from "@/lib/admin/dashboard-kpi";
 import {
   fetchAdminActiveUsersSeries,
   fetchAdminDailySuspectedSeries,
@@ -91,7 +91,12 @@ export default function AdminDashboard() {
   const [patients, setPatients] = useState<StaffPatientSummary[]>([]);
   const [queue, setQueue] = useState<StaffUploadQueueItem[]>([]);
   const [pending, setPending] = useState<StaffPendingBindingItem[]>([]);
-  const [stats, setStats] = useState({ totalPatients: 0, totalUploads: 0, suspectedPatients: 0 });
+  const [stats, setStats] = useState({
+    totalPatients: 0,
+    totalUploads: 0,
+    suspectedPatients: 0,
+    symptomElevatedPatients: 0,
+  });
   const [selectedCandidate, setSelectedCandidate] = useState<Record<number, string>>({});
   const [workingPendingId, setWorkingPendingId] = useState<number | null>(null);
   const [newPatientNameByPendingId, setNewPatientNameByPendingId] = useState<Record<number, string>>({});
@@ -109,6 +114,8 @@ export default function AdminDashboard() {
     total_uploads: number;
     suspected_uploads: number;
     symptom_elevated_uploads: number;
+    suspected_users: number;
+    symptom_elevated_users: number;
     normal_uploads: number;
     suspected_ratio: number;
   } | null>(null);
@@ -152,6 +159,7 @@ export default function AdminDashboard() {
           totalPatients: patientsData.total_patients,
           totalUploads: patientsData.total_uploads,
           suspectedPatients: patientsData.suspected_patients,
+          symptomElevatedPatients: patientsData.symptom_elevated_patients ?? 0,
         });
         setQueue(queueData.items);
         setPending(pendingData);
@@ -283,7 +291,8 @@ export default function AdminDashboard() {
           symptom_elevated_uploads: { label: "症狀高風險", color: "#f97316" },
           ratio_pct: { label: "疑似比例(%)", color: "#2563eb" },
         };
-  const suspectedKpi = getSuspectedKpi(months, stats.suspectedPatients, todaySummary?.suspected_uploads);
+  const suspectedKpi = getSuspectedKpi(months, stats.suspectedPatients, todaySummary?.suspected_users);
+  const elevatedKpi = getElevatedUserKpi(months, stats.symptomElevatedPatients, todaySummary?.symptom_elevated_users);
 
   async function refreshPending() {
     const items = await fetchPendingBindings();
@@ -490,23 +499,23 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 order-2">
+      <div className="grid grid-cols-2 gap-3 order-2 md:grid-cols-4">
         {[
-          { icon: Users, label: "篩選病患數", value: stats.totalPatients, color: "zinc" },
+          { icon: Users, label: "篩選病患數", value: stats.totalPatients },
           {
             icon: Upload,
             label: months === "today" ? "今日上傳次數" : `${months} 月上傳次數`,
             value: months === "today" ? (todaySummary?.total_uploads ?? stats.totalUploads) : stats.totalUploads,
-            color: "zinc",
           },
-          { icon: AlertTriangle, label: suspectedKpi.label, value: suspectedKpi.value, color: "red" },
-        ].map(({ icon: Icon, label, value, color }) => (
+          { icon: AlertTriangle, label: suspectedKpi.label, value: suspectedKpi.value },
+          { icon: AlertTriangle, label: elevatedKpi.label, value: elevatedKpi.value },
+        ].map(({ icon: Icon, label, value }) => (
           <div key={label} className="bg-white border border-zinc-100 rounded-2xl p-5 flex flex-col gap-3">
-            <div className={clsx("w-8 h-8 rounded-xl flex items-center justify-center", color === "red" ? "bg-red-50" : "bg-zinc-50")}>
-              <Icon className={clsx("w-4 h-4", color === "red" ? "text-red-500" : "text-zinc-500")} strokeWidth={1.5} />
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-zinc-50">
+              <Icon className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
             </div>
             <div>
-              <div className={clsx("text-2xl font-semibold", color === "red" ? "text-red-600" : "text-zinc-900")}>{value}</div>
+              <div className="text-2xl font-semibold text-zinc-900">{value}</div>
               <div className="text-xs text-zinc-400 mt-0.5">{label}</div>
             </div>
           </div>

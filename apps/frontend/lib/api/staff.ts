@@ -24,6 +24,7 @@ export type StaffPatientListResponse = {
   total_patients: number;
   total_uploads: number;
   suspected_patients: number;
+  symptom_elevated_patients: number;
   limit: number;
   offset: number;
   items: StaffPatientSummary[];
@@ -267,6 +268,8 @@ export type AdminTodaySuspectedSummaryResponse = {
   total_uploads: number;
   suspected_uploads: number;
   symptom_elevated_uploads: number;
+  suspected_users: number;
+  symptom_elevated_users: number;
   normal_uploads: number;
   suspected_ratio: number;
 };

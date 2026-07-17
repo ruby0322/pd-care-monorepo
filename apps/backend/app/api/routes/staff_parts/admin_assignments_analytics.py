@@ -278,8 +278,8 @@ async def get_admin_today_suspected_summary(
     session: Session = Depends(get_staff_session),
 ) -> StaffTodaySuspectedSummaryResponse:
     require_admin(get_current_principal(request, credentials))
-    summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads = get_today_suspected_summary(
-        session, accessible_patient_ids=None
+    summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads, suspected_users, symptom_elevated_users = (
+        get_today_suspected_summary(session, accessible_patient_ids=None)
     )
     normal_uploads = max(total_uploads - suspected_uploads - symptom_elevated_uploads, 0)
     ratio = (suspected_uploads / total_uploads) if total_uploads > 0 else 0.0
@@ -288,6 +288,8 @@ async def get_admin_today_suspected_summary(
         total_uploads=total_uploads,
         suspected_uploads=suspected_uploads,
         symptom_elevated_uploads=symptom_elevated_uploads,
+        suspected_users=suspected_users,
+        symptom_elevated_users=symptom_elevated_users,
         normal_uploads=normal_uploads,
         suspected_ratio=ratio,
     )

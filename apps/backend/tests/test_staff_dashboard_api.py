@@ -529,12 +529,12 @@ def test_staff_patient_filters_use_latest_upload_status_and_created_range(tmp_pa
         assert feb_cases == {"P-LATEST-SUS"}
 
 
-def test_staff_patient_list_suspected_patients_uses_latest_status(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path / "staff-dashboard-suspected-patient-count-latest.db")
+def test_staff_patient_list_risk_user_counts_use_period_tiers(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-risk-user-counts.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         staff_identity_id = _seed_staff(client)
-        patient_latest_suspected = _seed_patient_with_custom_uploads(
+        patient_with_suspected = _seed_patient_with_custom_uploads(
             client,
             case_number="P-LATEST-SUS-COUNT",
             line_user_id="U_PATIENT_LATEST_SUS_COUNT",
@@ -543,7 +543,7 @@ def test_staff_patient_list_suspected_patients_uses_latest_status(tmp_path: Path
                 (datetime(2026, 2, 11, 10, 0, tzinfo=timezone.utc), "suspected"),
             ],
         )
-        patient_latest_normal = _seed_patient_with_custom_uploads(
+        patient_had_suspected_then_normal = _seed_patient_with_custom_uploads(
             client,
             case_number="P-LATEST-NOR-COUNT",
             line_user_id="U_PATIENT_LATEST_NOR_COUNT",
@@ -552,16 +552,61 @@ def test_staff_patient_list_suspected_patients_uses_latest_status(tmp_path: Path
                 (datetime(2026, 2, 12, 10, 0, tzinfo=timezone.utc), "normal"),
             ],
         )
-        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_latest_suspected)
-        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_latest_normal)
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            elevated_patient = Patient(
+                case_number="P-ELEV-ONLY-COUNT",
+                birth_date="1985-01-01",
+                full_name="Elevated Only",
+                is_active=True,
+            )
+            session.add(elevated_patient)
+            session.flush()
+            session.add(
+                LiffIdentity(
+                    line_user_id="U_PATIENT_ELEV_ONLY_COUNT",
+                    display_name="Elevated Only",
+                    picture_url=None,
+                    patient_id=elevated_patient.id,
+                    role="patient",
+                )
+            )
+            elevated_upload = Upload(
+                patient_id=elevated_patient.id,
+                object_key="patients/elev-only/1.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 2, 13, 10, 0, tzinfo=timezone.utc),
+                symptom_pain=True,
+                symptom_discharge=False,
+                symptom_pus=False,
+                symptom_cloudy_dialysate=False,
+            )
+            session.add(elevated_upload)
+            session.flush()
+            session.add(
+                AIResult(
+                    upload_id=elevated_upload.id,
+                    screening_result="normal",
+                    probability=0.2,
+                    threshold=0.5,
+                )
+            )
+            session.commit()
+            elevated_patient_id = elevated_patient.id
+
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_with_suspected)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_had_suspected_then_normal)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=elevated_patient_id)
         token = _login_staff_token(client)
         headers = {"Authorization": f"Bearer {token}"}
 
         response = client.get("/v1/staff/patients", headers=headers)
         assert response.status_code == 200
         payload = response.json()
-        assert payload["total_patients"] == 2
-        assert payload["suspected_patients"] == 1
+        assert payload["total_patients"] == 3
+        # Any suspected-tier upload in the period counts (including older suspected then normal).
+        assert payload["suspected_patients"] == 2
+        assert payload["symptom_elevated_patients"] == 1
 
 
 def test_staff_patient_list_supports_limit_offset_pagination(tmp_path: Path) -> None:

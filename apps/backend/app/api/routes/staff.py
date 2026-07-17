@@ -204,7 +204,8 @@ async def get_staff_patients(
 
         total_patients = len(rows)
         total_uploads = sum(row.upload_count for row in rows)
-        suspected_patients = sum(1 for row in rows if row.latest_upload_status == "suspected")
+        suspected_patients = sum(1 for row in rows if row.has_suspected_risk)
+        symptom_elevated_patients = sum(1 for row in rows if row.has_symptom_elevated_risk)
         paged_rows = rows[offset : offset + limit]
 
         items = [
@@ -228,6 +229,7 @@ async def get_staff_patients(
             total_patients=total_patients,
             total_uploads=total_uploads,
             suspected_patients=suspected_patients,
+            symptom_elevated_patients=symptom_elevated_patients,
             limit=limit,
             offset=offset,
             items=items,

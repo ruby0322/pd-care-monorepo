@@ -83,6 +83,8 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         assert today_payload["total_uploads"] == 2
         assert today_payload["suspected_uploads"] == 1
         assert today_payload["symptom_elevated_uploads"] == 0
+        assert today_payload["suspected_users"] == 1
+        assert today_payload["symptom_elevated_users"] == 0
         assert today_payload["normal_uploads"] == 1
         assert today_payload["suspected_ratio"] == 0.5
 
@@ -164,6 +166,8 @@ def test_admin_analytics_buckets_uploads_by_taipei_local_date_boundary(tmp_path:
         assert today_payload["total_uploads"] == 1
         assert today_payload["suspected_uploads"] == 1
         assert today_payload["symptom_elevated_uploads"] == 0
+        assert today_payload["suspected_users"] == 1
+        assert today_payload["symptom_elevated_users"] == 0
 
         daily_response = client.get("/v1/staff/admin/analytics/daily-suspected-series?lookback_days=30", headers=headers)
         assert daily_response.status_code == 200

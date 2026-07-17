@@ -76,6 +76,8 @@ class StaffPatientRow:
     suspected_count: int
     latest_upload_at: datetime | None
     latest_upload_status: str | None
+    has_suspected_risk: bool = False
+    has_symptom_elevated_risk: bool = False
 
 
 @dataclass
@@ -393,16 +395,33 @@ def list_staff_patients(
         .join(AIResult, AIResult.upload_id == Upload.id)
         .where(Upload.created_at >= cutoff)
     ).all()
+    upload_ids = {upload.id for upload, _ in uploads}
+    latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
     metrics: dict[int, dict[str, object]] = defaultdict(
-        lambda: {"upload_count": 0, "suspected_count": 0, "latest_upload_at": None, "latest_upload_status": None}
+        lambda: {
+            "upload_count": 0,
+            "suspected_count": 0,
+            "latest_upload_at": None,
+            "latest_upload_status": None,
+            "has_suspected_risk": False,
+            "has_elevated_risk": False,
+        }
     )
     for upload, ai_result in uploads:
         if ai_result.screening_result == "rejected":
             continue
         metric = metrics[upload.patient_id]
         metric["upload_count"] = int(metric["upload_count"]) + 1
-        if ai_result.screening_result == "suspected":
+        tier = _tier_for_upload(
+            upload=upload,
+            screening_result=ai_result.screening_result,
+            annotation=latest_annotation_by_upload.get(upload.id),
+        )
+        if tier == "suspected":
             metric["suspected_count"] = int(metric["suspected_count"]) + 1
+            metric["has_suspected_risk"] = True
+        elif tier == "elevated":
+            metric["has_elevated_risk"] = True
         latest = metric["latest_upload_at"]
         if latest is None or upload.created_at > latest:
             metric["latest_upload_at"] = upload.created_at
@@ -422,13 +441,25 @@ def list_staff_patients(
         if age_max is not None and (age is None or age > age_max):
             continue
 
-        patient_metric = metrics.get(patient.id, {"upload_count": 0, "suspected_count": 0, "latest_upload_at": None})
+        patient_metric = metrics.get(
+            patient.id,
+            {
+                "upload_count": 0,
+                "suspected_count": 0,
+                "latest_upload_at": None,
+                "has_suspected_risk": False,
+                "has_elevated_risk": False,
+            },
+        )
         upload_count = int(patient_metric["upload_count"])
         suspected_count = int(patient_metric["suspected_count"])
         latest_upload_at = patient_metric["latest_upload_at"]
         if isinstance(latest_upload_at, datetime) and latest_upload_at.tzinfo is None:
             latest_upload_at = latest_upload_at.replace(tzinfo=timezone.utc)
         latest_upload_status = patient_metric.get("latest_upload_status")
+        has_suspected_risk = bool(patient_metric.get("has_suspected_risk"))
+        # Mutually exclusive with suspected: elevated-only patients for period KPI.
+        has_symptom_elevated_risk = bool(patient_metric.get("has_elevated_risk")) and not has_suspected_risk
         if infection_status == "suspected" and latest_upload_status != "suspected":
             continue
         if infection_status == "normal" and latest_upload_status != "normal":
@@ -464,6 +495,8 @@ def list_staff_patients(
                 suspected_count=suspected_count,
                 latest_upload_at=latest_upload_at,
                 latest_upload_status=latest_upload_status if isinstance(latest_upload_status, str) else None,
+                has_suspected_risk=has_suspected_risk,
+                has_symptom_elevated_risk=has_symptom_elevated_risk,
             )
         )
     return rows
@@ -928,7 +961,7 @@ def get_today_suspected_summary(
     session: Session,
     *,
     accessible_patient_ids: set[int] | None = None,
-) -> tuple[date, int, int, int]:
+) -> tuple[date, int, int, int, int, int]:
     today, today_start, tomorrow_start = resolve_taipei_day_bounds()
     base_query: Select = (
         select(Upload, AIResult)
@@ -942,7 +975,7 @@ def get_today_suspected_summary(
     )
     if accessible_patient_ids is not None:
         if not accessible_patient_ids:
-            return today, 0, 0, 0
+            return today, 0, 0, 0, 0, 0
         base_query = base_query.where(Patient.id.in_(accessible_patient_ids))
     rows = session.execute(base_query).all()
     upload_ids = {upload.id for upload, _ in rows}
@@ -951,6 +984,8 @@ def get_today_suspected_summary(
     total_uploads = len(rows)
     suspected_uploads = 0
     symptom_elevated_uploads = 0
+    suspected_patient_ids: set[int] = set()
+    elevated_patient_ids: set[int] = set()
     for upload, ai_result in rows:
         tier = _tier_for_upload(
             upload=upload,
@@ -959,9 +994,20 @@ def get_today_suspected_summary(
         )
         if tier == "suspected":
             suspected_uploads += 1
+            suspected_patient_ids.add(upload.patient_id)
         elif tier == "elevated":
             symptom_elevated_uploads += 1
-    return today, total_uploads, suspected_uploads, symptom_elevated_uploads
+            elevated_patient_ids.add(upload.patient_id)
+    # Patient buckets are mutually exclusive: any suspected upload wins over elevated-only.
+    elevated_patient_ids -= suspected_patient_ids
+    return (
+        today,
+        total_uploads,
+        suspected_uploads,
+        symptom_elevated_uploads,
+        len(suspected_patient_ids),
+        len(elevated_patient_ids),
+    )
 
 
 def get_age_histogram(

@@ -25,6 +25,7 @@ class StaffPatientListResponse(BaseModel):
     total_patients: int
     total_uploads: int
     suspected_patients: int
+    symptom_elevated_patients: int = 0
     limit: int
     offset: int
     items: list[StaffPatientSummary]
@@ -399,6 +400,8 @@ class StaffTodaySuspectedSummaryResponse(BaseModel):
     total_uploads: int
     suspected_uploads: int
     symptom_elevated_uploads: int = 0
+    suspected_users: int = 0
+    symptom_elevated_users: int = 0
     normal_uploads: int
     suspected_ratio: float
 
