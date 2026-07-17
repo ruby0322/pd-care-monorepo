@@ -22,6 +22,9 @@ export function resolveRoleSelectDestination(nextPath: string | null): string {
   if (isAdminIntent(nextPath)) {
     return "/onboarding/admin";
   }
+  if (nextPath === "/role-select") {
+    return "/role-select";
+  }
   return "/";
 }
 

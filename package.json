@@ -3,7 +3,9 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -k -p \"[{name}]\" -c \"blue.bold,magenta.bold\" -n \"FRONTEND,BACKEND\" \"npm run dev:frontend\" \"npm run dev:backend\"",
-    "dev:frontend": "bash -lc 'cd apps/frontend && npm run dev'",
+    "dev:abbey": "bash -lc 'FRONTEND_DEV_PORT=3010 npm run dev'",
+    "dev:infra": "docker compose up -d postgres seaweedfs-master seaweedfs-volume seaweedfs-filer seaweedfs-s3",
+    "dev:frontend": "bash -lc 'cd apps/frontend && if [ -z \"${FRONTEND_DEV_PORT:-}\" ] && [ -f .env.local ]; then set -a && . ./.env.local && set +a; fi && npm run dev -- -H 0.0.0.0 -p ${FRONTEND_DEV_PORT:-${PORT:-3000}}'",
     "dev:backend": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && if [ -f .env ]; then set -a && . ./.env && set +a; fi && UVICORN_HOST=\"${UVICORN_HOST:-0.0.0.0}\" && UVICORN_PORT=\"${UVICORN_PORT:-8000}\" && \"$PYTHON_BIN\" -m alembic -c alembic.ini upgrade head && \"$PYTHON_BIN\" -m uvicorn app.main:app --reload --host \"$UVICORN_HOST\" --port \"$UVICORN_PORT\"'",
     "build": "npm run build:frontend",
     "build:frontend": "npm --prefix apps/frontend run build",

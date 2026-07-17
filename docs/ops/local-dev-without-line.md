@@ -1,81 +1,86 @@
 # Local verification without LINE
 
-Verify the login/onboarding flow for every role (new user, patient, staff, admin, dual-role)
-without a real LINE account or LIFF app. This works by pairing two existing dev-only mechanisms:
+Verify login/onboarding for every role (new user, patient, staff, admin, dual-role)
+without a real LINE account or LIFF app.
 
-- **Frontend dev bypass** (`apps/frontend/lib/auth/liff.ts`): when `NEXT_PUBLIC_LIFF_ID` is unset
-in development, `getLiffLoginProof()` skips the LIFF SDK entirely and returns a
-`stub:<line_user_id>` id token for a LINE user id you choose.
-- **Backend stub verification** (`apps/backend/app/services/auth/line_provider.py`): when
-`LINE_VERIFY_MODE=stub`, the backend accepts `stub:<line_user_id>` tokens instead of calling
-LINE's verify endpoint.
+Host app processes (`npm run dev`) talk to Compose infra (`npm run dev:infra`) using
+`127.0.0.1`. Auth uses a paired stub:
 
-This is dev-only. Production and staging keep `LINE_VERIFY_MODE=line` and a real
-`NEXT_PUBLIC_LIFF_ID` — never set `LINE_VERIFY_MODE=stub` outside local development.
+- **Frontend LIFF bypass** ([`apps/frontend/lib/auth/liff.ts`](../../apps/frontend/lib/auth/liff.ts)):
+  when `NEXT_PUBLIC_LIFF_ID` is unset in development, login sends `stub:<line_user_id>`
+  instead of a real LINE id token. Use [`/dev/personas`](../../apps/frontend/app/dev/personas/page.tsx)
+  to pick a role.
+- **Backend stub verification** ([`line_provider.py`](../../apps/backend/app/services/auth/line_provider.py)):
+  when `LINE_VERIFY_MODE=stub`, the backend accepts only `stub:…` tokens.
 
-## 1. Prerequisites
+This is **host-local only**. Production, staging, and Compose full-stack keep
+`LINE_VERIFY_MODE=line` and a real `NEXT_PUBLIC_LIFF_ID`.
 
-- Postgres reachable (Compose `docker compose up -d postgres`, or your local sqlite dev DB is fine
-too — the seed script works with whatever `DATABASE_URL`/`PDCARE_DATABASE_URL` your backend uses).
-- Repo dependencies installed (`npm install` at repo root; backend venv set up per
-`[apps/backend/README.md](../../apps/backend/README.md)`).
+## Canonical path
 
+```bash
+# 1) Postgres + SeaweedFS (no frontend/backend containers)
+npm run dev:infra
 
+# 2) Host-oriented env (do this once)
+cp apps/backend/.env.local.example apps/backend/.env
+cp apps/frontend/.env.local.example apps/frontend/.env.local
+# Ensure NEXT_PUBLIC_LIFF_ID is NOT set in apps/frontend/.env or .env.local
 
-## 2. One-time setup
+# 3) Seed personas (idempotent)
+npm run seed:dev-personas
 
-1. Backend: copy the stub override into your `apps/backend/.env` (or merge
-  `[apps/backend/.env.stub.example](../../apps/backend/.env.stub.example)` into it):
-2. Frontend: copy `[apps/frontend/.env.local.example](../../apps/frontend/.env.local.example)` to
-  `apps/frontend/.env.local`. **Do not** set `NEXT_PUBLIC_LIFF_ID` there — leaving it unset (and
-   not inherited from `.env`) is what activates the dev bypass.
-3. Seed the canonical dev personas:
-  ```bash
-   npm run seed:dev-personas
-  ```
-   This prints a persona table with the `?dev_line_user_id=` value for each row.
-4. Start the stack: `npm run dev` (or `npm run dev:frontend` + `npm run dev:backend` separately).
-  The frontend dev script uses webpack (`next dev --webpack`) to avoid Turbopack module-resolution
-   issues in this monorepo layout.
+# 4) App processes on the host
+npm run dev
 
+# 5) Pick a role
+open http://localhost:3000/dev/personas
+```
 
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:8000` (browser should use same-origin `/api`)
+- Postgres: `127.0.0.1:5432`
+- SeaweedFS S3: `http://127.0.0.1:8333`
 
-## 3. Switching personas
+## Remote dev on abbey (VPN)
 
-Sessions are cached in `localStorage`, so switching personas requires clearing the old session
-before picking a new dev user. Either:
+On `abbey.lu.im.ntu.edu.tw`, use port **3010** (not 3000) so it does not collide with a laptop's local `:3000`:
 
-- Append `?dev_line_user_id=<ID>` to any URL (e.g. `http://localhost:3000/login?dev_line_user_id=U_DEV_ADMIN&next=/admin`), **or**
-- Run in the browser console:
-  ```js
-  localStorage.removeItem("pdCare.principalSession");
-  localStorage.removeItem("pdCare.activeApp");
-  localStorage.setItem("pdCare.devLineUserId", "U_DEV_ADMIN");
-  ```
+```bash
+npm run dev:abbey
+# http://abbey.lu.im.ntu.edu.tw:3010/dev/personas
+```
 
-Then navigate to `/` (or `/login`) to re-trigger login with the new persona.
+Equivalent: `FRONTEND_DEV_PORT=3010 npm run dev`. Frontend binds `0.0.0.0:3010`; backend stays on `:8000` (browser uses `/api` proxy).
 
-## 4. Dev personas
+## Switching personas
 
-Seeded by `[apps/backend/sql/manual/seed_dev_personas.py](../../apps/backend/sql/manual/seed_dev_personas.py)`
-(`npm run seed:dev-personas`). All IDs use the `U_` prefix required by backend LINE user ID
-validation (`^U[A-Za-z0-9_-]{5,127}$`).
+Prefer **http://localhost:3000/dev/personas** (clears sticky sessions and re-enters login).
 
+Advanced: append `?dev_line_user_id=<ID>` yourself, e.g.
+`http://localhost:3000/login?dev_line_user_id=U_DEV_ADMIN&next=/admin`.
 
-| `line_user_id`        | State                                    | Exercises                                                    |
-| --------------------- | ---------------------------------------- | ------------------------------------------------------------ |
-| *(unset)* `U_DEV_NEW` | No `liff_identities` row                 | Landing → role-select → patient/admin onboarding |
-| `U_DEV_PAT_PEND`      | `patient`, inactive + `pending_bindings` | Patient "等待護理師審核" screen                                     |
-| `U_DEV_PAT_MATCH`     | `patient`, matched to `P-DEV-MATCH-001`  | Patient dashboard after login                                |
-| `U_DEV_STAFF`         | `staff`, active                          | Staff login → `/apps` (admin + patient cards; patient leads to onboarding when unbound) |
-| `U_DEV_ADMIN`         | `admin`, active                          | Admin login → `/apps` → `/admin`                             |
-| `U_DEV_DUAL`          | `admin`, active + matched patient        | `/apps` shows both admin and patient cards                   |
+## Dev personas
 
+Seeded by [`seed_dev_personas.py`](../../apps/backend/sql/manual/seed_dev_personas.py)
+(`npm run seed:dev-personas`).
 
-A bindable patient with no identity (`case_number=P-DEV-BIND-001`, `birth_date=1990-01-01`) is
-also seeded for testing a successful bind as `U_DEV_NEW`.
+| `line_user_id` | State | Exercises |
+| --- | --- | --- |
+| `U_DEV_NEW` | No `liff_identities` row | Landing → role-select → patient/admin onboarding |
+| `U_DEV_PAT_PEND` | `patient`, inactive + `pending_bindings` | Patient "等待護理師審核" |
+| `U_DEV_PAT_MATCH` | `patient`, matched to `P-DEV-MATCH-001` | Patient dashboard |
+| `U_DEV_STAFF` | `staff`, active | `/apps` → admin shell |
+| `U_DEV_ADMIN` | `admin`, active | `/apps` → `/admin` |
+| `U_DEV_DUAL` | `admin` + matched patient | `/apps` shows both cards |
 
-## 5. Flow diagram
+Bindable patient for `U_DEV_NEW`: `case_number=P-DEV-BIND-001`, `birth_date=1990-01-01`.
+
+For richer staff grids, also run
+`cd apps/backend && python sql/manual/seed_dev_fake_patients.py` after infra is up
+(the root `npm run seed:dev-fake-patients` script targets K8s by default).
+
+## Flow diagram
 
 ```mermaid
 flowchart TD
@@ -95,69 +100,35 @@ flowchart TD
     ONBA -->|我是醫護人員，請求權限| ONBAREQ[Submit healthcare-access-request]
 
     APPS -->|護理師後台| ADMIN["/admin"]
-    APPS -->|病患 App（active staff/admin 一律顯示）| PAT
-    PAT -->|unbound/pending staff/admin| ONBP
+    APPS -->|病患 App| PAT
+    DEV["/dev/personas"] -->|select| LOGIN["/login?dev_line_user_id=…"]
 ```
 
+## Per-role verification checklist
 
+- [ ] **New user**: `/dev/personas` → 新用戶 → confirm role-select / onboarding.
+- [ ] **Patient pending**: 待審核病患 → `/patient` shows 等待護理師審核.
+- [ ] **Patient bind success**: 新用戶 → bind `P-DEV-BIND-001` / `1990-01-01`.
+- [ ] **Patient returning**: 已綁定病患 → `/patient` dashboard.
+- [ ] **Staff/admin**: staff 或 admin → `/apps` → `/admin`.
+- [ ] **Dual-role**: 雙重身分 → `/apps` shows both cards.
 
+## Troubleshooting
 
-
-## 6. Per-role verification checklist
-
-- [ ] **New user landing + role-select**: clear sessions, unset `?dev_line_user_id=` (or use an
-  ```
-  ID with no seeded row), visit `/`. Confirm intro copy + "開始使用" renders, and it routes to
-  `/role-select`.
-  ```
-- [ ] **Patient bind — pending**: `?dev_line_user_id=U_DEV_PAT_PEND`, visit `/patient`. Confirm
-  ```
-  "等待護理師審核" screen.
-  ```
-- [ ] **Patient bind — success**: `?dev_line_user_id=U_DEV_NEW`, visit `/patient`, submit the bind
-  ```
-  form with `case_number=P-DEV-BIND-001`, `birth_date=1990-01-01`. Confirm it transitions to
-  the matched dashboard.
-  ```
-- [x] **Patient returning session**: `?dev_line_user_id=U_DEV_PAT_MATCH`, visit `/`. Confirm
-  ```
-  auto-redirect to `/patient` dashboard (no bind form).
-  ```
-- [ ] **Staff onboarding request**: `?dev_line_user_id=U_DEV_NEW`, visit `/login?next=/admin`.
-  ```
-  Confirm redirect to `/onboarding/admin`, then submit "我是醫護人員，請求權限" and confirm the
-  pending-request state persists on reload.
-  ```
-- [ ] **Staff/admin login →** `/apps` **→** `/admin`: `?dev_line_user_id=U_DEV_STAFF` (or
-  ```
-  `U_DEV_ADMIN`), visit `/login?next=/apps`. Confirm `/apps` shows 護理師後台與病患 App card；
-  clicking 護理師後台 reaches `/admin`, and clicking病患 App routes to patient onboarding when unbound.
-  ```
-- [ ] **Dual-role** `/apps` **both cards**: `?dev_line_user_id=U_DEV_DUAL`, visit `/login?next=/apps`.
-  ```
-  Confirm `/apps` shows both 護理師後台 and 病患 App cards.
-  ```
-
-
-
-## 7. Troubleshooting
-
-- **API calls fail / `ERR_CONNECTION_REFUSED`**: if you open the frontend via a network IP
-  (e.g. `http://140.112.x.x:3000` from another machine), do **not** set
-  `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000` — the browser will call *your laptop's*
-  localhost. Use the same-origin proxy instead: `NEXT_PUBLIC_API_BASE_URL=/api` plus
-  `BACKEND_INTERNAL_URL=http://127.0.0.1:8000` (see `.env.local.example`). Restart
-  `npm run dev` after changing env.
-- **API calls fail / CORS errors**: with direct backend URLs, confirm host/port matches and CORS
-  allows your frontend origin; prefer `/api` proxy for local dev.
-- **Login always fails with a real-LINE-shaped error**: you probably forgot
-`LINE_VERIFY_MODE=stub` in `apps/backend/.env`, or `NEXT_PUBLIC_LIFF_ID` is still set somewhere
-frontend-side (check both `.env` and `.env.local`).
-- **Persona doesn't behave as expected**: sessions are sticky in `localStorage`; clear
-`pdCare.principalSession` / `pdCare.activeApp` before switching personas (Section 3).
-- **Persona data looks stale or missing**: re-run `npm run seed:dev-personas` — it's idempotent
-and safe to run repeatedly.
-- **Frontend hangs on "compiling"**: if Turbopack loops on missing modules, use webpack dev mode
-(`next dev --webpack`, already the default in `apps/frontend/package.json`). Clear
-`apps/frontend/.next` and restart `npm run dev`.
-
+- **Login stuck / LINE verify 400 on every persona (including 新用戶)**: a Compose
+  `backend` container is often bound to `:8000` with `LINE_VERIFY_MODE=line`, while the
+  host frontend proxies `/api` there. Stop it (`docker stop pd-care-backend-1`) and run
+  host `npm run dev:backend` (or `npm run dev`) with `.env` from `.env.local.example`.
+  `npm run dev:infra` must **not** start the backend container.
+- **`DATABASE_URL` / S3 host `postgres` or `seaweedfs-s3` fails on host**: you copied
+  `apps/backend/.env.example` (Compose hostnames). Use `.env.local.example` (`127.0.0.1`)
+  and `npm run dev:infra`.
+- **Login fails mentioning stub vs LINE**: FE and BE modes disagree. Backend must be
+  `LINE_VERIFY_MODE=stub`; frontend must leave `NEXT_PUBLIC_LIFF_ID` unset (check `.env`
+  and `.env.local`).
+- **`/dev/personas` 404**: LIFF bypass inactive (LIFF id set, or not `next dev`).
+- **API `ERR_CONNECTION_REFUSED` from a LAN IP**: use `NEXT_PUBLIC_API_BASE_URL=/api` +
+  `BACKEND_INTERNAL_URL=http://127.0.0.1:8000` (see `.env.local.example`).
+- **Persona data missing**: re-run `npm run seed:dev-personas`.
+- **Frontend hangs compiling**: use webpack (`next dev --webpack`, already default);
+  clear `apps/frontend/.next` and restart.
