@@ -201,9 +201,12 @@ This ensures schema migration runs before backend deployment updates.
 # Wrong: image stays pd-care-backend:latest → ImagePullBackOff; skips kustomize tag rewrite
 kubectl apply -f k8s/overlays/prod/migrate-job.yaml -n pd-care-prod
 
-# Prefer Argo CD sync of pd-care-prod, or render with kustomize:
+# Prefer Argo CD sync of pd-care-prod. Manual fallback uses kustomize:
 kubectl apply -k k8s/overlays/prod
 ```
+
+`kubectl apply -k` is intentional for image-tag rewrite but applies the **entire** prod
+overlay (deployments, ingress, Job), not a Job-only patch — prefer Argo CD when possible.
 
 Alembic honors `DATABASE_URL` from the Job secret (Postgres). Job `Complete` alone is not
 enough if an older image still preferred `alembic.ini` SQLite — after sync, confirm prod

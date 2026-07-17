@@ -21,7 +21,7 @@ def resolve_alembic_database_url(
     alembic.ini still lists a local SQLite default.
     """
     env = os.environ if environ is None else environ
-    explicit = env.get("ALEMBIC_DATABASE_URL") or env.get("DATABASE_URL")
+    explicit = (env.get("ALEMBIC_DATABASE_URL") or env.get("DATABASE_URL") or "").strip()
     if explicit:
         return explicit
     if configured:

@@ -34,6 +34,14 @@ def test_falls_back_to_configured_ini_when_env_unset() -> None:
     assert resolved == SQLITE_INI
 
 
+def test_blank_env_database_url_falls_back_to_ini() -> None:
+    resolved = resolve_alembic_database_url(
+        configured=SQLITE_INI,
+        environ={"DATABASE_URL": "  ", "ALEMBIC_DATABASE_URL": ""},
+    )
+    assert resolved == SQLITE_INI
+
+
 def test_falls_back_to_settings_when_env_and_config_unset() -> None:
     resolved = resolve_alembic_database_url(
         configured=None,

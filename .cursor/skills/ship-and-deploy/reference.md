@@ -107,20 +107,15 @@ kubectl rollout restart deploy/frontend -n pd-care-prod
 kubectl rollout status deploy/frontend -n pd-care-prod --timeout=300s
 ```
 
-Prod **backend** zero-downtime restart (run migrate Job when `apps/backend/migrations/**` changed, or when unsure):
+Prod **backend** zero-downtime restart (run migrate Job when `apps/backend/migrations/**` changed, or when unsure). Prefer Argo CD sync; manual Minikube must use kustomize so the Job image tag is rewritten (`apply -f migrate-job.yaml` alone leaves `pd-care-backend:latest`). `apply -k` updates the **entire** prod overlay (deployments/ingress/Job), not Job-only:
 
 ```bash
 kubectl delete job backend-migrate -n pd-care-prod --ignore-not-found
-kubectl apply -f k8s/overlays/prod/migrate-job.yaml -n pd-care-prod
+kubectl apply -k k8s/overlays/prod
 kubectl wait --for=condition=complete job/backend-migrate -n pd-care-prod --timeout=300s
+kubectl logs job/backend-migrate -n pd-care-prod | grep PostgresqlImpl
 kubectl rollout restart deploy/backend -n pd-care-prod
 kubectl rollout status deploy/backend -n pd-care-prod --timeout=600s
-```
-
-If `k8s/**` changed, apply the overlay before rollout:
-
-```bash
-kubectl apply -k k8s/overlays/prod
 ```
 
 Continuous availability probe during prod rollout (separate terminal):

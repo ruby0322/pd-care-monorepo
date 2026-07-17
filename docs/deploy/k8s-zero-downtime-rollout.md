@@ -18,6 +18,7 @@ eval "$(minikube docker-env)"
 docker build -t pd-care-backend:latest ./apps/backend
 # Prefer Argo CD sync for prod. Manual migrate must use kustomize so the image tag is rewritten
 # (raw `kubectl apply -f .../migrate-job.yaml` leaves pd-care-backend:latest → ImagePullBackOff).
+# Note: apply -k updates the entire prod overlay (deployments/ingress/Job), not Job-only.
 kubectl delete job backend-migrate -n pd-care-prod --ignore-not-found
 kubectl apply -k k8s/overlays/prod
 kubectl wait --for=condition=complete job/backend-migrate -n pd-care-prod --timeout=300s

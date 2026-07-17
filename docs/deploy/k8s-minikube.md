@@ -326,12 +326,18 @@ kubectl rollout restart deploy/backend -n pd-care-dev
 
 Promote to prod-like namespace only after dev verification.
 
-For prod zero-downtime rollout, run migrations once via Job before backend restart:
+For prod zero-downtime rollout, run migrations once via Job before backend restart.
+Prefer Argo CD sync when available. Manual Minikube flows must use kustomize so the
+Job image tag is rewritten (`apply -f migrate-job.yaml` alone leaves
+`pd-care-backend:latest` → ImagePullBackOff). Note: `kubectl apply -k` applies the
+**entire** prod overlay (deployments, ingress, Job), not only the migrate Job.
 
 ```bash
 kubectl delete job backend-migrate -n pd-care-prod --ignore-not-found
-kubectl apply -f k8s/overlays/prod/migrate-job.yaml -n pd-care-prod
+kubectl apply -k k8s/overlays/prod
 kubectl wait --for=condition=complete job/backend-migrate -n pd-care-prod --timeout=300s
+kubectl logs job/backend-migrate -n pd-care-prod | grep PostgresqlImpl
+kubectl exec -n pd-care-prod postgres-0 -- psql -U postgres -d pd_care -c "SELECT version_num FROM alembic_version;"
 kubectl rollout restart deploy/backend -n pd-care-prod
 ```
 
