@@ -16,9 +16,14 @@ This runbook verifies rolling upgrades for `pd-care-prod` frontend/backend witho
 ```bash
 eval "$(minikube docker-env)"
 docker build -t pd-care-backend:latest ./apps/backend
+# Prefer Argo CD sync for prod. Manual migrate must use kustomize so the image tag is rewritten
+# (raw `kubectl apply -f .../migrate-job.yaml` leaves pd-care-backend:latest → ImagePullBackOff).
 kubectl delete job backend-migrate -n pd-care-prod --ignore-not-found
-kubectl apply -f k8s/overlays/prod/migrate-job.yaml -n pd-care-prod
+kubectl apply -k k8s/overlays/prod
 kubectl wait --for=condition=complete job/backend-migrate -n pd-care-prod --timeout=300s
+# Confirm migrate hit Postgres (not container SQLite):
+kubectl logs job/backend-migrate -n pd-care-prod | grep PostgresqlImpl
+kubectl exec -n pd-care-prod postgres-0 -- psql -U postgres -d pd_care -c "SELECT version_num FROM alembic_version;"
 kubectl rollout restart deploy/backend -n pd-care-prod
 kubectl rollout status deploy/backend -n pd-care-prod --timeout=600s
 ```
