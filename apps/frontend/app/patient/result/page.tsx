@@ -3,6 +3,14 @@
 import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
 import { getPatientUploadResult } from "@/lib/api/predict";
 import { getPatientSession } from "@/lib/auth/patient-session";
+import {
+  activeSymptomLabels,
+  highRiskSymptomAdvisorySentence,
+  hasHighRiskSymptoms,
+  isSymptomElevatedFromNormal,
+  type SymptomFlags,
+} from "@/lib/symptoms";
+import { useClientSnapshot } from "@/lib/utils/use-client-snapshot";
 import clsx from "clsx";
 import { AlertTriangle, CalendarDays, CheckCircle, Home, RotateCcw, ShieldAlert, XCircle } from "lucide-react";
 import Link from "next/link";
@@ -16,12 +24,24 @@ const EDUCATION_MATERIALS = [
   { label: "導管出口照護影片", href: "https://youtu.be/KOMvyUt0ap4?si=O4IM6e2LONrNGhYn" },
 ] as const;
 
+function formatResultTimestamp(date: Date): string {
+  return date.toLocaleString("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function ResultPageInner() {
   const searchParams = useSearchParams();
   const queryResult = searchParams.get("result");
   const pain = searchParams.get("pain") === "true";
   const discharge = searchParams.get("discharge") === "true";
-  const pus = searchParams.get("pus") === "true" || searchParams.get("cloudyDialysate") === "true";
+  const pus = searchParams.get("pus") === "true";
+  const cloudyDialysate = searchParams.get("cloudyDialysate") === "true";
   const rejectionReason = searchParams.get("reason")?.trim() || null;
   const uploadIdRaw = searchParams.get("uploadId");
   const aiResultIdRaw = searchParams.get("aiResultId");
@@ -36,11 +56,7 @@ function ResultPageInner() {
   const [hydratedResult, setHydratedResult] = useState<ResultState | null>(null);
   const [hydratedErrorReason, setHydratedErrorReason] = useState<string | null>(null);
   const [hydratedConfidence, setHydratedConfidence] = useState<number | null>(null);
-  const [hydratedSymptoms, setHydratedSymptoms] = useState<{
-    pain: boolean;
-    discharge: boolean;
-    pus: boolean;
-  } | null>(null);
+  const [hydratedSymptoms, setHydratedSymptoms] = useState<SymptomFlags | null>(null);
   const [isHydrating, setIsHydrating] = useState(false);
   const [hydrateError, setHydrateError] = useState<string | null>(null);
 
@@ -80,6 +96,7 @@ function ResultPageInner() {
           pain: payload.symptom_pain,
           discharge: payload.symptom_discharge,
           pus: payload.symptom_pus,
+          cloudyDialysate: payload.symptom_cloudy_dialysate,
         });
       } catch (error) {
         if (cancelled) {
@@ -112,21 +129,28 @@ function ResultPageInner() {
   const effectiveConfidence = hydratedConfidence ?? queryConfidence;
   const effectiveReason = hydratedErrorReason ?? rejectionReason;
 
-  const now = new Date().toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const symptomFlags: SymptomFlags = hydratedSymptoms ?? {
+    pain,
+    discharge,
+    pus,
+    cloudyDialysate,
+  };
+  const activeSymptoms = activeSymptomLabels(symptomFlags);
+  const highRiskAdvisory = highRiskSymptomAdvisorySentence(symptomFlags);
+  const showHighRiskAdvisory = hasHighRiskSymptoms(symptomFlags);
+  const elevatedFromNormal = isSymptomElevatedFromNormal(result, symptomFlags);
+  const displayResult: ResultState = elevatedFromNormal ? "suspected" : result;
+
+  // Client-only: SSR host TZ (e.g. abbey) often differs from the browser (hydration mismatch).
+  const now = useClientSnapshot(() => formatResultTimestamp(new Date()), "");
 
   const config = {
     normal: {
       icon: CheckCircle,
       color: "emerald",
-      title: "出口狀態正常",
+      title: "判讀傷口正常",
       subtitle: "系統未偵測到明顯感染風險",
-      message: "系統判讀結果：出口狀態正常，建議維持隔日換藥一次。",
+      message: "系統判讀結果：傷口正常，建議維持隔日換藥一次。",
       bg: "bg-emerald-50",
       border: "border-emerald-100",
       iconColor: "text-emerald-500",
@@ -135,10 +159,13 @@ function ResultPageInner() {
     suspected: {
       icon: AlertTriangle,
       color: "red",
-      title: "疑似感染",
-      subtitle: "系統偵測到疑似感染風險",
-      message:
-        "系統判讀結果：疑似感染，建議盡速就醫接受處置。延遲治療可能導致病情惡化。已通知照護團隊儀表板，護理人員將進一步檢視。",
+      title: elevatedFromNormal ? "疑似感染風險" : "疑似感染",
+      subtitle: elevatedFromNormal
+        ? "請與腹膜透析護理師聯繫及返院追蹤"
+        : "系統偵測到疑似感染風險",
+      message: elevatedFromNormal
+        ? "建議盡速就醫接受處置。延遲治療可能導致病情惡化。已通知照護團隊儀表板，護理人員將進一步檢視。影像模型雖判讀正常，仍以症狀為準。"
+        : "系統判讀結果：疑似感染，建議盡速就醫接受處置。延遲治療可能導致病情惡化。已通知照護團隊儀表板，護理人員將進一步檢視。",
       bg: "bg-red-50",
       border: "border-red-100",
       iconColor: "text-red-500",
@@ -168,32 +195,67 @@ function ResultPageInner() {
     },
   };
 
-  const currentConfig = config[result];
+  const currentConfig = config[displayResult];
   const { icon: Icon } = currentConfig;
-
-  const activeSymptoms = [
-    (hydratedSymptoms?.pain ?? pain) && "疼痛",
-    (hydratedSymptoms?.discharge ?? discharge) && "分泌物",
-    (hydratedSymptoms?.pus ?? pus) && "流膿",
-  ].filter(Boolean);
 
   return (
     <div className="min-h-[100dvh] bg-white flex flex-col">
       <header className="px-5 pt-12 pb-6">
         <h1 className="text-base font-semibold text-zinc-900">分析結果</h1>
-        <p className="text-xs text-zinc-400 mt-0.5">{now}</p>
+        {now ? <p className="text-xs text-zinc-400 mt-0.5">{now}</p> : null}
       </header>
 
       <main className="flex-1 flex flex-col px-5 pb-8 gap-5">
-        <div className={clsx("flex flex-col items-center gap-3 px-6 py-8 rounded-2xl border", currentConfig.bg, currentConfig.border)}>
-          <Icon className={clsx("w-12 h-12", currentConfig.iconColor)} strokeWidth={1.5} />
-          <div className="text-center">
-            <h2 className={clsx("text-xl font-semibold", currentConfig.titleColor)}>
-              {currentConfig.title}
-            </h2>
-            <p className="text-sm text-zinc-500 mt-1">{currentConfig.subtitle}</p>
+        {elevatedFromNormal ? (
+          <div className={clsx("overflow-hidden rounded-2xl border", currentConfig.border)}>
+            <div className={clsx("flex flex-col items-center gap-3 px-6 py-8", currentConfig.bg)}>
+              <Icon className={clsx("w-12 h-12", currentConfig.iconColor)} strokeWidth={1.5} />
+              <div className="text-center">
+                <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">
+                  建議處置等級
+                </p>
+                <h2 className={clsx("text-xl font-semibold", currentConfig.titleColor)}>
+                  {currentConfig.title}
+                </h2>
+                <p className="text-sm text-zinc-500 mt-1">{currentConfig.subtitle}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 border-t border-red-100">
+              <div className="border-r border-red-100 bg-emerald-50 px-4 py-3">
+                <p className="text-[10px] font-semibold text-emerald-600">影像模型</p>
+                <p className="mt-0.5 text-sm font-semibold text-emerald-800">正常</p>
+              </div>
+              <div className="bg-orange-50 px-4 py-3">
+                <p className="text-[10px] font-semibold text-orange-600">症狀綜合</p>
+                <p className="mt-0.5 text-sm font-semibold text-orange-800">高風險</p>
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div
+            className={clsx(
+              "flex flex-col items-center gap-3 px-6 py-8 rounded-2xl border",
+              currentConfig.bg,
+              currentConfig.border
+            )}
+          >
+            <Icon className={clsx("w-12 h-12", currentConfig.iconColor)} strokeWidth={1.5} />
+            <div className="text-center">
+              <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">影像判讀</p>
+              <h2 className={clsx("text-xl font-semibold", currentConfig.titleColor)}>
+                {currentConfig.title}
+              </h2>
+              <p className="text-sm text-zinc-500 mt-1">{currentConfig.subtitle}</p>
+            </div>
+          </div>
+        )}
+
+        {showHighRiskAdvisory && highRiskAdvisory ? (
+          <div className="px-5 py-4 rounded-2xl bg-amber-50 border border-amber-100">
+            <p className="text-xs font-medium text-amber-700 uppercase tracking-wider mb-1">症狀提醒</p>
+            <p className="text-sm text-amber-900 leading-relaxed">{highRiskAdvisory}</p>
+          </div>
+        ) : null}
 
         {effectiveConfidence !== null && result !== "rejected" && result !== "technical_error" && (
           <div className="px-5 py-4 rounded-2xl bg-zinc-50 border border-zinc-100">
@@ -232,9 +294,9 @@ function ResultPageInner() {
           <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">本次症狀紀錄</h3>
           {activeSymptoms.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {activeSymptoms.map((s) => (
-                <span key={s as string} className="px-3 py-1.5 rounded-full bg-red-50 border border-red-100 text-red-600 text-xs font-medium">
-                  {s}
+              {activeSymptoms.map((label) => (
+                <span key={label} className="px-3 py-1.5 rounded-full bg-red-50 border border-red-100 text-red-600 text-xs font-medium">
+                  {label}
                 </span>
               ))}
             </div>
@@ -243,7 +305,7 @@ function ResultPageInner() {
           )}
         </div>
 
-        {result === "normal" && (
+        {displayResult === "normal" && (
           <div className="px-5 py-4 rounded-2xl bg-emerald-50 border border-emerald-100">
             <p className="text-sm font-medium text-emerald-700">附加衛教影片及素材</p>
             <div className="mt-2 flex flex-col gap-2">
@@ -262,7 +324,7 @@ function ResultPageInner() {
           </div>
         )}
 
-        {result === "suspected" && (
+        {displayResult === "suspected" && (
           <div className="flex flex-col gap-2 px-4 py-4 rounded-2xl bg-red-600 text-white">
             <p className="text-sm font-medium text-red-100">附加衛教影片及素材</p>
             <div className="flex flex-col gap-2">
