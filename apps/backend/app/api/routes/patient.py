@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from typing import Literal
 
@@ -12,6 +13,7 @@ from botocore.exceptions import ClientError
 from app.api.deps.auth import bearer_scheme, get_current_principal
 from app.db.models import Upload
 from app.schemas.identity import PatientProfileResponse
+from app.schemas.prescreen import PatientPrescreenResponse
 from app.schemas.upload_history import (
     PatientMarkAllMessagesReadResponse,
     PatientMessageItemResponse,
@@ -27,7 +29,13 @@ from app.schemas.upload import PatientUploadResponse, PatientUploadResultRespons
 from app.services.auth.token_service import AuthPrincipal
 from app.services.identity import get_identity_profile_by_identity_id, get_identity_status_for_principal
 from app.services.model_loader import LoadedModel
-from app.services.prescreen import LoadedPrescreenModel
+from app.services.prescreen import (
+    LIVE_PRESCREEN_THRESHOLD_FACTOR,
+    LoadedPrescreenModel,
+    PrescreenInferenceError,
+    is_exit_site_present,
+)
+from app.services.prescreen_rate_limit import prescreen_rate_limiter
 from app.services.storage import StorageService
 from app.services.upload import get_patient_result_for_line_user, persist_patient_upload
 from app.services.symptoms import derived_symptom_fields
@@ -423,6 +431,60 @@ async def mark_patient_message_read(
         )
     finally:
         session.close()
+
+
+@router.post("/v1/patient/prescreen", response_model=PatientPrescreenResponse)
+async def prescreen_patient_image(
+    request: Request,
+    file: UploadFile = File(...),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> PatientPrescreenResponse:
+    """Stateless presence check for live capture guidance. Does not persist."""
+    principal = get_current_principal(request, credentials)
+    settings = request.app.state.settings
+    loaded_prescreen_model = _get_loaded_prescreen_model(request)
+
+    content_type = (file.content_type or "").lower()
+    if content_type not in settings.accepted_content_types:
+        accepted = ", ".join(settings.accepted_content_types)
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported content type {content_type!r}. Allowed: {accepted}",
+        )
+
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(payload) > settings.max_upload_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Uploaded file exceeds MAX_UPLOAD_MB={settings.max_upload_mb}",
+        )
+
+    session = _get_session(request)
+    try:
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
+    finally:
+        session.close()
+
+    if not prescreen_rate_limiter.allow(patient_id):
+        raise HTTPException(status_code=429, detail="Prescreen rate limit exceeded; retry shortly")
+
+    if not settings.prescreen_enabled or loaded_prescreen_model is None:
+        return PatientPrescreenResponse(present=True, checked=False)
+
+    try:
+        live_threshold = loaded_prescreen_model.threshold * LIVE_PRESCREEN_THRESHOLD_FACTOR
+        present = await asyncio.to_thread(
+            is_exit_site_present,
+            loaded_prescreen_model,
+            payload,
+            threshold_override=live_threshold,
+        )
+    except PrescreenInferenceError:
+        return PatientPrescreenResponse(present=True, checked=False)
+
+    return PatientPrescreenResponse(present=present, checked=True)
 
 
 @router.post("/v1/patient/uploads", response_model=PatientUploadResponse)

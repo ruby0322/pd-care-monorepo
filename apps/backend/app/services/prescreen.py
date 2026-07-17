@@ -16,6 +16,8 @@ from app.services.model_loader import decode_image, resolve_device
 LOGGER = get_logger(__name__)
 DEFAULT_CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 DEFAULT_THRESHOLD = 0.5
+# Live capture guidance is slightly more lenient than final upload gate.
+LIVE_PRESCREEN_THRESHOLD_FACTOR = 0.9
 
 _IMPORT_ERROR: Exception | None = None
 try:  # pragma: no cover - import guard
@@ -145,7 +147,12 @@ def _extract_embedding(loaded: LoadedPrescreenModel, image_bytes: bytes) -> np.n
     return feats.detach().cpu().numpy()
 
 
-def is_exit_site_present(loaded: LoadedPrescreenModel, image_bytes: bytes) -> bool:
+def is_exit_site_present(
+    loaded: LoadedPrescreenModel,
+    image_bytes: bytes,
+    *,
+    threshold_override: float | None = None,
+) -> bool:
     try:
         embedding = _extract_embedding(loaded, image_bytes)
         if hasattr(loaded.linear_probe, "predict_proba"):
@@ -159,7 +166,8 @@ def is_exit_site_present(loaded: LoadedPrescreenModel, image_bytes: bytes) -> bo
         else:
             decision = loaded.linear_probe.decision_function(embedding)
             prob_positive = float(1.0 / (1.0 + np.exp(-decision[0])))
-        decision_positive = prob_positive >= loaded.threshold
+        threshold = threshold_override if threshold_override is not None else loaded.threshold
+        decision_positive = prob_positive >= threshold
         return decision_positive
     except Exception as exc:
         raise PrescreenInferenceError(f"Pre-screen inference failed: {exc}") from exc
