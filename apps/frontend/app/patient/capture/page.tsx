@@ -1,8 +1,22 @@
 "use client";
 
 import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
-import { uploadPatientExitSiteImage } from "@/lib/api/predict";
+import { prescreenPatientExitSiteImage, uploadPatientExitSiteImage } from "@/lib/api/predict";
 import { getPatientSession } from "@/lib/auth/patient-session";
+import {
+  GUIDANCE_COPY,
+  GUIDANCE_RING_STROKE,
+  STABILITY_SAMPLE_SIZE,
+  createStabilityTracker,
+  isShutterEnabled,
+  mapPrescreenToPresence,
+  nextStabilityState,
+  resolveGuidanceStatus,
+  rgbaToGray,
+  type PresenceGuidanceStatus,
+  type PresencePollResult,
+  type StabilityTracker,
+} from "@/lib/camera-stability";
 import { SYMPTOM_KEYS, SYMPTOM_LABELS, type SymptomFlags } from "@/lib/symptoms";
 import { AlignCenter, Camera, ChevronLeft, Eye, Sun } from "lucide-react";
 import Link from "next/link";
@@ -12,21 +26,84 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 type CameraFacingMode = "environment" | "user";
 type SymptomFormState = SymptomFlags;
 
+const STABILITY_INTERVAL_MS = 150;
+const PRESCREEN_INTERVAL_MS = 1000;
+const PRESCREEN_MAX_EDGE = 384;
+const PRESCREEN_JPEG_QUALITY = 0.6;
+
+function grabPrescreenBlob(video: HTMLVideoElement, canvas: HTMLCanvasElement): Promise<Blob | null> {
+  const srcW = video.videoWidth;
+  const srcH = video.videoHeight;
+  if (!srcW || !srcH) {
+    return Promise.resolve(null);
+  }
+  const scale = Math.min(1, PRESCREEN_MAX_EDGE / Math.max(srcW, srcH));
+  const width = Math.max(1, Math.round(srcW * scale));
+  const height = Math.max(1, Math.round(srcH * scale));
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return Promise.resolve(null);
+  }
+  ctx.drawImage(video, 0, 0, width, height);
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/jpeg", PRESCREEN_JPEG_QUALITY);
+  });
+}
+
+function sampleGrayFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement): Uint8ClampedArray | null {
+  const srcW = video.videoWidth;
+  const srcH = video.videoHeight;
+  if (!srcW || !srcH) {
+    return null;
+  }
+  canvas.width = STABILITY_SAMPLE_SIZE;
+  canvas.height = STABILITY_SAMPLE_SIZE;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) {
+    return null;
+  }
+  ctx.drawImage(video, 0, 0, STABILITY_SAMPLE_SIZE, STABILITY_SAMPLE_SIZE);
+  const { data } = ctx.getImageData(0, 0, STABILITY_SAMPLE_SIZE, STABILITY_SAMPLE_SIZE);
+  return rgbaToGray(data, STABILITY_SAMPLE_SIZE * STABILITY_SAMPLE_SIZE);
+}
+
 function CameraView({
   onCapture,
   onError,
   facingMode,
   onFallbackToEnvironment,
+  guidanceEnabled,
+  onGuidanceChange,
 }: {
   onCapture: (dataUrl: string) => void;
   onError: (message?: string) => void;
   facingMode: CameraFacingMode;
   onFallbackToEnvironment: (message: string) => void;
+  guidanceEnabled: boolean;
+  onGuidanceChange: (status: PresenceGuidanceStatus) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const stabilityCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const stabilityRef = useRef<StabilityTracker>(createStabilityTracker());
+  const presenceRef = useRef<PresencePollResult>("idle");
+  const inFlightRef = useRef(false);
+  const lastPollAtRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
   const [ready, setReady] = useState(false);
+  const [guidanceStatus, setGuidanceStatus] = useState<PresenceGuidanceStatus>("idle");
+
+  const publishGuidance = useCallback(
+    (isStable: boolean, presence: PresencePollResult) => {
+      const next = resolveGuidanceStatus(isStable, presence);
+      setGuidanceStatus(next);
+      onGuidanceChange(next);
+    },
+    [onGuidanceChange]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +131,8 @@ function CameraView({
 
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    stabilityRef.current = createStabilityTracker();
+    presenceRef.current = "idle";
 
     const attachStream = (stream: MediaStream) => {
       if (cancelled) {
@@ -95,20 +174,104 @@ function CameraView({
     void startCamera();
     return () => {
       cancelled = true;
+      abortRef.current?.abort();
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, [facingMode, onError, onFallbackToEnvironment]);
 
+  useEffect(() => {
+    if (!ready || !guidanceEnabled) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const tick = () => {
+      if (cancelled) {
+        return;
+      }
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const stabilityCanvas = stabilityCanvasRef.current;
+      if (!video || !canvas || !stabilityCanvas || video.readyState < 2) {
+        return;
+      }
+
+      const gray = sampleGrayFrame(video, stabilityCanvas);
+      if (!gray) {
+        return;
+      }
+      const nextTracker = nextStabilityState(stabilityRef.current, gray);
+      stabilityRef.current = nextTracker;
+      if (!nextTracker.isStable) {
+        presenceRef.current = "idle";
+      }
+      publishGuidance(nextTracker.isStable, presenceRef.current);
+
+      if (!nextTracker.isStable || inFlightRef.current) {
+        return;
+      }
+      const now = Date.now();
+      if (now - lastPollAtRef.current < PRESCREEN_INTERVAL_MS) {
+        return;
+      }
+
+      inFlightRef.current = true;
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      void (async () => {
+        try {
+          const blob = await grabPrescreenBlob(video, canvas);
+          if (!blob || cancelled || controller.signal.aborted) {
+            return;
+          }
+          lastPollAtRef.current = Date.now();
+          const file = new File([blob], "prescreen.jpg", { type: "image/jpeg" });
+          const result = await prescreenPatientExitSiteImage(file, { signal: controller.signal });
+          if (cancelled || controller.signal.aborted) {
+            return;
+          }
+          presenceRef.current = mapPrescreenToPresence(result, false);
+          publishGuidance(stabilityRef.current.isStable, presenceRef.current);
+        } catch {
+          if (cancelled || controller.signal.aborted) {
+            return;
+          }
+          presenceRef.current = mapPrescreenToPresence(null, true);
+          publishGuidance(stabilityRef.current.isStable, presenceRef.current);
+        } finally {
+          inFlightRef.current = false;
+        }
+      })();
+    };
+
+    const intervalId = window.setInterval(tick, STABILITY_INTERVAL_MS);
+    tick();
+
+    return () => {
+      cancelled = true;
+      abortRef.current?.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [ready, guidanceEnabled, publishGuidance]);
+
   const handleCapture = () => {
+    if (!isShutterEnabled(guidanceStatus)) {
+      return;
+    }
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
+    abortRef.current?.abort();
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext("2d")?.drawImage(video, 0, 0);
     streamRef.current?.getTracks().forEach((t) => t.stop());
     onCapture(canvas.toDataURL("image/jpeg", 0.8));
   };
+
+  const shutterReady = ready && isShutterEnabled(guidanceStatus);
 
   return (
     <>
@@ -120,9 +283,11 @@ function CameraView({
         muted
       />
       <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={stabilityCanvasRef} className="hidden" />
       <button
         onClick={handleCapture}
-        disabled={!ready}
+        disabled={!shutterReady}
+        aria-label="拍攝"
         className="absolute bottom-28 left-1/2 z-20 flex h-16 w-16 -translate-x-1/2 items-center justify-center rounded-full border-4 border-white bg-white/20 transition-colors hover:bg-white/30 disabled:opacity-40"
       >
         <div className="w-10 h-10 rounded-full bg-white" />
@@ -145,6 +310,7 @@ function CapturePageInner() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showSymptomModal, setShowSymptomModal] = useState(true);
   const [symptomConfirmed, setSymptomConfirmed] = useState(false);
+  const [guidanceStatus, setGuidanceStatus] = useState<PresenceGuidanceStatus>("idle");
   const [symptoms, setSymptoms] = useState<SymptomFormState>({
     pain: false,
     discharge: false,
@@ -176,6 +342,7 @@ function CapturePageInner() {
     setCameraNoticeMessage(null);
     setSubmitError(null);
     setIsSubmitting(false);
+    setGuidanceStatus("idle");
     if (uploadInputRef.current) {
       uploadInputRef.current.value = "";
     }
@@ -199,6 +366,10 @@ function CapturePageInner() {
     setFacingMode("environment");
     setCameraError(false);
     setCameraNoticeMessage(message);
+  }, []);
+
+  const handleGuidanceChange = useCallback((status: PresenceGuidanceStatus) => {
+    setGuidanceStatus(status);
   }, []);
 
   const handleSelectPhoto = () => {
@@ -310,6 +481,12 @@ function CapturePageInner() {
     setSubmitError(null);
   };
 
+  const showLiveGuidance =
+    !capturedImage && !cameraError && symptomConfirmed && !showSymptomModal;
+  const ringStroke = showLiveGuidance
+    ? GUIDANCE_RING_STROKE[guidanceStatus]
+    : "rgba(255,255,255,0.8)";
+
   return (
     <div className="min-h-[100dvh] bg-black flex flex-col">
       <header className="flex items-center gap-3 px-5 pt-12 pb-4 absolute top-0 left-0 right-0 z-10">
@@ -350,6 +527,8 @@ function CapturePageInner() {
             onError={handleCameraError}
             facingMode={facingMode}
             onFallbackToEnvironment={handleFallbackToEnvironment}
+            guidanceEnabled={symptomConfirmed && !showSymptomModal}
+            onGuidanceChange={handleGuidanceChange}
           />
         )}
         <input
@@ -376,13 +555,64 @@ function CapturePageInner() {
 
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="relative w-72 h-72">
-            <svg viewBox="0 0 288 288" className="absolute inset-0 w-full h-full">
-              <circle cx="144" cy="144" r="130" fill="none" stroke="white" strokeWidth="2" strokeDasharray="12 8" opacity="0.8" />
-              <line x1="144" y1="14" x2="144" y2="40" stroke="white" strokeWidth="1.5" opacity="0.5" />
-              <line x1="144" y1="248" x2="144" y2="274" stroke="white" strokeWidth="1.5" opacity="0.5" />
-              <line x1="14" y1="144" x2="40" y2="144" stroke="white" strokeWidth="1.5" opacity="0.5" />
-              <line x1="248" y1="144" x2="274" y2="144" stroke="white" strokeWidth="1.5" opacity="0.5" />
+            <svg viewBox="0 0 288 288" className="absolute inset-0 h-full w-full">
+              <circle
+                cx="144"
+                cy="144"
+                r="130"
+                fill="none"
+                stroke={ringStroke}
+                strokeWidth="2.5"
+                strokeDasharray="12 8"
+                opacity="0.9"
+                className="transition-[stroke] duration-300 ease-out"
+              />
+              <line
+                x1="144"
+                y1="14"
+                x2="144"
+                y2="40"
+                stroke={ringStroke}
+                strokeWidth="1.5"
+                opacity="0.45"
+                className="transition-[stroke] duration-300 ease-out"
+              />
+              <line
+                x1="144"
+                y1="248"
+                x2="144"
+                y2="274"
+                stroke={ringStroke}
+                strokeWidth="1.5"
+                opacity="0.45"
+                className="transition-[stroke] duration-300 ease-out"
+              />
+              <line
+                x1="14"
+                y1="144"
+                x2="40"
+                y2="144"
+                stroke={ringStroke}
+                strokeWidth="1.5"
+                opacity="0.45"
+                className="transition-[stroke] duration-300 ease-out"
+              />
+              <line
+                x1="248"
+                y1="144"
+                x2="274"
+                y2="144"
+                stroke={ringStroke}
+                strokeWidth="1.5"
+                opacity="0.45"
+                className="transition-[stroke] duration-300 ease-out"
+              />
             </svg>
+            {showLiveGuidance && (
+              <p className="absolute left-[-1.5rem] right-[-1.5rem] top-full mt-4 px-1 text-center text-sm font-medium leading-snug text-white drop-shadow">
+                {GUIDANCE_COPY[guidanceStatus]}
+              </p>
+            )}
           </div>
         </div>
 

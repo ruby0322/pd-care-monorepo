@@ -20,6 +20,29 @@ export async function predictExitSiteImage(file: File): Promise<PredictResponse>
   return data;
 }
 
+export type PatientPrescreenResponse = {
+  present: boolean;
+  checked: boolean;
+};
+
+export async function prescreenPatientExitSiteImage(
+  file: File,
+  options?: { signal?: AbortSignal }
+): Promise<PatientPrescreenResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const { data } = await apiClient.post<PatientPrescreenResponse>("/v1/patient/prescreen", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    signal: options?.signal,
+    timeout: 8000,
+  });
+
+  return data;
+}
+
 export type PatientUploadResponse = {
   upload_id: number;
   ai_result_id: number;
