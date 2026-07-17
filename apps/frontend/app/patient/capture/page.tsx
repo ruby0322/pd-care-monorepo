@@ -203,6 +203,9 @@ function CameraView({
       }
       const nextTracker = nextStabilityState(stabilityRef.current, gray);
       stabilityRef.current = nextTracker;
+      if (!nextTracker.isStable) {
+        presenceRef.current = "idle";
+      }
       publishGuidance(nextTracker.isStable, presenceRef.current);
 
       if (!nextTracker.isStable || inFlightRef.current) {
@@ -214,7 +217,6 @@ function CameraView({
       }
 
       inFlightRef.current = true;
-      lastPollAtRef.current = now;
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -224,6 +226,7 @@ function CameraView({
           if (!blob || cancelled || controller.signal.aborted) {
             return;
           }
+          lastPollAtRef.current = Date.now();
           const file = new File([blob], "prescreen.jpg", { type: "image/jpeg" });
           const result = await prescreenPatientExitSiteImage(file, { signal: controller.signal });
           if (cancelled || controller.signal.aborted) {

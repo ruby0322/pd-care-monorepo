@@ -5,7 +5,11 @@ import time
 
 
 class PrescreenRateLimiter:
-    """Process-local min-interval gate keyed by patient id."""
+    """Process-local min-interval gate keyed by patient id.
+
+    Each backend replica maintains its own map, so aggregate prescreen rate per
+    patient can exceed ``min_interval_seconds`` when multiple pods serve traffic.
+    """
 
     def __init__(self, *, min_interval_seconds: float = 1.0) -> None:
         self._min_interval_seconds = min_interval_seconds

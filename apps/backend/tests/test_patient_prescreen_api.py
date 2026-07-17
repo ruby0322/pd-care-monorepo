@@ -14,7 +14,7 @@ from app.config import Settings
 from app.db.models import AIResult, LiffIdentity, Notification, Patient, PendingBinding, Upload
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
-from app.services.prescreen import PrescreenInferenceError
+from app.services.prescreen import LIVE_PRESCREEN_THRESHOLD_FACTOR, PrescreenInferenceError
 from app.services.prescreen_rate_limit import prescreen_rate_limiter
 from tests.db_test_utils import migrated_sqlite_database_url
 
@@ -289,6 +289,44 @@ def test_prescreen_rejects_pending_identity(tmp_path: Path) -> None:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 403
+
+
+def test_prescreen_passes_live_threshold_override_to_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = replace(
+        _make_settings(tmp_path / "prescreen-threshold.db"),
+        prescreen_enabled=True,
+    )
+    model_threshold = 0.5
+    app = create_app(
+        settings=settings,
+        loaded_model=SimpleNamespace(device="cpu"),
+        loaded_prescreen_model=SimpleNamespace(device="cpu", threshold=model_threshold),
+    )
+    captured: dict[str, object] = {}
+
+    def _capture_threshold(_loaded: object, _bytes: bytes, **kwargs: object) -> bool:
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr("app.api.routes.patient.is_exit_site_present", _capture_threshold)
+
+    with TestClient(app) as client:
+        _seed_bound_identity(client, line_user_id="U_LINE_PRESCREEN_THRESHOLD")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_PRESCREEN_THRESHOLD")
+
+        response = client.post(
+            "/v1/patient/prescreen",
+            files={"file": ("frame.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"present": True, "checked": True}
+        assert captured["threshold_override"] == pytest.approx(
+            model_threshold * LIVE_PRESCREEN_THRESHOLD_FACTOR
+        )
 
 
 def test_prescreen_rate_limits_second_request(
