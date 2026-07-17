@@ -49,6 +49,9 @@ function riskBadgeClass(upload: StaffHistoryOverviewUploadItem): string {
     return "bg-red-100 text-red-700";
   }
   if (upload.risk_rank === 2) {
+    return "bg-orange-100 text-orange-700";
+  }
+  if (upload.risk_rank === 3) {
     return "bg-emerald-100 text-emerald-700";
   }
   return "bg-zinc-200 text-zinc-700";
@@ -67,6 +70,9 @@ function riskLabel(upload: StaffHistoryOverviewUploadItem): string {
   if (upload.annotation_label === "rejected") {
     return "rejected";
   }
+  if (upload.risk_rank === 2) {
+    return "症狀高風險";
+  }
   return upload.screening_result;
 }
 
@@ -74,7 +80,10 @@ function suggestedLabel(upload: StaffHistoryOverviewUploadItem): StaffAnnotation
   if (upload.annotation_label) {
     return upload.annotation_label;
   }
-  if (upload.screening_result === "suspected") {
+  if (upload.screening_result === "rejected" || upload.screening_result === "technical_error") {
+    return "rejected";
+  }
+  if (upload.symptom_aware_priority === "suspected" || upload.screening_result === "suspected") {
     return "suspected";
   }
   if (upload.screening_result === "normal") {
@@ -98,7 +107,9 @@ export default function AdminHistoryOverviewPage() {
   const [groupSortBy, setGroupSortBy] = useState<GroupSortBy>("infection_risk");
 
   const [calendarLoading, setCalendarLoading] = useState(false);
-  const [calendarRiskByDate, setCalendarRiskByDate] = useState<Record<string, number>>({});
+  const [calendarRiskByDate, setCalendarRiskByDate] = useState<
+    Record<string, { risky: number; elevated: number }>
+  >({});
 
   const [ungroupedVisibleCount, setUngroupedVisibleCount] = useState(INITIAL_UNGROUPED_VISIBLE);
   const [groupVisibleCountByPatient, setGroupVisibleCountByPatient] = useState<Record<number, number>>({});
@@ -179,9 +190,12 @@ export default function AdminHistoryOverviewPage() {
       setCalendarLoading(true);
       void fetchHistoryOverviewCalendar({ year, month })
         .then((response) => {
-          const riskMap: Record<string, number> = {};
+          const riskMap: Record<string, { risky: number; elevated: number }> = {};
           response.items.forEach((item) => {
-            riskMap[item.local_date] = item.risky_patient_count;
+            riskMap[item.local_date] = {
+              risky: item.risky_patient_count,
+              elevated: item.symptom_elevated_patient_count,
+            };
           });
           setCalendarRiskByDate(riskMap);
         })
@@ -352,7 +366,7 @@ export default function AdminHistoryOverviewPage() {
   }, [selectedDate]);
 
   const monthRiskMax = useMemo(() => {
-    const values = Object.values(calendarRiskByDate);
+    const values = Object.values(calendarRiskByDate).map((entry) => entry.risky);
     return values.length > 0 ? Math.max(...values) : 0;
   }, [calendarRiskByDate]);
 
@@ -436,7 +450,7 @@ export default function AdminHistoryOverviewPage() {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <div className="rounded-xl border border-zinc-200 bg-white p-3">
           <p className="text-xs text-zinc-500">uploaded users</p>
           <p className="mt-1 text-lg font-semibold text-zinc-900">{overviewData?.kpi.uploaded_users ?? 0}</p>
@@ -446,8 +460,12 @@ export default function AdminHistoryOverviewPage() {
           <p className="mt-1 text-lg font-semibold text-zinc-900">{overviewData?.kpi.uploads ?? 0}</p>
         </div>
         <div className="rounded-xl border border-zinc-200 bg-white p-3">
-          <p className="text-xs text-zinc-500">suspected infected users</p>
+          <p className="text-xs text-zinc-500">疑似感染人數</p>
           <p className="mt-1 text-lg font-semibold text-zinc-900">{overviewData?.kpi.suspected_infected_users ?? 0}</p>
+        </div>
+        <div className="rounded-xl border border-zinc-200 bg-white p-3">
+          <p className="text-xs text-zinc-500">症狀高風險人數</p>
+          <p className="mt-1 text-lg font-semibold text-zinc-900">{overviewData?.kpi.symptom_elevated_users ?? 0}</p>
         </div>
         <div className="rounded-xl border border-zinc-200 bg-white p-3">
           <p className="text-xs text-zinc-500">infection rate</p>
@@ -474,10 +492,12 @@ export default function AdminHistoryOverviewPage() {
               return <div key={`blank-${index}`} className="h-10 rounded-md bg-zinc-50" />;
             }
             const isAvailable = days.includes(entry.localDate);
-            const riskyCount = calendarRiskByDate[entry.localDate] ?? 0;
+            const dayRisk = calendarRiskByDate[entry.localDate];
+            const riskyCount = dayRisk?.risky ?? 0;
+            const elevatedCount = dayRisk?.elevated ?? 0;
             const ratio = monthRiskMax > 0 ? riskyCount / monthRiskMax : 0;
             let toneClass = "bg-zinc-100 text-zinc-500";
-            if (isAvailable && riskyCount <= 0) {
+            if (isAvailable && riskyCount <= 0 && elevatedCount <= 0) {
               toneClass = "bg-emerald-100 text-emerald-700";
             } else if (isAvailable && riskyCount > 0) {
               if (ratio <= 0.25) {
@@ -489,8 +509,16 @@ export default function AdminHistoryOverviewPage() {
               } else {
                 toneClass = "bg-red-500 text-white";
               }
+            } else if (isAvailable && elevatedCount > 0) {
+              toneClass = "bg-orange-200 text-orange-800";
             }
             const selectedClass = selectedDate === entry.localDate ? "ring-2 ring-zinc-900" : "";
+            const titleRisk =
+              riskyCount > 0
+                ? `疑似 ${riskyCount}`
+                : elevatedCount > 0
+                  ? `症狀高風險 ${elevatedCount}`
+                  : "無風險";
             return (
               <button
                 key={entry.localDate}
@@ -498,7 +526,7 @@ export default function AdminHistoryOverviewPage() {
                 disabled={!isAvailable}
                 onClick={() => setSelectedDate(entry.localDate)}
                 className={`h-10 rounded-md text-center text-xs font-medium ${toneClass} ${selectedClass} disabled:cursor-not-allowed disabled:opacity-50`}
-                title={isAvailable ? `${entry.localDate} 風險人數 ${riskyCount}` : `${entry.localDate} 無資料`}
+                title={isAvailable ? `${entry.localDate} ${titleRisk}` : `${entry.localDate} 無資料`}
               >
                 {entry.day}
               </button>
@@ -666,8 +694,12 @@ export default function AdminHistoryOverviewPage() {
                     <dd className="text-right text-zinc-900">{riskLabel(selectedUpload)}</dd>
                   </div>
                   <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">AI 原始結果</dt>
+                    <dt className="text-zinc-400">影像判讀</dt>
                     <dd className="text-right text-zinc-900">{selectedUpload.screening_result}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">症狀綜合</dt>
+                    <dd className="text-right text-zinc-900">{selectedUpload.symptom_aware_priority}</dd>
                   </div>
                   <div className="flex items-start justify-between gap-4">
                     <dt className="text-zinc-400">機率</dt>

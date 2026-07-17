@@ -10,6 +10,7 @@ class UploadHistoryDayResponse(BaseModel):
     date: str = Field(examples=["2026-05-09"])
     upload_count: int = Field(ge=0)
     has_suspected_risk: bool
+    has_symptom_elevated_risk: bool = False
 
 
 class UploadHistorySummary28dResponse(BaseModel):
@@ -37,6 +38,9 @@ class PatientDayUploadItemResponse(BaseModel):
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
     annotation_label: str | None
     annotation_comment: str | None
 
@@ -58,6 +62,9 @@ class PatientUploadDetailResponse(BaseModel):
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
     annotation_label: str | None
     annotation_comment: str | None
     image_url: str

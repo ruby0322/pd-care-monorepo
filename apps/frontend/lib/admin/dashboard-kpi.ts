@@ -1,17 +1,33 @@
 export function getSuspectedKpi(
   period: "today" | number,
-  statsSuspectedPatients: number,
-  todaySuspectedUploads: number | null | undefined
+  summarySuspectedUsers: number | null | undefined
 ): { label: string; value: number } {
   if (period === "today") {
     return {
-      label: "今日疑似感染筆數",
-      value: todaySuspectedUploads ?? 0,
+      label: "今日疑似感染人數",
+      value: summarySuspectedUsers ?? 0,
     };
   }
 
   return {
-    label: "疑似感染人數",
-    value: statsSuspectedPatients,
+    label: `${period} 月疑似感染人數`,
+    value: summarySuspectedUsers ?? 0,
+  };
+}
+
+export function getElevatedUserKpi(
+  period: "today" | number,
+  summaryElevatedUsers: number | null | undefined
+): { label: string; value: number } {
+  if (period === "today") {
+    return {
+      label: "今日症狀高風險人數",
+      value: summaryElevatedUsers ?? 0,
+    };
+  }
+
+  return {
+    label: `${period} 月症狀高風險人數`,
+    value: summaryElevatedUsers ?? 0,
   };
 }

@@ -27,11 +27,11 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { getReadableApiError } from "@/lib/api/client";
-import { getSuspectedKpi } from "@/lib/admin/dashboard-kpi";
+import { getElevatedUserKpi, getSuspectedKpi } from "@/lib/admin/dashboard-kpi";
 import {
   fetchAdminActiveUsersSeries,
   fetchAdminDailySuspectedSeries,
-  fetchAdminTodaySuspectedSummary,
+  fetchAdminSuspectedSummary,
   approvePendingBinding,
   fetchPendingBindings,
   fetchStaffPatients,
@@ -91,7 +91,10 @@ export default function AdminDashboard() {
   const [patients, setPatients] = useState<StaffPatientSummary[]>([]);
   const [queue, setQueue] = useState<StaffUploadQueueItem[]>([]);
   const [pending, setPending] = useState<StaffPendingBindingItem[]>([]);
-  const [stats, setStats] = useState({ totalPatients: 0, totalUploads: 0, suspectedPatients: 0 });
+  const [stats, setStats] = useState({
+    totalPatients: 0,
+    totalUploads: 0,
+  });
   const [selectedCandidate, setSelectedCandidate] = useState<Record<number, string>>({});
   const [workingPendingId, setWorkingPendingId] = useState<number | null>(null);
   const [newPatientNameByPendingId, setNewPatientNameByPendingId] = useState<Record<number, string>>({});
@@ -100,19 +103,29 @@ export default function AdminDashboard() {
   const [showAllQueue, setShowAllQueue] = useState(false);
   const [showAllPending, setShowAllPending] = useState(false);
   const [todayChartType, setTodayChartType] = useState<ChartType>("bar");
+  const [riskChartMode, setRiskChartMode] = useState<"split" | "aggregate">("split");
   const [activeWindowDays, setActiveWindowDays] = useState<(typeof ACTIVE_WINDOW_OPTIONS)[number]>(7);
   const [activeLookbackDays, setActiveLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
   const [activeInterval, setActiveInterval] = useState<"day" | "week">("day");
   const [dailyLookbackDays, setDailyLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
-  const [todaySummary, setTodaySummary] = useState<{
+  const [riskSummary, setRiskSummary] = useState<{
     total_uploads: number;
     suspected_uploads: number;
+    symptom_elevated_uploads: number;
+    suspected_users: number;
+    symptom_elevated_users: number;
     normal_uploads: number;
     suspected_ratio: number;
   } | null>(null);
   const [activeUsersSeries, setActiveUsersSeries] = useState<{ date: string; active_users: number }[]>([]);
   const [dailySuspectedSeries, setDailySuspectedSeries] = useState<
-    { date: string; total_uploads: number; suspected_uploads: number; suspected_ratio: number }[]
+    {
+      date: string;
+      total_uploads: number;
+      suspected_uploads: number;
+      symptom_elevated_uploads: number;
+      suspected_ratio: number;
+    }[]
   >([]);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const { notifications, unreadCount, markNotificationRead, markingIds, error: notificationError } = useAdminNotifications();
@@ -143,7 +156,6 @@ export default function AdminDashboard() {
         setStats({
           totalPatients: patientsData.total_patients,
           totalUploads: patientsData.total_uploads,
-          suspectedPatients: patientsData.suspected_patients,
         });
         setQueue(queueData.items);
         setPending(pendingData);
@@ -164,8 +176,16 @@ export default function AdminDashboard() {
     async function loadAnalytics() {
       setAnalyticsError(null);
       try {
-        const [todayData, activeData, dailyData] = await Promise.all([
-          fetchAdminTodaySuspectedSummary(),
+        const summaryFilters = {
+          ageMin: ageMin ? Number(ageMin) : undefined,
+          ageMax: ageMax ? Number(ageMax) : undefined,
+          infectionStatus,
+          isActiveFilter: "active" as const,
+        };
+        const [riskData, activeData, dailyData] = await Promise.all([
+          months === "today"
+            ? fetchAdminSuspectedSummary(summaryFilters)
+            : fetchAdminSuspectedSummary({ months, ...summaryFilters }),
           fetchAdminActiveUsersSeries({
             activeWindowDays,
             lookbackDays: activeLookbackDays,
@@ -176,7 +196,7 @@ export default function AdminDashboard() {
         if (cancelled) {
           return;
         }
-        setTodaySummary(todayData);
+        setRiskSummary(riskData);
         setActiveUsersSeries(activeData.items);
         setDailySuspectedSeries(dailyData.items);
       } catch (error) {
@@ -189,7 +209,7 @@ export default function AdminDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [activeInterval, activeLookbackDays, activeWindowDays, dailyLookbackDays]);
+  }, [activeInterval, activeLookbackDays, activeWindowDays, ageMax, ageMin, dailyLookbackDays, infectionStatus, months]);
 
   const pendingItems = useMemo(() => pending.filter((item) => item.status === "pending"), [pending]);
   const visibleNotifications = useMemo(
@@ -201,13 +221,22 @@ export default function AdminDashboard() {
     () => (showAllPending ? pendingItems : pendingItems.slice(0, 3)),
     [pendingItems, showAllPending]
   );
-  const todayChartData = useMemo(
-    () => [
-      { key: "suspected", label: "疑似感染", count: todaySummary?.suspected_uploads ?? 0, fill: "#dc2626" },
-      { key: "normal", label: "正常", count: todaySummary?.normal_uploads ?? 0, fill: "#16a34a" },
-    ],
-    [todaySummary]
-  );
+  const riskChartData = useMemo(() => {
+    const suspected = riskSummary?.suspected_uploads ?? 0;
+    const elevated = riskSummary?.symptom_elevated_uploads ?? 0;
+    const normal = riskSummary?.normal_uploads ?? 0;
+    if (riskChartMode === "aggregate") {
+      return [
+        { key: "risk", label: "風險合計", count: suspected + elevated, fill: "#dc2626" },
+        { key: "normal", label: "正常", count: normal, fill: "#16a34a" },
+      ];
+    }
+    return [
+      { key: "suspected", label: "疑似感染", count: suspected, fill: "#dc2626" },
+      { key: "elevated", label: "症狀高風險", count: elevated, fill: "#f97316" },
+      { key: "normal", label: "正常", count: normal, fill: "#16a34a" },
+    ];
+  }, [riskChartMode, riskSummary]);
   const activeUserChartData = useMemo(
     () =>
       activeUsersSeries.map((point) => ({
@@ -218,26 +247,57 @@ export default function AdminDashboard() {
   );
   const dailySuspectedChartData = useMemo(
     () =>
-      dailySuspectedSeries.map((point) => ({
-        ...point,
-        shortDate: new Date(point.date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }),
-        ratio_pct: Number((point.suspected_ratio * 100).toFixed(1)),
-      })),
-    [dailySuspectedSeries]
+      dailySuspectedSeries.map((point) => {
+        const elevated = point.symptom_elevated_uploads ?? 0;
+        const riskTotal = point.suspected_uploads + elevated;
+        const ratioBase = riskChartMode === "aggregate" ? riskTotal : point.suspected_uploads;
+        return {
+          ...point,
+          symptom_elevated_uploads: elevated,
+          risk_total: riskTotal,
+          shortDate: new Date(point.date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }),
+          ratio_pct: Number(
+            (point.total_uploads > 0 ? (ratioBase / point.total_uploads) * 100 : 0).toFixed(1)
+          ),
+        };
+      }),
+    [dailySuspectedSeries, riskChartMode]
   );
+  const riskChartRatio = useMemo(() => {
+    if (!riskSummary || riskSummary.total_uploads <= 0) {
+      return 0;
+    }
+    if (riskChartMode === "aggregate") {
+      return (
+        (riskSummary.suspected_uploads + riskSummary.symptom_elevated_uploads) / riskSummary.total_uploads
+      );
+    }
+    return riskSummary.suspected_ratio;
+  }, [riskChartMode, riskSummary]);
   const todayChartConfig: ChartConfig = {
     suspected: { label: "疑似感染", color: "#dc2626" },
+    elevated: { label: "症狀高風險", color: "#f97316" },
+    risk: { label: "風險合計", color: "#dc2626" },
     normal: { label: "正常", color: "#16a34a" },
     count: { label: "筆數" },
   };
   const activeChartConfig: ChartConfig = {
     active_users: { label: "活躍用戶", color: "#2563eb" },
   };
-  const dailyChartConfig: ChartConfig = {
-    suspected_uploads: { label: "疑似數量", color: "#dc2626" },
-    ratio_pct: { label: "疑似比例(%)", color: "#2563eb" },
-  };
-  const suspectedKpi = getSuspectedKpi(months, stats.suspectedPatients, todaySummary?.suspected_uploads);
+  const dailyChartConfig: ChartConfig =
+    riskChartMode === "aggregate"
+      ? {
+          risk_total: { label: "風險合計", color: "#dc2626" },
+          ratio_pct: { label: "風險比例(%)", color: "#2563eb" },
+        }
+      : {
+          suspected_uploads: { label: "疑似數量", color: "#dc2626" },
+          symptom_elevated_uploads: { label: "症狀高風險", color: "#f97316" },
+          ratio_pct: { label: "疑似比例(%)", color: "#2563eb" },
+        };
+  const suspectedKpi = getSuspectedKpi(months, riskSummary?.suspected_users);
+  const elevatedKpi = getElevatedUserKpi(months, riskSummary?.symptom_elevated_users);
+  const riskChartTitle = months === "today" ? "今日疑似感染" : `${months} 月疑似感染`;
 
   async function refreshPending() {
     const items = await fetchPendingBindings();
@@ -444,23 +504,23 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 order-2">
+      <div className="grid grid-cols-2 gap-3 order-2 md:grid-cols-4">
         {[
-          { icon: Users, label: "篩選病患數", value: stats.totalPatients, color: "zinc" },
+          { icon: Users, label: "篩選病患數", value: stats.totalPatients },
           {
             icon: Upload,
             label: months === "today" ? "今日上傳次數" : `${months} 月上傳次數`,
-            value: months === "today" ? (todaySummary?.total_uploads ?? stats.totalUploads) : stats.totalUploads,
-            color: "zinc",
+            value: riskSummary?.total_uploads ?? stats.totalUploads,
           },
-          { icon: AlertTriangle, label: suspectedKpi.label, value: suspectedKpi.value, color: "red" },
-        ].map(({ icon: Icon, label, value, color }) => (
+          { icon: AlertTriangle, label: suspectedKpi.label, value: suspectedKpi.value },
+          { icon: AlertTriangle, label: elevatedKpi.label, value: elevatedKpi.value },
+        ].map(({ icon: Icon, label, value }) => (
           <div key={label} className="bg-white border border-zinc-100 rounded-2xl p-5 flex flex-col gap-3">
-            <div className={clsx("w-8 h-8 rounded-xl flex items-center justify-center", color === "red" ? "bg-red-50" : "bg-zinc-50")}>
-              <Icon className={clsx("w-4 h-4", color === "red" ? "text-red-500" : "text-zinc-500")} strokeWidth={1.5} />
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-zinc-50">
+              <Icon className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
             </div>
             <div>
-              <div className={clsx("text-2xl font-semibold", color === "red" ? "text-red-600" : "text-zinc-900")}>{value}</div>
+              <div className="text-2xl font-semibold text-zinc-900">{value}</div>
               <div className="text-xs text-zinc-400 mt-0.5">{label}</div>
             </div>
           </div>
@@ -475,41 +535,64 @@ export default function AdminDashboard() {
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <div className="space-y-3">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-zinc-900">今日疑似感染</h3>
-              <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
-                <button
-                  className={clsx(
-                    "rounded px-2 py-1",
-                    todayChartType === "bar" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
-                  )}
-                  onClick={() => setTodayChartType("bar")}
-                >
-                  長條
-                </button>
-                <button
-                  className={clsx(
-                    "rounded px-2 py-1",
-                    todayChartType === "pie" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
-                  )}
-                  onClick={() => setTodayChartType("pie")}
-                >
-                  圓餅
-                </button>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-medium text-zinc-900">{riskChartTitle}</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      riskChartMode === "split" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setRiskChartMode("split")}
+                  >
+                    分開
+                  </button>
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      riskChartMode === "aggregate" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setRiskChartMode("aggregate")}
+                  >
+                    合計
+                  </button>
+                </div>
+                <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      todayChartType === "bar" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setTodayChartType("bar")}
+                  >
+                    長條
+                  </button>
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      todayChartType === "pie" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setTodayChartType("pie")}
+                  >
+                    圓餅
+                  </button>
+                </div>
               </div>
             </div>
             <p className="mb-2 text-xs text-zinc-500">
-              疑似比例 {((todaySummary?.suspected_ratio ?? 0) * 100).toFixed(1)}%（共 {todaySummary?.total_uploads ?? 0} 筆）
+              {riskChartMode === "aggregate" ? "風險比例" : "疑似比例"}{" "}
+              {(riskChartRatio * 100).toFixed(1)}%（共 {riskSummary?.total_uploads ?? 0} 筆）
             </p>
             <ChartContainer className="h-64 w-full" config={todayChartConfig}>
               {todayChartType === "bar" ? (
-                <BarChart data={todayChartData}>
+                <BarChart data={riskChartData}>
                   <CartesianGrid vertical={false} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar dataKey="count" radius={6}>
-                    {todayChartData.map((item) => (
+                    {riskChartData.map((item) => (
                       <Cell key={item.key} fill={item.fill} />
                     ))}
                   </Bar>
@@ -517,8 +600,8 @@ export default function AdminDashboard() {
               ) : (
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Pie data={todayChartData} dataKey="count" nameKey="label" outerRadius={90}>
-                    {todayChartData.map((item) => (
+                  <Pie data={riskChartData} dataKey="count" nameKey="label" outerRadius={90}>
+                    {riskChartData.map((item) => (
                       <Cell key={item.key} fill={item.fill} />
                     ))}
                   </Pie>
@@ -578,17 +661,39 @@ export default function AdminDashboard() {
           <div className="space-y-3 xl:col-span-2">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-medium text-zinc-900">每日疑似感染比例與數量</h3>
-              <select
-                className="rounded-lg border border-zinc-200 px-2 py-1 text-xs"
-                value={dailyLookbackDays}
-                onChange={(event) => setDailyLookbackDays(Number(event.target.value) as (typeof LOOKBACK_OPTIONS)[number])}
-              >
-                {LOOKBACK_OPTIONS.map((value) => (
-                  <option key={value} value={value}>
-                    最近{value}天
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1">
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      riskChartMode === "split" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setRiskChartMode("split")}
+                  >
+                    分開
+                  </button>
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      riskChartMode === "aggregate" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setRiskChartMode("aggregate")}
+                  >
+                    合計
+                  </button>
+                </div>
+                <select
+                  className="rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+                  value={dailyLookbackDays}
+                  onChange={(event) => setDailyLookbackDays(Number(event.target.value) as (typeof LOOKBACK_OPTIONS)[number])}
+                >
+                  {LOOKBACK_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      最近{value}天
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <ChartContainer className="h-72 w-full" config={dailyChartConfig}>
               <LineChart data={dailySuspectedChartData}>
@@ -597,7 +702,26 @@ export default function AdminDashboard() {
                 <YAxis yAxisId="left" tickLine={false} axisLine={false} allowDecimals={false} />
                 <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} unit="%" />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Line yAxisId="left" dataKey="suspected_uploads" stroke="var(--color-suspected_uploads)" strokeWidth={2} dot={false} />
+                {riskChartMode === "aggregate" ? (
+                  <Line yAxisId="left" dataKey="risk_total" stroke="var(--color-risk_total)" strokeWidth={2} dot={false} />
+                ) : (
+                  <>
+                    <Line
+                      yAxisId="left"
+                      dataKey="suspected_uploads"
+                      stroke="var(--color-suspected_uploads)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      yAxisId="left"
+                      dataKey="symptom_elevated_uploads"
+                      stroke="var(--color-symptom_elevated_uploads)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </>
+                )}
                 <Line yAxisId="right" dataKey="ratio_pct" stroke="var(--color-ratio_pct)" strokeWidth={2} dot={false} />
                 <ChartLegend content={<ChartLegendContent />} />
               </LineChart>

@@ -33,9 +33,13 @@ class LineIdentityProvider:
         return self._verify_line_id_token(line_id_token=line_id_token)
 
     def _verify_stub_token(self, *, line_id_token: str) -> LineIdentityProfile:
-        # Test-only mode; enables deterministic API tests without network.
+        # Test-only / host-local mode; enables deterministic verify without LINE network.
         if not line_id_token.startswith("stub:"):
-            raise ValueError("Invalid LINE id token (stub mode)")
+            raise ValueError(
+                "Invalid LINE id token (stub mode): expected stub:<line_user_id>. "
+                "Frontend must leave NEXT_PUBLIC_LIFF_ID unset and use "
+                "apps/frontend/.env.local.example (see docs/ops/local-dev-without-line.md)."
+            )
         line_user_id = line_id_token.replace("stub:", "", 1).strip()
         if not line_user_id:
             raise ValueError("Invalid LINE id token subject")
@@ -46,6 +50,12 @@ class LineIdentityProvider:
         )
 
     def _verify_line_id_token(self, *, line_id_token: str) -> LineIdentityProfile:
+        if line_id_token.startswith("stub:"):
+            raise ValueError(
+                "Received stub:<line_user_id> token but LINE_VERIFY_MODE is not stub. "
+                "For host-local verification set LINE_VERIFY_MODE=stub "
+                "(copy apps/backend/.env.local.example → .env; see docs/ops/local-dev-without-line.md)."
+            )
         if not self._channel_id:
             raise ValueError("LINE_CHANNEL_ID is required for LINE token verification")
 

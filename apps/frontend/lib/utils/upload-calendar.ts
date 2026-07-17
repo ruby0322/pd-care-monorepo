@@ -1,14 +1,3 @@
-type UploadLike = {
-  created_at: string;
-  screening_result: "normal" | "suspected" | "rejected" | "technical_error";
-};
-
-export type CalendarDaySummary = {
-  date: string;
-  upload_count: number;
-  has_suspected_risk: boolean;
-};
-
 export type TaipeiMonthGridCell = {
   dateKey: string;
   dayOfMonth: number;
@@ -41,29 +30,6 @@ export function toTaipeiDateKey(isoDatetime: string): string {
     return isoDatetime.slice(0, 10);
   }
   return taipeiDateFormatter.format(parsed);
-}
-
-export function summarizeUploadsForCalendar(uploads: UploadLike[]): CalendarDaySummary[] {
-  const dayMap = new Map<string, CalendarDaySummary>();
-  for (const upload of uploads) {
-    const key = toTaipeiDateKey(upload.created_at);
-    const current = dayMap.get(key);
-    const hasSuspectedRisk = upload.screening_result === "suspected";
-    if (!current) {
-      dayMap.set(key, {
-        date: key,
-        upload_count: 1,
-        has_suspected_risk: hasSuspectedRisk,
-      });
-      continue;
-    }
-    dayMap.set(key, {
-      date: key,
-      upload_count: current.upload_count + 1,
-      has_suspected_risk: current.has_suspected_risk || hasSuspectedRisk,
-    });
-  }
-  return Array.from(dayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export function getTaipeiTodayKey(reference: Date = new Date()): string {
@@ -128,7 +94,10 @@ export function getRelativeMonthKey(monthKey: string, offset: number): string {
 }
 
 function formatDateKeyFromUtc(utcDate: Date): string {
-  return utcDate.toISOString().slice(0, 10);
+  const year = utcDate.getUTCFullYear();
+  const month = utcDate.getUTCMonth() + 1;
+  const day = utcDate.getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 export function buildTaipeiMonthGrid(monthKey: string): TaipeiMonthGrid {

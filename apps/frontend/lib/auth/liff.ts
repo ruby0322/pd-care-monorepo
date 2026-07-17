@@ -23,9 +23,21 @@ type LiffProfile = {
   pictureUrl?: string;
 };
 
-const DEV_LINE_USER_STORAGE_KEY = "pdCare.devLineUserId";
+export const DEV_LINE_USER_STORAGE_KEY = "pdCare.devLineUserId";
 const EXPIRED_TOKEN_REFRESH_KEY = "pdCare.liffExpiredTokenRefreshExp";
 export const LIFF_ENTRY_PATH = "/login";
+
+/** True when host-local LIFF bypass is active (stub tokens, /dev/personas). */
+export function isLiffDevBypassActive(): boolean {
+  return process.env.NODE_ENV === "development" && !process.env.NEXT_PUBLIC_LIFF_ID;
+}
+
+export function setDevBypassLineUserId(lineUserId: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(DEV_LINE_USER_STORAGE_KEY, lineUserId);
+}
 
 function normalizeNextPath(rawNext: string | null | undefined): string | null {
   if (!rawNext) {

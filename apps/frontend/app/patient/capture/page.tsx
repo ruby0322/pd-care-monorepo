@@ -3,17 +3,14 @@
 import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
 import { uploadPatientExitSiteImage } from "@/lib/api/predict";
 import { getPatientSession } from "@/lib/auth/patient-session";
+import { SYMPTOM_KEYS, SYMPTOM_LABELS, type SymptomFlags } from "@/lib/symptoms";
 import { AlignCenter, Camera, ChevronLeft, Eye, Sun } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 type CameraFacingMode = "environment" | "user";
-type SymptomFormState = {
-  pain: boolean;
-  discharge: boolean;
-  pus: boolean;
-};
+type SymptomFormState = SymptomFlags;
 
 function CameraView({
   onCapture,
@@ -152,6 +149,7 @@ function CapturePageInner() {
     pain: false,
     discharge: false,
     pus: false,
+    cloudyDialysate: false,
   });
 
   const ensurePatientToken = () => {
@@ -272,6 +270,7 @@ function CapturePageInner() {
         pain: String(payload.symptom_pain),
         discharge: String(payload.symptom_discharge),
         pus: String(payload.symptom_pus),
+        cloudyDialysate: String(payload.symptom_cloudy_dialysate),
         result,
         uploadId: String(payload.upload_id),
         aiResultId: String(payload.ai_result_id),
@@ -288,6 +287,7 @@ function CapturePageInner() {
           pain: String(symptoms.pain),
           discharge: String(symptoms.discharge),
           pus: String(symptoms.pus),
+          cloudyDialysate: String(symptoms.cloudyDialysate),
           result: "rejected",
           reason: detail,
         });
@@ -419,16 +419,12 @@ function CapturePageInner() {
             <p className="mt-2 text-sm text-zinc-600">此步驟不可跳過，可直接選擇「皆無症狀」。</p>
 
             <div className="mt-5 space-y-3">
-              {([
-                { key: "pain", label: "疼痛" },
-                { key: "discharge", label: "分泌物" },
-                { key: "pus", label: "透析液混濁" },
-              ] as const).map(({ key, label }) => (
+              {SYMPTOM_KEYS.map((key) => (
                 <label
                   key={key}
                   className="flex items-center justify-between rounded-2xl border border-zinc-200 px-4 py-3 text-sm text-zinc-700"
                 >
-                  <span>{label}</span>
+                  <span>{SYMPTOM_LABELS[key]}</span>
                   <input
                     type="checkbox"
                     checked={symptoms[key]}
@@ -452,6 +448,7 @@ function CapturePageInner() {
                     pain: false,
                     discharge: false,
                     pus: false,
+                    cloudyDialysate: false,
                   });
                   setSymptomConfirmed(true);
                   setShowSymptomModal(false);

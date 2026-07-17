@@ -26,10 +26,26 @@ Peritoneal dialysis exit-site imaging platform: Next.js frontend (`apps/frontend
 - **Commits** — only when the user asks (or [stage-commit-push](.cursor/skills/stage-commit-push/SKILL.md) applies). Use `type(scope): summary` messages; explain *why* in the body.
 - **Frontend deps** — use `npx` when installing/updating npm packages in `apps/frontend`.
 
+## Local verify without LINE
+
+Real LIFF does not work on localhost. Canonical path:
+
+```bash
+npm run dev:infra   # Postgres + SeaweedFS
+# copy apps/backend/.env.local.example → .env
+# copy apps/frontend/.env.local.example → .env.local  (leave NEXT_PUBLIC_LIFF_ID unset)
+npm run seed:dev-personas
+npm run dev
+# http://localhost:3000/dev/personas
+```
+
+Full runbook: [`docs/ops/local-dev-without-line.md`](docs/ops/local-dev-without-line.md).
+
 ## Common commands
 
 ```bash
-# Local dev (frontend + backend with reload)
+# Infra (Compose) then host FE + FastAPI with reload
+npm run dev:infra
 npm run dev
 
 # Lint (same as pre-commit / pre-push hooks)
@@ -91,4 +107,5 @@ See [.cursor/rules/maintain-ship-deploy-skill.mdc](.cursor/rules/maintain-ship-d
 - [docs/architecture/README.md](docs/architecture/README.md) — system architecture (Markdown)
 - [apps/backend/README.md](apps/backend/README.md) — API, migrations, model bake
 - [docs/deploy/k8s-minikube.md](docs/deploy/k8s-minikube.md) — K8s deploy and verification
+- [docs/ops/k8s-minikube-volume-migration-and-recovery.md](docs/ops/k8s-minikube-volume-migration-and-recovery.md) — volume move + Minikube control-plane recovery
 - [docs/deploy/k8s-zero-downtime-rollout.md](docs/deploy/k8s-zero-downtime-rollout.md) — prod rolling upgrades

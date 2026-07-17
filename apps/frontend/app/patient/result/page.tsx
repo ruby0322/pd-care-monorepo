@@ -13,7 +13,9 @@ import { fetchPatientUploadDetail } from "@/lib/api/upload-history";
 import { getPatientSession } from "@/lib/auth/patient-session";
 import {
   activeSymptomLabels,
+  highRiskSymptomAdvisorySentence,
   isSymptomElevatedFromNormal,
+  symptomsFromApiFields,
   type ScreeningResult,
   type SymptomFlags,
 } from "@/lib/symptoms";
@@ -60,7 +62,8 @@ function ResultPageInner() {
   const queryResult = searchParams.get("result");
   const pain = searchParams.get("pain") === "true";
   const discharge = searchParams.get("discharge") === "true";
-  const pus = searchParams.get("pus") === "true" || searchParams.get("cloudyDialysate") === "true";
+  const pus = searchParams.get("pus") === "true";
+  const cloudyDialysate = searchParams.get("cloudyDialysate") === "true";
   const rejectionReason = searchParams.get("reason")?.trim() || null;
   const uploadIdRaw = searchParams.get("uploadId");
   const aiResultIdRaw = searchParams.get("aiResultId");
@@ -115,11 +118,14 @@ function ResultPageInner() {
             ? null
             : Math.max(0, Math.min(100, Math.round(payload.probability * 100)))
         );
-        setHydratedSymptoms({
-          pain: payload.symptom_pain,
-          discharge: payload.symptom_discharge,
-          pus: payload.symptom_pus,
-        });
+        setHydratedSymptoms(
+          symptomsFromApiFields({
+            symptom_pain: payload.symptom_pain,
+            symptom_discharge: payload.symptom_discharge,
+            symptom_pus: payload.symptom_pus,
+            symptom_cloudy_dialysate: payload.symptom_cloudy_dialysate,
+          })
+        );
         setHydratedCreatedAt(payload.created_at);
       } catch (error) {
         if (cancelled) {
@@ -184,8 +190,10 @@ function ResultPageInner() {
     pain,
     discharge,
     pus,
+    cloudyDialysate,
   };
   const activeSymptoms = activeSymptomLabels(symptomFlags);
+  const highRiskAdvisory = highRiskSymptomAdvisorySentence(symptomFlags);
   const elevatedFromNormal = isSymptomElevatedFromNormal(result, symptomFlags);
   const displayResult: ResultState = elevatedFromNormal ? "suspected" : result;
   const showEducation = displayResult === "normal" || displayResult === "suspected";
@@ -255,7 +263,10 @@ function ResultPageInner() {
   })();
 
   const nextStepCopy = (() => {
-    if (elevatedFromNormal || result === "suspected") {
+    if (highRiskAdvisory) {
+      return highRiskAdvisory;
+    }
+    if (result === "suspected") {
       return "請盡速與腹膜透析護理師聯繫，並安排返院追蹤。";
     }
     if (result === "normal") {
@@ -399,7 +410,9 @@ function ResultPageInner() {
           <h2
             className={clsx(
               "text-[10px] font-semibold tracking-wider",
-              elevatedFromNormal || result === "suspected" ? "text-red-600" : "text-zinc-600"
+              elevatedFromNormal || result === "suspected" || Boolean(highRiskAdvisory)
+              ? "text-red-600"
+              : "text-zinc-600"
             )}
           >
             建議下一步

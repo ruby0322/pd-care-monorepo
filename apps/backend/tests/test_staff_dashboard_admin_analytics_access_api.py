@@ -82,8 +82,26 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         assert today_payload["date"] == taipei_today_key
         assert today_payload["total_uploads"] == 2
         assert today_payload["suspected_uploads"] == 1
+        assert today_payload["symptom_elevated_uploads"] == 0
+        assert today_payload["suspected_users"] == 1
+        assert today_payload["symptom_elevated_users"] == 0
         assert today_payload["normal_uploads"] == 1
         assert today_payload["suspected_ratio"] == 0.5
+
+        summary_today = client.get("/v1/staff/admin/analytics/suspected-infections/summary", headers=headers)
+        assert summary_today.status_code == 200
+        assert summary_today.json()["total_uploads"] == today_payload["total_uploads"]
+
+        summary_period = client.get(
+            "/v1/staff/admin/analytics/suspected-infections/summary?months=12",
+            headers=headers,
+        )
+        assert summary_period.status_code == 200
+        period_payload = summary_period.json()
+        assert period_payload["total_uploads"] >= today_payload["total_uploads"]
+        assert "suspected_uploads" in period_payload
+        assert "symptom_elevated_uploads" in period_payload
+        assert "normal_uploads" in period_payload
 
         histogram_response = client.get("/v1/staff/admin/analytics/age-histogram?bucket_size=10", headers=headers)
         assert histogram_response.status_code == 200
@@ -113,8 +131,175 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         today_item = next(item for item in daily_payload["items"] if item["date"] == today_key)
         assert today_item["total_uploads"] == 2
         assert today_item["suspected_uploads"] == 1
+        assert today_item["symptom_elevated_uploads"] == 0
         assert today_item["suspected_ratio"] == 0.5
         assert any(item["total_uploads"] == 0 and item["suspected_ratio"] == 0 for item in daily_payload["items"])
+
+
+def test_admin_suspected_summary_respects_age_and_active_filters(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-summary-filters.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_SUMMARY_FILTERS", role="admin")
+        _seed_admin_analytics_data(client)
+        token = _login_staff_token(client, "U_ADMIN_SUMMARY_FILTERS")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        unfiltered = client.get(
+            "/v1/staff/admin/analytics/suspected-infections/summary?months=12",
+            headers=headers,
+        )
+        assert unfiltered.status_code == 200
+        unfiltered_payload = unfiltered.json()
+        assert unfiltered_payload["total_uploads"] == 4
+
+        active_only = client.get(
+            "/v1/staff/admin/analytics/suspected-infections/summary?months=12&is_active_filter=active",
+            headers=headers,
+        )
+        assert active_only.status_code == 200
+        active_payload = active_only.json()
+        assert active_payload["total_uploads"] == 3
+        assert active_payload["total_uploads"] < unfiltered_payload["total_uploads"]
+
+        age_capped = client.get(
+            "/v1/staff/admin/analytics/suspected-infections/summary?months=12&is_active_filter=active&age_max=40",
+            headers=headers,
+        )
+        assert age_capped.status_code == 200
+        age_payload = age_capped.json()
+        # Male (~36) kept; female (~44) excluded → male's 2 non-rejected uploads
+        assert age_payload["total_uploads"] == 2
+        assert age_payload["suspected_uploads"] == 2
+        assert age_payload["suspected_users"] == 1
+        assert age_payload["total_uploads"] < active_payload["total_uploads"]
+
+        infection_suspected = client.get(
+            "/v1/staff/admin/analytics/suspected-infections/summary"
+            "?months=12&is_active_filter=active&infection_status=suspected",
+            headers=headers,
+        )
+        assert infection_suspected.status_code == 200
+        infection_payload = infection_suspected.json()
+        assert infection_payload["total_uploads"] == 2
+        assert infection_payload["suspected_uploads"] == 2
+        assert infection_payload["suspected_users"] == 1
+
+
+def test_admin_suspected_summary_counts_elevated_tier_exactly(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-summary-elevated.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_SUMMARY_ELEVATED", role="admin")
+        taipei_tz = timezone(timedelta(hours=8))
+        taipei_today = datetime.now(tz=timezone.utc).astimezone(taipei_tz).date()
+        taipei_day_start = datetime.combine(taipei_today, datetime.min.time(), tzinfo=taipei_tz).astimezone(
+            timezone.utc
+        )
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            suspected_patient = Patient(
+                case_number="E-SUS",
+                birth_date="1990-01-01",
+                full_name="Suspected Patient",
+                gender="male",
+                is_active=True,
+            )
+            elevated_patient = Patient(
+                case_number="E-ELV",
+                birth_date="1991-01-01",
+                full_name="Elevated Patient",
+                gender="female",
+                is_active=True,
+            )
+            both_patient = Patient(
+                case_number="E-BOTH",
+                birth_date="1992-01-01",
+                full_name="Both Tiers Patient",
+                gender="other",
+                is_active=True,
+            )
+            session.add_all([suspected_patient, elevated_patient, both_patient])
+            session.flush()
+
+            uploads = [
+                Upload(
+                    patient_id=suspected_patient.id,
+                    object_key="patients/e-sus/uploads/1.jpg",
+                    content_type="image/jpeg",
+                    created_at=taipei_day_start + timedelta(hours=1),
+                ),
+                Upload(
+                    patient_id=elevated_patient.id,
+                    object_key="patients/e-elv/uploads/1.jpg",
+                    content_type="image/jpeg",
+                    created_at=taipei_day_start + timedelta(hours=2),
+                    symptom_pain=True,
+                ),
+                Upload(
+                    patient_id=both_patient.id,
+                    object_key="patients/e-both/uploads/elevated.jpg",
+                    content_type="image/jpeg",
+                    created_at=taipei_day_start + timedelta(hours=3),
+                    symptom_pain=True,
+                ),
+                Upload(
+                    patient_id=both_patient.id,
+                    object_key="patients/e-both/uploads/suspected.jpg",
+                    content_type="image/jpeg",
+                    created_at=taipei_day_start + timedelta(hours=4),
+                ),
+            ]
+            session.add_all(uploads)
+            session.flush()
+            session.add_all(
+                [
+                    AIResult(upload_id=uploads[0].id, screening_result="suspected", probability=0.9, threshold=0.5),
+                    AIResult(upload_id=uploads[1].id, screening_result="normal", probability=0.1, threshold=0.5),
+                    AIResult(upload_id=uploads[2].id, screening_result="normal", probability=0.1, threshold=0.5),
+                    AIResult(upload_id=uploads[3].id, screening_result="suspected", probability=0.9, threshold=0.5),
+                ]
+            )
+            session.commit()
+
+        token = _login_staff_token(client, "U_ADMIN_SUMMARY_ELEVATED")
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.get("/v1/staff/admin/analytics/suspected-infections/summary", headers=headers)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total_uploads"] == 4
+        assert payload["suspected_uploads"] == 2
+        assert payload["symptom_elevated_uploads"] == 2
+        assert payload["normal_uploads"] == 0
+        # User buckets are mutually exclusive: both_patient counts as suspected only
+        assert payload["suspected_users"] == 2
+        assert payload["symptom_elevated_users"] == 1
+
+
+def test_admin_period_summary_total_uploads_matches_staff_patient_list_cutoff(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-summary-cutoff.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_SUMMARY_CUTOFF", role="admin")
+        _seed_admin_analytics_data(client)
+        token = _login_staff_token(client, "U_ADMIN_SUMMARY_CUTOFF")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        patients = client.get(
+            "/v1/staff/patients?months=12&binding_filter=all&is_active_filter=all&limit=100",
+            headers=headers,
+        )
+        assert patients.status_code == 200
+        patients_payload = patients.json()
+
+        summary = client.get(
+            "/v1/staff/admin/analytics/suspected-infections/summary?months=12&is_active_filter=all",
+            headers=headers,
+        )
+        assert summary.status_code == 200
+        summary_payload = summary.json()
+        assert summary_payload["total_uploads"] == patients_payload["total_uploads"]
+        assert summary_payload["total_uploads"] == 4
 
 
 def test_admin_analytics_buckets_uploads_by_taipei_local_date_boundary(tmp_path: Path) -> None:
@@ -161,6 +346,9 @@ def test_admin_analytics_buckets_uploads_by_taipei_local_date_boundary(tmp_path:
         assert today_payload["date"] == taipei_today_key
         assert today_payload["total_uploads"] == 1
         assert today_payload["suspected_uploads"] == 1
+        assert today_payload["symptom_elevated_uploads"] == 0
+        assert today_payload["suspected_users"] == 1
+        assert today_payload["symptom_elevated_users"] == 0
 
         daily_response = client.get("/v1/staff/admin/analytics/daily-suspected-series?lookback_days=30", headers=headers)
         assert daily_response.status_code == 200
@@ -168,6 +356,7 @@ def test_admin_analytics_buckets_uploads_by_taipei_local_date_boundary(tmp_path:
         today_item = next(item for item in daily_payload["items"] if item["date"] == taipei_today_key)
         assert today_item["total_uploads"] == 1
         assert today_item["suspected_uploads"] == 1
+        assert today_item["symptom_elevated_uploads"] == 0
 
         active_response = client.get(
             "/v1/staff/admin/analytics/active-users?active_window_days=7&lookback_days=30&interval=day",

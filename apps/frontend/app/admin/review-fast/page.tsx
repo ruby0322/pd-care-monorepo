@@ -7,23 +7,19 @@ import { toast } from "sonner";
 
 import { useRapidReviewGridState } from "@/app/admin/_components/rapid-review-grid-state";
 import { StaffAnnotationItem, StaffRapidReviewQueueItem } from "@/lib/api/staff";
+import {
+  activeSymptomLabels,
+  symptomAwarePriority,
+  symptomsFromApiFields,
+  type SymptomAwarePriority,
+} from "@/lib/symptoms";
 
 type DraftVerdict = {
   label: StaffAnnotationItem["label"];
   comment: string;
 };
 
-function suggestedLabelFromPrediction(item: StaffRapidReviewQueueItem): StaffAnnotationItem["label"] {
-  if (item.screening_result === "normal") {
-    return "normal";
-  }
-  if (item.screening_result === "suspected") {
-    return "suspected";
-  }
-  return "rejected";
-}
-
-function predictionLabelText(item: StaffRapidReviewQueueItem): string {
+function imageVerdictText(item: StaffRapidReviewQueueItem): string {
   if (item.screening_result === "normal") {
     return "normal";
   }
@@ -36,7 +32,7 @@ function predictionLabelText(item: StaffRapidReviewQueueItem): string {
   return "technical_error";
 }
 
-function predictionBadgeClass(item: StaffRapidReviewQueueItem): string {
+function imageVerdictBadgeClass(item: StaffRapidReviewQueueItem): string {
   if (item.screening_result === "normal") {
     return "bg-emerald-50 text-emerald-700";
   }
@@ -49,18 +45,31 @@ function predictionBadgeClass(item: StaffRapidReviewQueueItem): string {
   return "bg-zinc-100 text-zinc-700";
 }
 
-function symptomLabels(item: StaffRapidReviewQueueItem): string[] {
-  const labels: string[] = [];
-  if (item.symptom_pain) {
-    labels.push("疼痛");
+function itemSymptomFlags(item: StaffRapidReviewQueueItem) {
+  return symptomsFromApiFields({
+    symptom_pain: item.symptom_pain,
+    symptom_discharge: item.symptom_discharge,
+    symptom_pus: item.symptom_pus,
+    symptom_cloudy_dialysate: item.symptom_cloudy_dialysate,
+  });
+}
+
+function clinicalPriority(item: StaffRapidReviewQueueItem): SymptomAwarePriority {
+  return (
+    item.symptom_aware_priority ??
+    symptomAwarePriority(item.screening_result, itemSymptomFlags(item))
+  );
+}
+
+function suggestedLabelFromClinical(item: StaffRapidReviewQueueItem): StaffAnnotationItem["label"] {
+  if (item.screening_result === "rejected" || item.screening_result === "technical_error") {
+    return "rejected";
   }
-  if (item.symptom_discharge) {
-    labels.push("分泌物");
-  }
-  if (item.symptom_pus) {
-    labels.push("膿液");
-  }
-  return labels;
+  return clinicalPriority(item) === "suspected" ? "suspected" : "normal";
+}
+
+function clinicalBadgeClass(priority: SymptomAwarePriority): string {
+  return priority === "suspected" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700";
 }
 
 export default function AdminFastReviewPage() {
@@ -87,13 +96,11 @@ export default function AdminFastReviewPage() {
     }
     const timer = window.setTimeout(() => {
       setDraft({
-        label: suggestedLabelFromPrediction(selectedItem),
+        label: suggestedLabelFromClinical(selectedItem),
         comment: "",
       });
     }, 0);
-    return () => {
-      window.clearTimeout(timer);
-    };
+    return () => window.clearTimeout(timer);
   }, [selectedItem]);
 
   const canBulkAccept = useMemo(
@@ -159,6 +166,7 @@ export default function AdminFastReviewPage() {
           {visibleItems.map((item) => {
             const imageUrl = imageUrlByUploadId[item.upload_id];
             const hasImageLoadError = imageLoadErrorByUploadId[item.upload_id] ?? false;
+            const priority = clinicalPriority(item);
             return (
               <button
                 key={item.upload_id}
@@ -174,11 +182,18 @@ export default function AdminFastReviewPage() {
                   </div>
                 )}
 
-                <span
-                  className={`absolute right-1 top-1 inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-medium backdrop-blur ${predictionBadgeClass(item)}`}
-                >
-                  {predictionLabelText(item)}
-                </span>
+                <div className="absolute right-1 top-1 flex flex-col items-end gap-0.5">
+                  <span
+                    className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-medium backdrop-blur ${imageVerdictBadgeClass(item)}`}
+                  >
+                    影像 {imageVerdictText(item)}
+                  </span>
+                  <span
+                    className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-medium backdrop-blur ${clinicalBadgeClass(priority)}`}
+                  >
+                    症狀 {priority}
+                  </span>
+                </div>
               </button>
             );
           })}
@@ -202,9 +217,7 @@ export default function AdminFastReviewPage() {
             <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
               <div>
                 <p className="text-sm font-medium text-zinc-900">{selectedItem.full_name ?? "未命名病患"}</p>
-                <p className="text-xs text-zinc-500">
-                  {selectedItem.case_number} · model: {predictionLabelText(selectedItem)}
-                </p>
+                <p className="text-xs text-zinc-500">{selectedItem.case_number}</p>
               </div>
               <button
                 type="button"
@@ -232,11 +245,27 @@ export default function AdminFastReviewPage() {
               </div>
 
               <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2 text-xs text-zinc-500">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>影像判讀</span>
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${imageVerdictBadgeClass(selectedItem)}`}>
+                      {imageVerdictText(selectedItem)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>症狀綜合</span>
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${clinicalBadgeClass(clinicalPriority(selectedItem))}`}
+                    >
+                      {clinicalPriority(selectedItem)}
+                    </span>
+                  </div>
+                </div>
                 <div className="flex flex-col gap-1 text-xs text-zinc-500">
                   <span>症狀</span>
                   <div className="flex flex-wrap gap-2">
-                    {symptomLabels(selectedItem).length > 0 ? (
-                      symptomLabels(selectedItem).map((label) => (
+                    {activeSymptomLabels(itemSymptomFlags(selectedItem)).length > 0 ? (
+                      activeSymptomLabels(itemSymptomFlags(selectedItem)).map((label) => (
                         <span
                           key={label}
                           className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800"

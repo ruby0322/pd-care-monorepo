@@ -1,0 +1,11 @@
+{
+  "name": "k8s-minikube-recovery",
+  "version": 1,
+  "description": "Minikube volume migration and control-plane recovery for PD Care",
+  "tracked_sources": [
+    "docs/ops/k8s-minikube-volume-migration-and-recovery.md",
+    "docs/deploy/k8s-minikube.md",
+    "docker-compose.ingress-bridge.yml"
+  ],
+  "last_audited_commit": "docs-bootstrap"
+}

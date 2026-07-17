@@ -49,6 +49,7 @@ describe("Admin patient detail calendar", () => {
       is_active: true,
       total_uploads: 2,
       suspected_uploads: 1,
+      symptom_elevated_uploads: 0,
       rejected_uploads: 0,
     });
     (fetchStaffPatientUploadCalendar as jest.Mock).mockResolvedValue({

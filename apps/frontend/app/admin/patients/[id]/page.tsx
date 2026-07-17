@@ -281,21 +281,44 @@ export default function PatientDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { icon: Upload, label: "總上傳次數", value: detail.total_uploads, color: "zinc" },
-          { icon: AlertTriangle, label: "疑似感染次數", value: detail.suspected_uploads, color: "red" },
-          { icon: XCircle, label: "拒絕上傳次數", value: detail.rejected_uploads, color: "amber" },
+          { icon: Upload, label: "總上傳次數", value: detail.total_uploads, color: "zinc" as const },
+          { icon: AlertTriangle, label: "疑似感染次數", value: detail.suspected_uploads, color: "red" as const },
+          {
+            icon: AlertTriangle,
+            label: "症狀高風險次數",
+            value: detail.symptom_elevated_uploads ?? 0,
+            color: "orange" as const,
+          },
+          { icon: XCircle, label: "拒絕上傳次數", value: detail.rejected_uploads, color: "amber" as const },
         ].map(({ icon: Icon, label, value, color }) => (
           <div key={label} className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-col gap-2">
             <Icon
               className={clsx(
                 "w-4 h-4",
-                color === "red" ? "text-red-400" : color === "amber" ? "text-amber-400" : "text-zinc-400"
+                color === "red"
+                  ? "text-red-400"
+                  : color === "orange"
+                    ? "text-orange-400"
+                    : color === "amber"
+                      ? "text-amber-400"
+                      : "text-zinc-400"
               )}
               strokeWidth={1.5}
             />
-            <div className={clsx("text-xl font-semibold", color === "red" ? "text-red-600" : color === "amber" ? "text-amber-600" : "text-zinc-900")}>
+            <div
+              className={clsx(
+                "text-xl font-semibold",
+                color === "red"
+                  ? "text-red-600"
+                  : color === "orange"
+                    ? "text-orange-600"
+                    : color === "amber"
+                      ? "text-amber-600"
+                      : "text-zinc-900"
+              )}
+            >
               {value}
             </div>
             <div className="text-xs text-zinc-400">{label}</div>

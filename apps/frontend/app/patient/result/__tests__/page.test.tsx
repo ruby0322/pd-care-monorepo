@@ -74,6 +74,9 @@ describe("Patient ResultPage v6 layout", () => {
       symptom_pain: true,
       symptom_discharge: false,
       symptom_pus: true,
+      symptom_cloudy_dialysate: false,
+      has_high_risk_symptoms: true,
+      symptom_aware_priority: "suspected",
       created_at: "2026-07-17T09:00:00+00:00",
     });
     (fetchPatientUploadDetail as jest.Mock).mockResolvedValue({
@@ -88,6 +91,7 @@ describe("Patient ResultPage v6 layout", () => {
       symptom_pain: true,
       symptom_discharge: false,
       symptom_pus: true,
+      symptom_cloudy_dialysate: false,
       annotation_label: null,
       annotation_comment: null,
       image_url: "https://example.test/upload-128.jpg",
@@ -199,6 +203,9 @@ describe("Patient ResultPage v6 layout", () => {
       symptom_pain: false,
       symptom_discharge: false,
       symptom_pus: false,
+      symptom_cloudy_dialysate: false,
+      has_high_risk_symptoms: false,
+      symptom_aware_priority: "normal",
       created_at: "2026-07-17T09:00:00+00:00",
     });
     (fetchPatientUploadDetail as jest.Mock).mockResolvedValue({
@@ -213,6 +220,7 @@ describe("Patient ResultPage v6 layout", () => {
       symptom_pain: false,
       symptom_discharge: false,
       symptom_pus: false,
+      symptom_cloudy_dialysate: false,
       annotation_label: null,
       annotation_comment: null,
       image_url: "https://example.test/upload-129.jpg",
@@ -268,6 +276,9 @@ describe("Patient ResultPage v6 layout", () => {
       symptom_pain: false,
       symptom_discharge: false,
       symptom_pus: false,
+      symptom_cloudy_dialysate: false,
+      has_high_risk_symptoms: false,
+      symptom_aware_priority: "suspected",
       created_at: "2026-07-17T09:00:00+00:00",
     });
     (fetchPatientUploadDetail as jest.Mock).mockResolvedValue({
@@ -282,6 +293,7 @@ describe("Patient ResultPage v6 layout", () => {
       symptom_pain: false,
       symptom_discharge: false,
       symptom_pus: false,
+      symptom_cloudy_dialysate: false,
       annotation_label: null,
       annotation_comment: null,
       image_url: "https://example.test/upload-130.jpg",
@@ -331,7 +343,7 @@ describe("Patient ResultPage v6 layout", () => {
     expect(screen.getByText("附加衛教影片及素材").closest("section")).toHaveClass("bg-emerald-50");
   });
 
-  test("legacy cloudyDialysate query param elevates as pus high-risk", async () => {
+  test("legacy cloudyDialysate query param elevates as high-risk symptom", async () => {
     setParams({
       result: "normal",
       confidence: "70",
@@ -342,7 +354,8 @@ describe("Patient ResultPage v6 layout", () => {
 
     expect(await screen.findByText("疑似感染風險")).toBeInTheDocument();
     expect(screen.getByText("症狀綜合")).toBeInTheDocument();
-    expect(screen.getByText("膿")).toBeInTheDocument();
+    expect(screen.getByText("透析液混濁")).toBeInTheDocument();
     expect(screen.getByText("附加衛教影片及素材").closest("section")).toHaveClass("bg-red-600");
+    expect(screen.getByText(/因勾選（透析液混濁）皆疑似感染高風險/)).toBeInTheDocument();
   });
 });

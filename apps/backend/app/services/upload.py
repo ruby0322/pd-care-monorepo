@@ -12,6 +12,7 @@ from app.schemas.prediction import PredictionResponse
 from app.services.model_loader import LoadedModel, predict_bytes
 from app.services.prescreen import LoadedPrescreenModel, PrescreenInferenceError, is_exit_site_present
 from app.services.storage import StorageService
+from app.services.symptoms import has_high_risk_symptoms, high_risk_symptom_flags
 
 LOGGER = get_logger(__name__)
 
@@ -64,6 +65,7 @@ def persist_patient_upload(
     symptom_pain: bool = False,
     symptom_discharge: bool = False,
     symptom_pus: bool = False,
+    symptom_cloudy_dialysate: bool = False,
 ) -> PersistedUploadResult:
     prediction: PredictionResponse | None = None
     error_reason: str | None = None
@@ -86,6 +88,11 @@ def persist_patient_upload(
 
     model_version = settings.model_path.name if settings.model_path else None
     extension = resolve_file_extension(content_type, filename)
+    high_risk = has_high_risk_symptoms(
+        symptom_pain=symptom_pain,
+        symptom_pus=symptom_pus,
+        symptom_cloudy_dialysate=symptom_cloudy_dialysate,
+    )
 
     try:
         upload = Upload(
@@ -95,6 +102,7 @@ def persist_patient_upload(
             symptom_pain=symptom_pain,
             symptom_discharge=symptom_discharge,
             symptom_pus=symptom_pus,
+            symptom_cloudy_dialysate=symptom_cloudy_dialysate,
         )
         session.add(upload)
         session.flush()
@@ -120,16 +128,27 @@ def persist_patient_upload(
         session.flush()
 
         notification: Notification | None = None
-        if screening_result == "suspected" and prediction is not None:
+        ai_suspected = screening_result == "suspected" and prediction is not None
+        if ai_suspected or high_risk:
+            summary_parts: list[str] = []
+            if ai_suspected and prediction is not None:
+                summary_parts.append(
+                    "Suspected infection risk detected "
+                    f"(probability={prediction.screening.infection_probability:.4f})"
+                )
+            if high_risk:
+                flags = high_risk_symptom_flags(
+                    symptom_pain=symptom_pain,
+                    symptom_pus=symptom_pus,
+                    symptom_cloudy_dialysate=symptom_cloudy_dialysate,
+                )
+                summary_parts.append(f"High-risk symptoms reported ({', '.join(flags)})")
             notification = Notification(
                 patient_id=patient_id,
                 upload_id=upload.id,
                 ai_result_id=ai_result.id,
                 status="new",
-                summary=(
-                    "Suspected infection risk detected "
-                    f"(probability={prediction.screening.infection_probability:.4f})"
-                ),
+                summary="; ".join(summary_parts),
             )
             session.add(notification)
             session.flush()

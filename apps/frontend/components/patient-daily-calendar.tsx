@@ -21,6 +21,7 @@ type CalendarDay = {
   date: string;
   upload_count: number;
   has_suspected_risk: boolean;
+  has_symptom_elevated_risk?: boolean;
 };
 
 type PatientDailyCalendarProps = {
@@ -35,7 +36,7 @@ type PatientDailyCalendarProps = {
   onReachOldestEdge?: (oldestMonthKey: string) => void | Promise<void>;
 };
 
-function dayStyle(uploadCount: number, hasSuspectedRisk: boolean): string {
+function dayStyle(uploadCount: number, hasSuspectedRisk: boolean, hasSymptomElevatedRisk: boolean): string {
   if (uploadCount <= 0) {
     return "bg-zinc-200";
   }
@@ -44,6 +45,12 @@ function dayStyle(uploadCount: number, hasSuspectedRisk: boolean): string {
     if (uploadCount >= 3) return "bg-red-600";
     if (uploadCount >= 2) return "bg-red-500";
     return "bg-red-400";
+  }
+
+  if (hasSymptomElevatedRisk) {
+    if (uploadCount >= 3) return "bg-orange-600";
+    if (uploadCount >= 2) return "bg-orange-500";
+    return "bg-orange-400";
   }
 
   if (uploadCount >= 3) return "bg-emerald-600";
@@ -239,17 +246,22 @@ export function PatientDailyCalendar({
       const record = dayMap.get(cell.dateKey);
       const uploadCount = record?.upload_count ?? 0;
       const hasSuspectedRisk = record?.has_suspected_risk ?? false;
+      const hasSymptomElevatedRisk = record?.has_symptom_elevated_risk ?? false;
       return {
         ...cell,
         uploadCount,
         hasSuspectedRisk,
+        hasSymptomElevatedRisk,
         isToday: cell.dateKey === todayKey,
       };
     });
 
     return panelCells.map((cell) => {
       const isMutedAdjacentDay = !cell.isCurrentMonth;
-      const backgroundClass = isMutedAdjacentDay ? "bg-zinc-100" : dayStyle(cell.uploadCount, cell.hasSuspectedRisk);
+      const backgroundClass =
+        isMutedAdjacentDay && cell.uploadCount <= 0
+          ? "bg-zinc-100"
+          : dayStyle(cell.uploadCount, cell.hasSuspectedRisk, cell.hasSymptomElevatedRisk);
       return (
         <button
           type="button"
@@ -356,6 +368,10 @@ export function PatientDailyCalendar({
         <span className="inline-flex items-center gap-1">
           <span className="h-3 w-3 rounded bg-emerald-500" />
           一般
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-3 w-3 rounded bg-orange-500" />
+          症狀高風險
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="h-3 w-3 rounded bg-red-500" />

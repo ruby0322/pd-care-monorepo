@@ -10,7 +10,39 @@ from sqlalchemy import Select, and_, case, delete, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
+from app.services.symptoms import calendar_risk_tier
 from app.services.taipei_dates import TAIPEI_TIMEZONE, resolve_taipei_day_bounds, to_taipei_date
+from app.services.upload_history import summarize_patient_upload_history
+
+
+def _load_latest_annotation_by_upload_ids(session: Session, *, upload_ids: set[int]) -> dict[int, Annotation]:
+    if not upload_ids:
+        return {}
+    rows = session.execute(
+        select(Annotation)
+        .where(Annotation.upload_id.in_(upload_ids))
+        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc())
+    ).scalars()
+    result: dict[int, Annotation] = {}
+    for row in rows:
+        if row.upload_id not in result:
+            result[row.upload_id] = row
+    return result
+
+
+def _tier_for_upload(
+    *,
+    upload: Upload,
+    screening_result: str | None,
+    annotation: Annotation | None,
+) -> str:
+    return calendar_risk_tier(
+        screening_result=screening_result,
+        annotation_label=annotation.label if annotation else None,
+        symptom_pain=upload.symptom_pain,
+        symptom_pus=upload.symptom_pus,
+        symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
+    )
 
 
 class DuplicatePatientError(ValueError):
@@ -44,6 +76,8 @@ class StaffPatientRow:
     suspected_count: int
     latest_upload_at: datetime | None
     latest_upload_status: str | None
+    has_suspected_risk: bool = False
+    has_symptom_elevated_risk: bool = False
 
 
 @dataclass
@@ -332,13 +366,7 @@ def list_staff_patients(
     created_to: date | None,
     accessible_patient_ids: set[int] | None = None,
 ) -> list[StaffPatientRow]:
-    cutoff = datetime.now(tz=timezone.utc).replace(day=1)
-    month = cutoff.month - months
-    year = cutoff.year
-    while month <= 0:
-        month += 12
-        year -= 1
-    cutoff = cutoff.replace(year=year, month=month)
+    cutoff = _months_upload_cutoff(months)
 
     patient_query: Select = select(Patient)
     if is_active_filter == "active":
@@ -361,16 +389,33 @@ def list_staff_patients(
         .join(AIResult, AIResult.upload_id == Upload.id)
         .where(Upload.created_at >= cutoff)
     ).all()
+    upload_ids = {upload.id for upload, _ in uploads}
+    latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
     metrics: dict[int, dict[str, object]] = defaultdict(
-        lambda: {"upload_count": 0, "suspected_count": 0, "latest_upload_at": None, "latest_upload_status": None}
+        lambda: {
+            "upload_count": 0,
+            "suspected_count": 0,
+            "latest_upload_at": None,
+            "latest_upload_status": None,
+            "has_suspected_risk": False,
+            "has_elevated_risk": False,
+        }
     )
     for upload, ai_result in uploads:
         if ai_result.screening_result == "rejected":
             continue
         metric = metrics[upload.patient_id]
         metric["upload_count"] = int(metric["upload_count"]) + 1
-        if ai_result.screening_result == "suspected":
+        tier = _tier_for_upload(
+            upload=upload,
+            screening_result=ai_result.screening_result,
+            annotation=latest_annotation_by_upload.get(upload.id),
+        )
+        if tier == "suspected":
             metric["suspected_count"] = int(metric["suspected_count"]) + 1
+            metric["has_suspected_risk"] = True
+        elif tier == "elevated":
+            metric["has_elevated_risk"] = True
         latest = metric["latest_upload_at"]
         if latest is None or upload.created_at > latest:
             metric["latest_upload_at"] = upload.created_at
@@ -390,13 +435,25 @@ def list_staff_patients(
         if age_max is not None and (age is None or age > age_max):
             continue
 
-        patient_metric = metrics.get(patient.id, {"upload_count": 0, "suspected_count": 0, "latest_upload_at": None})
+        patient_metric = metrics.get(
+            patient.id,
+            {
+                "upload_count": 0,
+                "suspected_count": 0,
+                "latest_upload_at": None,
+                "has_suspected_risk": False,
+                "has_elevated_risk": False,
+            },
+        )
         upload_count = int(patient_metric["upload_count"])
         suspected_count = int(patient_metric["suspected_count"])
         latest_upload_at = patient_metric["latest_upload_at"]
         if isinstance(latest_upload_at, datetime) and latest_upload_at.tzinfo is None:
             latest_upload_at = latest_upload_at.replace(tzinfo=timezone.utc)
         latest_upload_status = patient_metric.get("latest_upload_status")
+        has_suspected_risk = bool(patient_metric.get("has_suspected_risk"))
+        # Mutually exclusive with suspected: elevated-only patients for period KPI.
+        has_symptom_elevated_risk = bool(patient_metric.get("has_elevated_risk")) and not has_suspected_risk
         if infection_status == "suspected" and latest_upload_status != "suspected":
             continue
         if infection_status == "normal" and latest_upload_status != "normal":
@@ -432,6 +489,8 @@ def list_staff_patients(
                 suspected_count=suspected_count,
                 latest_upload_at=latest_upload_at,
                 latest_upload_status=latest_upload_status if isinstance(latest_upload_status, str) else None,
+                has_suspected_risk=has_suspected_risk,
+                has_symptom_elevated_risk=has_symptom_elevated_risk,
             )
         )
     return rows
@@ -450,18 +509,33 @@ def list_patient_upload_records(session: Session, *, patient_id: int) -> list[tu
     return [(upload, ai_result, upload.id in annotated_upload_ids) for upload, ai_result in upload_rows]
 
 
-def get_patient_upload_counts(session: Session, *, patient_id: int) -> tuple[int, int, int]:
-    row = session.execute(
-        select(
-            func.count(Upload.id),
-            func.sum(case((AIResult.screening_result == "suspected", 1), else_=0)),
-            func.sum(case((AIResult.screening_result == "rejected", 1), else_=0)),
-        )
-        .select_from(Upload)
+def get_patient_upload_counts(session: Session, *, patient_id: int) -> tuple[int, int, int, int]:
+    rows = session.execute(
+        select(Upload, AIResult)
         .join(AIResult, AIResult.upload_id == Upload.id)
         .where(Upload.patient_id == patient_id)
-    ).one()
-    return int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+    ).all()
+    upload_ids = {upload.id for upload, _ in rows}
+    latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
+
+    total = len(rows)
+    suspected = 0
+    rejected = 0
+    symptom_elevated = 0
+    for upload, ai_result in rows:
+        if ai_result.screening_result == "rejected":
+            rejected += 1
+            continue
+        tier = _tier_for_upload(
+            upload=upload,
+            screening_result=ai_result.screening_result,
+            annotation=latest_annotation_by_upload.get(upload.id),
+        )
+        if tier == "suspected":
+            suspected += 1
+        elif tier == "elevated":
+            symptom_elevated += 1
+    return total, suspected, rejected, symptom_elevated
 
 
 def list_patient_upload_records_page(
@@ -498,28 +572,15 @@ def list_patient_upload_records_page(
 
 
 def list_patient_upload_calendar_days(session: Session, *, patient_id: int) -> list[dict[str, object]]:
-    if session.bind is not None and session.bind.dialect.name == "sqlite":
-        local_date = func.date(Upload.created_at, "+8 hours")
-    else:
-        local_date = func.date(func.timezone("Asia/Taipei", Upload.created_at))
-    rows = session.execute(
-        select(
-            local_date.label("local_date"),
-            func.count(Upload.id).label("upload_count"),
-            func.max(case((AIResult.screening_result == "suspected", 1), else_=0)).label("has_suspected_risk"),
-        )
-        .join(AIResult, AIResult.upload_id == Upload.id)
-        .where(Upload.patient_id == patient_id)
-        .group_by(local_date)
-        .order_by(local_date.asc())
-    ).all()
+    days = summarize_patient_upload_history(session, patient_id=patient_id)
     return [
         {
-            "date": local_date_value.isoformat() if isinstance(local_date_value, date) else str(local_date_value),
-            "upload_count": int(upload_count),
-            "has_suspected_risk": bool(has_suspected_risk),
+            "date": day.date.isoformat(),
+            "upload_count": day.upload_count,
+            "has_suspected_risk": day.has_suspected_risk,
+            "has_symptom_elevated_risk": day.has_symptom_elevated_risk,
         }
-        for local_date_value, upload_count, has_suspected_risk in rows
+        for day in days
     ]
 
 
@@ -536,13 +597,13 @@ def list_upload_queue(
         .join(Patient, Patient.id == Upload.patient_id)
         .where(Patient.is_active.is_(True))
     )
-    if suspected_only:
-        base_query = base_query.where(AIResult.screening_result == "suspected")
     if accessible_patient_ids is not None:
         if not accessible_patient_ids:
             return []
         base_query = base_query.where(Patient.id.in_(accessible_patient_ids))
-    base_query = base_query.order_by(Upload.created_at.desc()).limit(limit)
+    # Fetch a wider window when filtering by tier so post-filter limit stays accurate.
+    fetch_limit = limit * 5 if suspected_only else limit
+    base_query = base_query.order_by(Upload.created_at.desc()).limit(fetch_limit)
     rows = session.execute(base_query).all()
 
     identity_rows = session.execute(select(LiffIdentity).where(LiffIdentity.patient_id.is_not(None))).scalars().all()
@@ -551,12 +612,23 @@ def list_upload_queue(
         if identity.patient_id is not None and identity.patient_id not in line_by_patient:
             line_by_patient[identity.patient_id] = identity.line_user_id
 
-    upload_ids = [upload.id for upload, _, _ in rows]
-    annotated_ids = set(session.execute(select(Annotation.upload_id).where(Annotation.upload_id.in_(upload_ids))).scalars().all()) if upload_ids else set()
+    upload_ids = {upload.id for upload, _, _ in rows}
+    latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
+    annotated_ids = set(latest_annotation_by_upload.keys())
 
     result: list[tuple[Upload, AIResult, Patient, str | None, bool]] = []
     for upload, ai_result, patient in rows:
+        if suspected_only:
+            tier = _tier_for_upload(
+                upload=upload,
+                screening_result=ai_result.screening_result,
+                annotation=latest_annotation_by_upload.get(upload.id),
+            )
+            if tier not in {"suspected", "elevated"}:
+                continue
         result.append((upload, ai_result, patient, line_by_patient.get(patient.id), upload.id in annotated_ids))
+        if len(result) >= limit:
+            break
     return result
 
 
@@ -879,17 +951,56 @@ def list_gender_distribution(
     return [(key, counts.get(key, 0)) for key in ordered_keys]
 
 
+def _months_upload_cutoff(months: int) -> datetime:
+    cutoff = datetime.now(tz=timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month = cutoff.month - months
+    year = cutoff.year
+    while month <= 0:
+        month += 12
+        year -= 1
+    return cutoff.replace(year=year, month=month)
+
+
+def _summarize_tiered_uploads(
+    rows: list[tuple[Upload, AIResult]],
+    *,
+    latest_annotation_by_upload: dict[int, Annotation],
+) -> tuple[int, int, int, int, int]:
+    total_uploads = len(rows)
+    suspected_uploads = 0
+    symptom_elevated_uploads = 0
+    suspected_patient_ids: set[int] = set()
+    elevated_patient_ids: set[int] = set()
+    for upload, ai_result in rows:
+        tier = _tier_for_upload(
+            upload=upload,
+            screening_result=ai_result.screening_result,
+            annotation=latest_annotation_by_upload.get(upload.id),
+        )
+        if tier == "suspected":
+            suspected_uploads += 1
+            suspected_patient_ids.add(upload.patient_id)
+        elif tier == "elevated":
+            symptom_elevated_uploads += 1
+            elevated_patient_ids.add(upload.patient_id)
+    elevated_patient_ids -= suspected_patient_ids
+    return (
+        total_uploads,
+        suspected_uploads,
+        symptom_elevated_uploads,
+        len(suspected_patient_ids),
+        len(elevated_patient_ids),
+    )
+
+
 def get_today_suspected_summary(
     session: Session,
     *,
     accessible_patient_ids: set[int] | None = None,
-) -> tuple[date, int, int]:
+) -> tuple[date, int, int, int, int, int]:
     today, today_start, tomorrow_start = resolve_taipei_day_bounds()
     base_query: Select = (
-        select(
-            func.count(Upload.id),
-            func.sum(case((AIResult.screening_result == "suspected", 1), else_=0)),
-        )
+        select(Upload, AIResult)
         .join(AIResult, AIResult.upload_id == Upload.id)
         .join(Patient, Patient.id == Upload.patient_id)
         .where(
@@ -900,10 +1011,48 @@ def get_today_suspected_summary(
     )
     if accessible_patient_ids is not None:
         if not accessible_patient_ids:
-            return today, 0, 0
+            return today, 0, 0, 0, 0, 0
         base_query = base_query.where(Patient.id.in_(accessible_patient_ids))
-    total_uploads, suspected_uploads = session.execute(base_query).one()
-    return today, int(total_uploads or 0), int(suspected_uploads or 0)
+    rows = session.execute(base_query).all()
+    upload_ids = {upload.id for upload, _ in rows}
+    latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
+    total, suspected, elevated, suspected_users, elevated_users = _summarize_tiered_uploads(
+        rows,
+        latest_annotation_by_upload=latest_annotation_by_upload,
+    )
+    return today, total, suspected, elevated, suspected_users, elevated_users
+
+
+def get_period_suspected_summary(
+    session: Session,
+    *,
+    months: int,
+    accessible_patient_ids: set[int] | None = None,
+) -> tuple[date, int, int, int, int, int]:
+    """Aggregate upload tiers from the same month cutoff used by staff patient list."""
+    today, _, _ = resolve_taipei_day_bounds()
+    cutoff = _months_upload_cutoff(months)
+    base_query: Select = (
+        select(Upload, AIResult)
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .join(Patient, Patient.id == Upload.patient_id)
+        .where(
+            Upload.created_at >= cutoff,
+            AIResult.screening_result != "rejected",
+        )
+    )
+    if accessible_patient_ids is not None:
+        if not accessible_patient_ids:
+            return today, 0, 0, 0, 0, 0
+        base_query = base_query.where(Patient.id.in_(accessible_patient_ids))
+    rows = session.execute(base_query).all()
+    upload_ids = {upload.id for upload, _ in rows}
+    latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
+    total, suspected, elevated, suspected_users, elevated_users = _summarize_tiered_uploads(
+        rows,
+        latest_annotation_by_upload=latest_annotation_by_upload,
+    )
+    return today, total, suspected, elevated, suspected_users, elevated_users
 
 
 def get_age_histogram(
@@ -987,15 +1136,12 @@ def get_daily_suspected_series(
     *,
     lookback_days: int,
     accessible_patient_ids: set[int] | None = None,
-) -> list[tuple[str, int, int]]:
+) -> list[tuple[str, int, int, int]]:
     end_date, _, _ = resolve_taipei_day_bounds()
     start_date = end_date - timedelta(days=lookback_days - 1)
     start_dt = datetime.combine(start_date, time.min, tzinfo=TAIPEI_TIMEZONE).astimezone(timezone.utc)
     query: Select = (
-        select(
-            Upload.created_at,
-            AIResult.screening_result,
-        )
+        select(Upload, AIResult)
         .join(AIResult, AIResult.upload_id == Upload.id)
         .join(Patient, Patient.id == Upload.patient_id)
         .where(Upload.created_at >= start_dt, AIResult.screening_result != "rejected")
@@ -1005,20 +1151,29 @@ def get_daily_suspected_series(
             return []
         query = query.where(Patient.id.in_(accessible_patient_ids))
     rows = session.execute(query).all()
-    by_day: dict[str, tuple[int, int]] = {}
-    for created_at, screening_result in rows:
-        day_key = to_taipei_date(created_at).isoformat()
-        total, suspected = by_day.get(day_key, (0, 0))
+    upload_ids = {upload.id for upload, _ in rows}
+    latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
+
+    by_day: dict[str, tuple[int, int, int]] = {}
+    for upload, ai_result in rows:
+        day_key = to_taipei_date(upload.created_at).isoformat()
+        total, suspected, elevated = by_day.get(day_key, (0, 0, 0))
+        tier = _tier_for_upload(
+            upload=upload,
+            screening_result=ai_result.screening_result,
+            annotation=latest_annotation_by_upload.get(upload.id),
+        )
         by_day[day_key] = (
             total + 1,
-            suspected + (1 if screening_result == "suspected" else 0),
+            suspected + (1 if tier == "suspected" else 0),
+            elevated + (1 if tier == "elevated" else 0),
         )
 
-    points: list[tuple[str, int, int]] = []
+    points: list[tuple[str, int, int, int]] = []
     cursor = start_date
     while cursor <= end_date:
         day = cursor.isoformat()
-        total, suspected = by_day.get(day, (0, 0))
-        points.append((day, total, suspected))
+        total, suspected, elevated = by_day.get(day, (0, 0, 0))
+        points.append((day, total, suspected, elevated))
         cursor += timedelta(days=1)
     return points

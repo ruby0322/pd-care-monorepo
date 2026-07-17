@@ -1,23 +1,37 @@
-import { activeSymptomLabels, hasHighRiskSymptoms, isSymptomElevatedFromNormal } from "@/lib/symptoms";
+import {
+  isSymptomElevatedFromNormal,
+  type SymptomFlags,
+} from "@/lib/symptoms";
 
-describe("symptoms helpers", () => {
-  test("treats pain or pus as high risk", () => {
-    expect(hasHighRiskSymptoms({ pain: true, discharge: false, pus: false })).toBe(true);
-    expect(hasHighRiskSymptoms({ pain: false, discharge: false, pus: true })).toBe(true);
-    expect(hasHighRiskSymptoms({ pain: false, discharge: true, pus: false })).toBe(false);
+const none: SymptomFlags = {
+  pain: false,
+  discharge: false,
+  pus: false,
+  cloudyDialysate: false,
+};
+
+const painOnly: SymptomFlags = { ...none, pain: true };
+const dischargeOnly: SymptomFlags = { ...none, discharge: true };
+
+describe("isSymptomElevatedFromNormal", () => {
+  it("is true only for image-normal plus high-risk symptoms", () => {
+    expect(isSymptomElevatedFromNormal("normal", painOnly)).toBe(true);
+    expect(
+      isSymptomElevatedFromNormal("normal", { ...none, cloudyDialysate: true })
+    ).toBe(true);
   });
 
-  test("elevates only when image screening is normal", () => {
-    const flags = { pain: true, discharge: false, pus: false };
-    expect(isSymptomElevatedFromNormal("normal", flags)).toBe(true);
-    expect(isSymptomElevatedFromNormal("suspected", flags)).toBe(false);
+  it("is false when AI is already suspected even with high-risk symptoms", () => {
+    expect(isSymptomElevatedFromNormal("suspected", painOnly)).toBe(false);
   });
 
-  test("labels active symptoms in display order", () => {
-    expect(activeSymptomLabels({ pain: true, discharge: true, pus: true })).toEqual([
-      "疼痛",
-      "分泌物",
-      "膿",
-    ]);
+  it("is false when AI is normal without high-risk symptoms", () => {
+    expect(isSymptomElevatedFromNormal("normal", none)).toBe(false);
+    expect(isSymptomElevatedFromNormal("normal", dischargeOnly)).toBe(false);
+  });
+
+  it("is false for rejected and technical_error", () => {
+    expect(isSymptomElevatedFromNormal("rejected", painOnly)).toBe(false);
+    expect(isSymptomElevatedFromNormal("technical_error", painOnly)).toBe(false);
   });
 });

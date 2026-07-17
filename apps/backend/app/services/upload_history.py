@@ -8,6 +8,7 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, Upload
+from app.services.symptoms import calendar_risk_tier, counts_toward_suspected_rate
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class UploadHistoryDay:
     date: date
     upload_count: int
     has_suspected_risk: bool
+    has_symptom_elevated_risk: bool
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ class PatientDayUpload:
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
     annotation_label: str | None
     annotation_comment: str | None
 
@@ -54,6 +57,7 @@ class PatientUploadDetail:
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
     annotation_label: str | None
     annotation_comment: str | None
     local_date: date
@@ -70,9 +74,6 @@ class PatientAnnotationMessage:
     comment: str | None
     is_read: bool
     object_key: str
-
-
-RISKY_ANNOTATION_LABELS = {"suspected", "confirmed_infection"}
 
 
 def _resolve_local_timezone(timezone_name: str) -> timezone:
@@ -110,7 +111,14 @@ def summarize_patient_upload_history(
     timezone_name: str = "Asia/Taipei",
 ) -> list[UploadHistoryDay]:
     rows: Sequence[tuple] = session.execute(
-        select(Upload.id, Upload.created_at, AIResult.screening_result)
+        select(
+            Upload.id,
+            Upload.created_at,
+            AIResult.screening_result,
+            Upload.symptom_pain,
+            Upload.symptom_pus,
+            Upload.symptom_cloudy_dialysate,
+        )
         .outerjoin(AIResult, AIResult.upload_id == Upload.id)
         .where(Upload.patient_id == patient_id)
         .order_by(Upload.created_at.asc())
@@ -119,28 +127,43 @@ def summarize_patient_upload_history(
     local_timezone = _resolve_local_timezone(timezone_name)
     latest_annotation_by_upload = _load_latest_annotation_by_upload(session, patient_id=patient_id)
     by_day: dict[date, UploadHistoryDay] = {}
-    for upload_id, created_at, screening_result in rows:
+    for (
+        upload_id,
+        created_at,
+        screening_result,
+        symptom_pain,
+        symptom_pus,
+        symptom_cloudy_dialysate,
+    ) in rows:
         if screening_result == "rejected":
             continue
         normalized = _normalize_datetime(created_at)
         day_key = normalized.astimezone(local_timezone).date()
         existing = by_day.get(day_key)
         latest_annotation = latest_annotation_by_upload.get(upload_id)
-        has_suspected = screening_result == "suspected" or (
-            latest_annotation is not None and latest_annotation.label in RISKY_ANNOTATION_LABELS
+        tier = calendar_risk_tier(
+            screening_result=screening_result,
+            annotation_label=latest_annotation.label if latest_annotation else None,
+            symptom_pain=bool(symptom_pain),
+            symptom_pus=bool(symptom_pus),
+            symptom_cloudy_dialysate=bool(symptom_cloudy_dialysate),
         )
+        is_suspected = tier == "suspected"
+        is_elevated = tier == "elevated"
         if existing is None:
             by_day[day_key] = UploadHistoryDay(
                 date=day_key,
                 upload_count=1,
-                has_suspected_risk=has_suspected,
+                has_suspected_risk=is_suspected,
+                has_symptom_elevated_risk=is_elevated,
             )
             continue
 
         by_day[day_key] = UploadHistoryDay(
             date=day_key,
             upload_count=existing.upload_count + 1,
-            has_suspected_risk=existing.has_suspected_risk or has_suspected,
+            has_suspected_risk=existing.has_suspected_risk or is_suspected,
+            has_symptom_elevated_risk=existing.has_symptom_elevated_risk or is_elevated,
         )
 
     return [by_day[current] for current in sorted(by_day.keys())]
@@ -156,7 +179,14 @@ def summarize_patient_upload_metrics_28d(
     local_timezone = _resolve_local_timezone(timezone_name)
     latest_annotation_by_upload = _load_latest_annotation_by_upload(session, patient_id=patient_id)
     rows: Sequence[tuple] = session.execute(
-        select(Upload.id, Upload.created_at, AIResult.screening_result)
+        select(
+            Upload.id,
+            Upload.created_at,
+            AIResult.screening_result,
+            Upload.symptom_pain,
+            Upload.symptom_pus,
+            Upload.symptom_cloudy_dialysate,
+        )
         .join(AIResult, AIResult.upload_id == Upload.id)
         .where(Upload.patient_id == patient_id)
         .order_by(Upload.created_at.asc())
@@ -168,7 +198,14 @@ def summarize_patient_upload_metrics_28d(
     all_upload_count_28d = 0
     suspected_upload_count_28d = 0
 
-    for upload_id, created_at, screening_result in rows:
+    for (
+        upload_id,
+        created_at,
+        screening_result,
+        symptom_pain,
+        symptom_pus,
+        symptom_cloudy_dialysate,
+    ) in rows:
         if screening_result == "rejected":
             continue
         normalized = _normalize_datetime(created_at)
@@ -180,10 +217,14 @@ def summarize_patient_upload_metrics_28d(
         all_upload_count_28d += 1
 
         latest_annotation = latest_annotation_by_upload.get(upload_id)
-        has_suspected = screening_result == "suspected" or (
-            latest_annotation is not None and latest_annotation.label in RISKY_ANNOTATION_LABELS
+        tier = calendar_risk_tier(
+            screening_result=screening_result,
+            annotation_label=latest_annotation.label if latest_annotation else None,
+            symptom_pain=bool(symptom_pain),
+            symptom_pus=bool(symptom_pus),
+            symptom_cloudy_dialysate=bool(symptom_cloudy_dialysate),
         )
-        if has_suspected:
+        if counts_toward_suspected_rate(tier):
             suspected_upload_count_28d += 1
 
     streak = 0
@@ -235,6 +276,7 @@ def list_patient_uploads_by_local_day(
                 symptom_pain=upload.symptom_pain,
                 symptom_discharge=upload.symptom_discharge,
                 symptom_pus=upload.symptom_pus,
+                symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
                 annotation_label=latest_annotation.label if latest_annotation else None,
                 annotation_comment=latest_annotation.comment if latest_annotation else None,
             )
@@ -301,6 +343,7 @@ def get_patient_upload_detail(
         symptom_pain=selected_upload.symptom_pain,
         symptom_discharge=selected_upload.symptom_discharge,
         symptom_pus=selected_upload.symptom_pus,
+        symptom_cloudy_dialysate=selected_upload.symptom_cloudy_dialysate,
         annotation_label=latest_annotation.label if latest_annotation else None,
         annotation_comment=latest_annotation.comment if latest_annotation else None,
         local_date=selected_local_date,

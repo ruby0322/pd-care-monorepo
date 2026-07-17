@@ -42,4 +42,6 @@ Start at [`backlog/README.md`](backlog/README.md) for conventions and the open-i
 
 ## Operations
 
+- [`local-dev-without-line.md`](ops/local-dev-without-line.md) — host-local stub auth + personas (no LINE)
 - [`observability.md`](ops/observability.md) — Prometheus, Loki, Grafana (Compose)
+- [`k8s-minikube-volume-migration-and-recovery.md`](ops/k8s-minikube-volume-migration-and-recovery.md) — Minikube volume move + control-plane recovery

@@ -18,9 +18,12 @@ Response shape:
       "upload_count": 34,
       "uploaded_users": 12,
       "suspected_infected_users": 3,
-      "infection_rate": 0.25,
+      "symptom_elevated_users": 2,
+      "infection_rate": 0.4167,
       "risky_patient_count": 3,
-      "has_infection_risk": true
+      "has_infection_risk": true,
+      "symptom_elevated_patient_count": 2,
+      "has_symptom_elevated_risk": true
     }
   ]
 }
@@ -47,7 +50,8 @@ Response shape:
     "uploaded_users": 12,
     "uploads": 34,
     "suspected_infected_users": 3,
-    "infection_rate": 0.25
+    "symptom_elevated_users": 2,
+    "infection_rate": 0.4167
   },
   "items": [],
   "groups": [
@@ -82,6 +86,9 @@ Response shape:
           "symptom_pain": true,
           "symptom_discharge": false,
           "symptom_pus": false,
+          "symptom_cloudy_dialysate": false,
+          "has_high_risk_symptoms": true,
+          "symptom_aware_priority": "suspected",
           "annotation_label": "confirmed_infection",
           "annotation_comment": "doctor reviewed",
           "risk_rank": 0
@@ -109,7 +116,9 @@ Response shape:
     {
       "local_date": "2026-05-29",
       "risky_patient_count": 3,
-      "has_infection_risk": true
+      "has_infection_risk": true,
+      "symptom_elevated_patient_count": 2,
+      "has_symptom_elevated_risk": true
     }
   ]
 }
@@ -119,11 +128,14 @@ Response shape:
 
 - Timezone for date bucketing is always `Asia/Taipei` (`UTC+8`).
 - Daily KPI values are calculated from all uploads on that local date, independent from UI sorting/grouping.
-- `suspected_infected_users` rule:
-  - Include user if any upload has nursing label `confirmed_infection`.
-  - Or include user if any upload has model result `suspected` and has no nursing label.
-- Risk sort order:
-  - `confirmed_infection` > `suspected` (by probability desc) > `normal` > `rejected`, then `created_at` desc.
+- Risk tiers use shared `calendar_risk_tier`:
+  - **suspected (red):** risky nursing label (`suspected` / `confirmed_infection`) OR image AI `suspected`.
+  - **elevated (orange):** high-risk symptoms (pain / pus / cloudy dialysate) unless annotated `normal`, and not already suspected.
+  - **none:** everything else (including elevated cleared by annotation `normal`).
+- `suspected_infected_users` / `risky_patient_count` / `has_infection_risk`: patients with ≥1 **suspected**-tier upload that day.
+- `symptom_elevated_users` / `symptom_elevated_patient_count` / `has_symptom_elevated_risk`: patients with ≥1 **elevated**-tier upload that day and **no** suspected-tier upload that day (mutually exclusive with suspected).
+- `infection_rate`: `|patients with any upload where tier ∈ {suspected, elevated}| / uploaded_users` (union; no double-count).
+- Risk sort order (`risk_rank`, lower = higher priority):
+  - `confirmed_infection` (0) > annotation/AI `suspected` (1) > elevated symptoms (2) > `normal` (3) > `rejected`/other (4), then probability desc, then `created_at` desc.
 - Group sort by infection risk:
-  - first by group's highest risk tier, then by count within that tier, then latest upload time desc.
-
+  - first by group's highest risk tier (`risk_rank`), then by count within that tier, then latest upload time desc.

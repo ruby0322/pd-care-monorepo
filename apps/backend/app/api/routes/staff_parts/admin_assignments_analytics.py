@@ -35,6 +35,7 @@ from app.services.staff_dashboard import (
     get_active_users_series,
     get_age_histogram,
     get_daily_suspected_series,
+    get_period_suspected_summary,
     get_today_suspected_summary,
     list_patient_assignments,
     list_patient_assignments_by_staff,
@@ -278,15 +279,70 @@ async def get_admin_today_suspected_summary(
     session: Session = Depends(get_staff_session),
 ) -> StaffTodaySuspectedSummaryResponse:
     require_admin(get_current_principal(request, credentials))
-    summary_date, total_uploads, suspected_uploads = get_today_suspected_summary(
-        session, accessible_patient_ids=None
+    summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads, suspected_users, symptom_elevated_users = (
+        get_today_suspected_summary(session, accessible_patient_ids=None)
     )
-    normal_uploads = max(total_uploads - suspected_uploads, 0)
+    normal_uploads = max(total_uploads - suspected_uploads - symptom_elevated_uploads, 0)
     ratio = (suspected_uploads / total_uploads) if total_uploads > 0 else 0.0
     return StaffTodaySuspectedSummaryResponse(
         date=summary_date.isoformat(),
         total_uploads=total_uploads,
         suspected_uploads=suspected_uploads,
+        symptom_elevated_uploads=symptom_elevated_uploads,
+        suspected_users=suspected_users,
+        symptom_elevated_users=symptom_elevated_users,
+        normal_uploads=normal_uploads,
+        suspected_ratio=ratio,
+    )
+
+
+@router.get("/v1/staff/admin/analytics/suspected-infections/summary", response_model=StaffTodaySuspectedSummaryResponse)
+async def get_admin_suspected_summary(
+    request: Request,
+    months: int | None = Query(default=None, ge=1, le=60),
+    age_min: int | None = Query(default=None, ge=0),
+    age_max: int | None = Query(default=None, ge=0),
+    infection_status: str = Query(default="all", pattern="^(all|suspected|normal)$"),
+    is_active_filter: str = Query(default="all", pattern="^(all|active|inactive)$"),
+    credentials=Depends(bearer_scheme),
+    session: Session = Depends(get_staff_session),
+) -> StaffTodaySuspectedSummaryResponse:
+    """Today summary when months is omitted; otherwise aggregate from staff patient-list month cutoff.
+
+    Age / infection / active filters use the same patient set as the staff patient list
+    (months=1 when summarizing today).
+    """
+    require_admin(get_current_principal(request, credentials))
+    filter_months = months if months is not None else 1
+    filtered_patient_ids = _list_filtered_patient_ids_for_admin_analytics(
+        session,
+        query=None,
+        months=filter_months,
+        age_min=age_min,
+        age_max=age_max,
+        infection_status=infection_status,
+        binding_filter="all",
+        is_active_filter=is_active_filter,
+        created_from=None,
+        created_to=None,
+    )
+    if months is None:
+        summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads, suspected_users, symptom_elevated_users = (
+            get_today_suspected_summary(session, accessible_patient_ids=filtered_patient_ids)
+        )
+    else:
+        summary_date, total_uploads, suspected_uploads, symptom_elevated_uploads, suspected_users, symptom_elevated_users = (
+            get_period_suspected_summary(session, months=months, accessible_patient_ids=filtered_patient_ids)
+        )
+    normal_uploads = max(total_uploads - suspected_uploads - symptom_elevated_uploads, 0)
+    ratio = (suspected_uploads / total_uploads) if total_uploads > 0 else 0.0
+    return StaffTodaySuspectedSummaryResponse(
+        date=summary_date.isoformat(),
+        total_uploads=total_uploads,
+        suspected_uploads=suspected_uploads,
+        symptom_elevated_uploads=symptom_elevated_uploads,
+        suspected_users=suspected_users,
+        symptom_elevated_users=symptom_elevated_users,
         normal_uploads=normal_uploads,
         suspected_ratio=ratio,
     )
@@ -389,8 +445,9 @@ async def get_admin_daily_suspected_series(
                 date=day,
                 total_uploads=total,
                 suspected_uploads=suspected,
+                symptom_elevated_uploads=elevated,
                 suspected_ratio=(suspected / total) if total > 0 else 0.0,
             )
-            for day, total, suspected in rows
+            for day, total, suspected, elevated in rows
         ],
     )

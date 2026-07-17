@@ -25,6 +25,7 @@ class StaffPatientListResponse(BaseModel):
     total_patients: int
     total_uploads: int
     suspected_patients: int
+    symptom_elevated_patients: int = 0
     limit: int
     offset: int
     items: list[StaffPatientSummary]
@@ -53,6 +54,7 @@ class StaffPatientUploadCalendarItem(BaseModel):
     date: str
     upload_count: int
     has_suspected_risk: bool
+    has_symptom_elevated_risk: bool = False
 
 
 class StaffPatientUploadCalendarResponse(BaseModel):
@@ -71,6 +73,7 @@ class StaffPatientDetailResponse(BaseModel):
     is_active: bool
     total_uploads: int
     suspected_uploads: int
+    symptom_elevated_uploads: int = 0
     rejected_uploads: int
 
 
@@ -89,6 +92,9 @@ class StaffUploadQueueItem(BaseModel):
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
 
 
 class StaffUploadQueueResponse(BaseModel):
@@ -100,9 +106,12 @@ class StaffHistoryOverviewDayItem(BaseModel):
     upload_count: int
     uploaded_users: int
     suspected_infected_users: int
+    symptom_elevated_users: int
     infection_rate: float
     risky_patient_count: int
     has_infection_risk: bool
+    symptom_elevated_patient_count: int
+    has_symptom_elevated_risk: bool
 
 
 class StaffHistoryOverviewDaysResponse(BaseModel):
@@ -113,6 +122,7 @@ class StaffHistoryOverviewKpi(BaseModel):
     uploaded_users: int
     uploads: int
     suspected_infected_users: int
+    symptom_elevated_users: int
     infection_rate: float
 
 
@@ -135,6 +145,9 @@ class StaffHistoryOverviewUploadItem(BaseModel):
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
     annotation_label: str | None
     annotation_comment: str | None
     risk_rank: int
@@ -171,6 +184,8 @@ class StaffHistoryOverviewCalendarItem(BaseModel):
     local_date: str
     risky_patient_count: int
     has_infection_risk: bool
+    symptom_elevated_patient_count: int
+    has_symptom_elevated_risk: bool
 
 
 class StaffHistoryOverviewCalendarResponse(BaseModel):
@@ -384,6 +399,9 @@ class StaffTodaySuspectedSummaryResponse(BaseModel):
     date: str
     total_uploads: int
     suspected_uploads: int
+    symptom_elevated_uploads: int = 0
+    suspected_users: int = 0
+    symptom_elevated_users: int = 0
     normal_uploads: int
     suspected_ratio: float
 
@@ -417,6 +435,7 @@ class StaffDailySuspectedSeriesPoint(BaseModel):
     date: str
     total_uploads: int
     suspected_uploads: int
+    symptom_elevated_uploads: int = 0
     suspected_ratio: float
 
 
