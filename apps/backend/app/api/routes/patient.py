@@ -143,6 +143,7 @@ async def patient_upload_history(
                     date=entry.date.isoformat(),
                     upload_count=entry.upload_count,
                     has_suspected_risk=entry.has_suspected_risk,
+                    has_symptom_elevated_risk=entry.has_symptom_elevated_risk,
                 )
                 for entry in days
             ],

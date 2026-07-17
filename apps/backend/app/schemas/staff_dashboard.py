@@ -53,6 +53,7 @@ class StaffPatientUploadCalendarItem(BaseModel):
     date: str
     upload_count: int
     has_suspected_risk: bool
+    has_symptom_elevated_risk: bool = False
 
 
 class StaffPatientUploadCalendarResponse(BaseModel):

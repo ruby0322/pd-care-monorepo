@@ -67,6 +67,7 @@ export type StaffPatientUploadCalendarDay = {
   date: string;
   upload_count: number;
   has_suspected_risk: boolean;
+  has_symptom_elevated_risk?: boolean;
 };
 
 export type StaffPatientUploadCalendarResponse = {
@@ -575,16 +576,19 @@ export async function fetchHistoryOverviewCalendar(params: {
 }
 
 function riskRank(item: StaffUploadQueueItem): number {
-  if (item.screening_result === "suspected") {
+  if (item.symptom_aware_priority === "suspected") {
     return 0;
   }
-  if (item.screening_result === "normal") {
+  if (item.screening_result === "suspected") {
     return 1;
   }
-  if (item.screening_result === "technical_error") {
+  if (item.screening_result === "normal") {
     return 2;
   }
-  return 3;
+  if (item.screening_result === "technical_error") {
+    return 3;
+  }
+  return 4;
 }
 
 export function sortUploadsByRisk(items: StaffUploadQueueItem[]): StaffRapidReviewQueueItem[] {

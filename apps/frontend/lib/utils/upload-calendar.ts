@@ -1,12 +1,15 @@
 type UploadLike = {
   created_at: string;
   screening_result: "normal" | "suspected" | "rejected" | "technical_error";
+  has_high_risk_symptoms?: boolean;
+  annotation_label?: string | null;
 };
 
 export type CalendarDaySummary = {
   date: string;
   upload_count: number;
   has_suspected_risk: boolean;
+  has_symptom_elevated_risk: boolean;
 };
 
 export type TaipeiMonthGridCell = {
@@ -46,14 +49,26 @@ export function toTaipeiDateKey(isoDatetime: string): string {
 export function summarizeUploadsForCalendar(uploads: UploadLike[]): CalendarDaySummary[] {
   const dayMap = new Map<string, CalendarDaySummary>();
   for (const upload of uploads) {
+    if (upload.screening_result === "rejected") {
+      continue;
+    }
     const key = toTaipeiDateKey(upload.created_at);
     const current = dayMap.get(key);
-    const hasSuspectedRisk = upload.screening_result === "suspected";
+    const annotation = upload.annotation_label ?? null;
+    const hasSuspectedRisk =
+      upload.screening_result === "suspected" ||
+      annotation === "suspected" ||
+      annotation === "confirmed_infection";
+    const hasSymptomElevatedRisk =
+      !hasSuspectedRisk &&
+      Boolean(upload.has_high_risk_symptoms) &&
+      annotation !== "normal";
     if (!current) {
       dayMap.set(key, {
         date: key,
         upload_count: 1,
         has_suspected_risk: hasSuspectedRisk,
+        has_symptom_elevated_risk: hasSymptomElevatedRisk,
       });
       continue;
     }
@@ -61,6 +76,7 @@ export function summarizeUploadsForCalendar(uploads: UploadLike[]): CalendarDayS
       date: key,
       upload_count: current.upload_count + 1,
       has_suspected_risk: current.has_suspected_risk || hasSuspectedRisk,
+      has_symptom_elevated_risk: current.has_symptom_elevated_risk || hasSymptomElevatedRisk,
     });
   }
   return Array.from(dayMap.values()).sort((a, b) => a.date.localeCompare(b.date));

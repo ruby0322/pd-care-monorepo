@@ -1,4 +1,6 @@
 from app.services.symptoms import (
+    calendar_risk_tier,
+    counts_toward_suspected_rate,
     derived_symptom_fields,
     has_high_risk_symptoms,
     symptom_aware_priority,
@@ -54,3 +56,38 @@ def test_derived_symptom_fields_payload() -> None:
     assert fields["has_high_risk_symptoms"] is True
     assert fields["symptom_aware_priority"] == "suspected"
     assert fields["symptom_cloudy_dialysate"] is False
+
+
+def test_calendar_risk_tier_elevated_and_override() -> None:
+    assert (
+        calendar_risk_tier(
+            screening_result="normal",
+            annotation_label=None,
+            symptom_pain=True,
+            symptom_pus=False,
+            symptom_cloudy_dialysate=False,
+        )
+        == "elevated"
+    )
+    assert (
+        calendar_risk_tier(
+            screening_result="normal",
+            annotation_label="normal",
+            symptom_pain=True,
+            symptom_pus=False,
+            symptom_cloudy_dialysate=False,
+        )
+        == "none"
+    )
+    assert (
+        calendar_risk_tier(
+            screening_result="suspected",
+            annotation_label=None,
+            symptom_pain=False,
+            symptom_pus=False,
+            symptom_cloudy_dialysate=False,
+        )
+        == "suspected"
+    )
+    assert counts_toward_suspected_rate("elevated") is True
+    assert counts_toward_suspected_rate("none") is False

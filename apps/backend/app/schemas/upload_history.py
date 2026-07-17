@@ -10,6 +10,7 @@ class UploadHistoryDayResponse(BaseModel):
     date: str = Field(examples=["2026-05-09"])
     upload_count: int = Field(ge=0)
     has_suspected_risk: bool
+    has_symptom_elevated_risk: bool = False
 
 
 class UploadHistorySummary28dResponse(BaseModel):

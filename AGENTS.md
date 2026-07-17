@@ -107,4 +107,5 @@ See [.cursor/rules/maintain-ship-deploy-skill.mdc](.cursor/rules/maintain-ship-d
 - [docs/architecture/README.md](docs/architecture/README.md) — system architecture (Markdown)
 - [apps/backend/README.md](apps/backend/README.md) — API, migrations, model bake
 - [docs/deploy/k8s-minikube.md](docs/deploy/k8s-minikube.md) — K8s deploy and verification
+- [docs/ops/k8s-minikube-volume-migration-and-recovery.md](docs/ops/k8s-minikube-volume-migration-and-recovery.md) — volume move + Minikube control-plane recovery
 - [docs/deploy/k8s-zero-downtime-rollout.md](docs/deploy/k8s-zero-downtime-rollout.md) — prod rolling upgrades

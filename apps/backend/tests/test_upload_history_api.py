@@ -190,8 +190,18 @@ def test_upload_history_returns_aggregated_days_for_matched_patient(tmp_path: Pa
         assert payload["patient_id"] == patient_id
         assert payload["can_upload"] is True
         assert payload["days"] == [
-            {"date": "2026-05-08", "upload_count": 2, "has_suspected_risk": True},
-            {"date": "2026-05-09", "upload_count": 1, "has_suspected_risk": False},
+            {
+                "date": "2026-05-08",
+                "upload_count": 2,
+                "has_suspected_risk": True,
+                "has_symptom_elevated_risk": False,
+            },
+            {
+                "date": "2026-05-09",
+                "upload_count": 1,
+                "has_suspected_risk": False,
+                "has_symptom_elevated_risk": False,
+            },
         ]
         assert payload["summary_28d"]["all_upload_count_28d"] >= 0
         assert payload["summary_28d"]["suspected_upload_count_28d"] >= 0
@@ -259,7 +269,12 @@ def test_upload_history_groups_by_taipei_local_date_boundary(tmp_path: Path) -> 
         payload = response.json()
         assert payload["status"] == "matched"
         assert payload["days"] == [
-            {"date": "2026-05-11", "upload_count": 1, "has_suspected_risk": False},
+            {
+                "date": "2026-05-11",
+                "upload_count": 1,
+                "has_suspected_risk": False,
+                "has_symptom_elevated_risk": False,
+            },
         ]
 
 
@@ -337,6 +352,7 @@ def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: P
                 "date": datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
                 "upload_count": 1,
                 "has_suspected_risk": True,
+                "has_symptom_elevated_risk": False,
             }
         ]
         assert payload["summary_28d"]["all_upload_count_28d"] == 1
@@ -384,6 +400,7 @@ def test_upload_history_excludes_rejected_from_summary_and_daily_counts(tmp_path
         assert len(payload["days"]) == 1
         assert payload["days"][0]["upload_count"] == 1
         assert payload["days"][0]["has_suspected_risk"] is True
+        assert payload["days"][0]["has_symptom_elevated_risk"] is False
         assert payload["summary_28d"]["all_upload_count_28d"] == 1
         assert payload["summary_28d"]["suspected_upload_count_28d"] == 1
 
@@ -714,3 +731,94 @@ def test_staff_with_bound_patient_can_access_patient_messages(tmp_path: Path) ->
         assert response.status_code == 200
         payload = response.json()
         assert payload["total"] == 1
+
+
+def test_upload_history_marks_symptom_elevated_day_and_counts_rate(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-elevated.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_ELEVATED")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_ELEVATED")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            upload = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/elevated.jpg",
+                content_type="image/jpeg",
+                created_at=datetime.now(tz=timezone.utc),
+                symptom_pain=True,
+            )
+            session.add(upload)
+            session.flush()
+            session.add(AIResult(upload_id=upload.id, screening_result="normal"))
+            session.commit()
+
+        response = client.get(
+            "/v1/patient/upload-history",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["days"] == [
+            {
+                "date": datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
+                "upload_count": 1,
+                "has_suspected_risk": False,
+                "has_symptom_elevated_risk": True,
+            }
+        ]
+        assert payload["summary_28d"]["all_upload_count_28d"] == 1
+        assert payload["summary_28d"]["suspected_upload_count_28d"] == 1
+
+
+def test_upload_history_elevated_cleared_when_annotated_normal(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-elevated-cleared.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_ELEVATED_CLEAR")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_ELEVATED_CLEAR")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            upload = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/elevated-clear.jpg",
+                content_type="image/jpeg",
+                created_at=datetime.now(tz=timezone.utc),
+                symptom_pus=True,
+            )
+            reviewer = LiffIdentity(
+                line_user_id="U_LINE_ELEVATED_CLEAR_REVIEWER",
+                display_name="Reviewer",
+                picture_url=None,
+                patient_id=None,
+                role="staff",
+            )
+            session.add_all([upload, reviewer])
+            session.flush()
+            session.add(AIResult(upload_id=upload.id, screening_result="normal"))
+            session.add(
+                Annotation(
+                    patient_id=patient_id,
+                    upload_id=upload.id,
+                    reviewer_identity_id=reviewer.id,
+                    label="normal",
+                    comment="false alarm",
+                )
+            )
+            session.commit()
+
+        response = client.get(
+            "/v1/patient/upload-history",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["days"] == [
+            {
+                "date": datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
+                "upload_count": 1,
+                "has_suspected_risk": False,
+                "has_symptom_elevated_risk": False,
+            }
+        ]
+        assert payload["summary_28d"]["suspected_upload_count_28d"] == 0

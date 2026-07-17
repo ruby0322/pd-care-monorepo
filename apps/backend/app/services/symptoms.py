@@ -2,6 +2,9 @@
 
 High-risk self-report symptoms (not discharge) elevate clinical priority for
 patient/staff messaging and notifications without mutating screening_result.
+
+Calendar / 28d infection-rate tiers are derived at read time from screening,
+symptoms, and the latest staff annotation (not persisted).
 """
 
 from __future__ import annotations
@@ -9,6 +12,9 @@ from __future__ import annotations
 from typing import Literal
 
 SymptomAwarePriority = Literal["normal", "suspected"]
+CalendarRiskTier = Literal["none", "elevated", "suspected"]
+
+RISKY_ANNOTATION_LABELS = frozenset({"suspected", "confirmed_infection"})
 
 
 def has_high_risk_symptoms(
@@ -34,6 +40,42 @@ def symptom_aware_priority(
     ):
         return "suspected"
     return "normal"
+
+
+def calendar_risk_tier(
+    *,
+    screening_result: str | None,
+    annotation_label: str | None,
+    symptom_pain: bool,
+    symptom_pus: bool,
+    symptom_cloudy_dialysate: bool,
+) -> CalendarRiskTier:
+    """Derive calendar/rate risk for one upload.
+
+    - suspected (red): risky staff annotation or image AI suspected
+    - elevated (orange, counts in rate): high-risk symptoms unless annotated normal
+    - none: everything else (including elevated cleared by annotation normal)
+    """
+    if screening_result == "rejected":
+        return "none"
+    if annotation_label in RISKY_ANNOTATION_LABELS:
+        return "suspected"
+    if screening_result == "suspected":
+        return "suspected"
+    if (
+        has_high_risk_symptoms(
+            symptom_pain=symptom_pain,
+            symptom_pus=symptom_pus,
+            symptom_cloudy_dialysate=symptom_cloudy_dialysate,
+        )
+        and annotation_label != "normal"
+    ):
+        return "elevated"
+    return "none"
+
+
+def counts_toward_suspected_rate(tier: CalendarRiskTier) -> bool:
+    return tier in {"suspected", "elevated"}
 
 
 def high_risk_symptom_flags(

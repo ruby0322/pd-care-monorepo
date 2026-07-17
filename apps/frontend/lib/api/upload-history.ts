@@ -5,6 +5,7 @@ export type UploadHistoryDay = {
   date: string;
   upload_count: number;
   has_suspected_risk: boolean;
+  has_symptom_elevated_risk?: boolean;
 };
 
 export type UploadHistorySummary28d = {

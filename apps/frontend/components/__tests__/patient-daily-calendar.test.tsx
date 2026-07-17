@@ -70,6 +70,12 @@ const days = [
   { date: "2026-05-03", upload_count: 1, has_suspected_risk: false },
   { date: "2026-05-04", upload_count: 2, has_suspected_risk: false },
   { date: "2026-05-05", upload_count: 1, has_suspected_risk: true },
+  {
+    date: "2026-05-06",
+    upload_count: 1,
+    has_suspected_risk: false,
+    has_symptom_elevated_risk: true,
+  },
 ];
 
 describe("PatientDailyCalendar month paging UI", () => {
@@ -353,5 +359,13 @@ describe("PatientDailyCalendar month paging UI", () => {
     expect(screen.getByTestId("calendar-carousel-content")).not.toHaveClass("ml-0");
     const firstSlide = screen.getAllByTestId("calendar-carousel-item")[0];
     expect(firstSlide).not.toHaveClass("pl-0");
+  });
+
+  test("renders orange elevated cells and legend for symptom-elevated days", () => {
+    render(<PatientDailyCalendar days={days} />);
+
+    expect(screen.getByText("症狀高風險")).toBeInTheDocument();
+    const elevatedCell = screen.getByRole("button", { name: "2026-05-06 1 uploads" });
+    expect(elevatedCell.className).toContain("bg-orange-400");
   });
 });

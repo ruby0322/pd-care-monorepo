@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
 from app.services.taipei_dates import TAIPEI_TIMEZONE, resolve_taipei_day_bounds, to_taipei_date
+from app.services.upload_history import summarize_patient_upload_history
 
 
 class DuplicatePatientError(ValueError):
@@ -498,28 +499,15 @@ def list_patient_upload_records_page(
 
 
 def list_patient_upload_calendar_days(session: Session, *, patient_id: int) -> list[dict[str, object]]:
-    if session.bind is not None and session.bind.dialect.name == "sqlite":
-        local_date = func.date(Upload.created_at, "+8 hours")
-    else:
-        local_date = func.date(func.timezone("Asia/Taipei", Upload.created_at))
-    rows = session.execute(
-        select(
-            local_date.label("local_date"),
-            func.count(Upload.id).label("upload_count"),
-            func.max(case((AIResult.screening_result == "suspected", 1), else_=0)).label("has_suspected_risk"),
-        )
-        .join(AIResult, AIResult.upload_id == Upload.id)
-        .where(Upload.patient_id == patient_id)
-        .group_by(local_date)
-        .order_by(local_date.asc())
-    ).all()
+    days = summarize_patient_upload_history(session, patient_id=patient_id)
     return [
         {
-            "date": local_date_value.isoformat() if isinstance(local_date_value, date) else str(local_date_value),
-            "upload_count": int(upload_count),
-            "has_suspected_risk": bool(has_suspected_risk),
+            "date": day.date.isoformat(),
+            "upload_count": day.upload_count,
+            "has_suspected_risk": day.has_suspected_risk,
+            "has_symptom_elevated_risk": day.has_symptom_elevated_risk,
         }
-        for local_date_value, upload_count, has_suspected_risk in rows
+        for day in days
     ]
 
 

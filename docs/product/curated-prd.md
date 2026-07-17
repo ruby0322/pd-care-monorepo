@@ -100,10 +100,12 @@ Before scanning, patients see a simple calendar/heatmap view for recent daily sc
 Calendar color rules:
 
 - Grey: no upload on that day.
-- Green: one or more uploads and no suspected infection risk.
-- Red: at least one suspected-risk upload.
+- Green: one or more uploads and no suspected or symptom-elevated risk.
+- Orange: at least one symptom-elevated upload (image-normal + high-risk symptoms) and no image/annotation suspected risk; cleared when staff annotate `normal`.
+- Red: at least one image AI suspected or risky staff annotation.
 - Color intensity increases with the number of uploads that day.
 
+The patient 28-day infection rate (`suspected_upload_count_28d`) counts uploads that are image/annotation suspected **or** symptom-elevated, excluding elevated uploads whose latest staff annotation is `normal`.
 Acceptance criteria:
 
 - Patients can upload multiple times per day.

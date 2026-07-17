@@ -187,10 +187,12 @@ describe("PatientPage month window prefetch flow", () => {
     });
 
     expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
-    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "true");
+    // Background prefetch must not blank the calendar with a loading overlay.
+    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
 
     resolvePrefetch?.();
     await waitFor(() => {
+      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11");
       expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
     });
 
@@ -259,23 +261,24 @@ describe("PatientPage month window prefetch flow", () => {
       expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11");
     });
     expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
-    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "true");
+    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
 
     fireEvent.click(screen.getByRole("button", { name: "change-month-older" }));
     await waitFor(() => {
       expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-08");
     });
     expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
-    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "true");
+    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
 
     resolveFirstPrefetch?.();
     await waitFor(() => {
       expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
-      expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "true");
+      expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
     });
 
     resolveSecondPrefetch?.();
     await waitFor(() => {
+      expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
       expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
     });
 

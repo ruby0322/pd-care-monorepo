@@ -785,8 +785,8 @@ def test_staff_patient_upload_calendar_groups_by_taipei_date(tmp_path: Path) -> 
 
         assert response.status_code == 200
         assert response.json()["items"] == [
-            {"date": "2026-04-30", "upload_count": 1, "has_suspected_risk": False},
-            {"date": "2026-05-01", "upload_count": 2, "has_suspected_risk": True},
+            {"date": "2026-04-30", "upload_count": 1, "has_suspected_risk": False, "has_symptom_elevated_risk": False},
+            {"date": "2026-05-01", "upload_count": 2, "has_suspected_risk": True, "has_symptom_elevated_risk": False},
         ]
 
 
