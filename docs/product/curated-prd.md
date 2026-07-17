@@ -283,6 +283,7 @@ Supporting metrics:
 Current implemented surfaces:
 
 - Patient capture and result pages exist in `apps/frontend/app/patient/capture/page.tsx` and `apps/frontend/app/patient/result/page.tsx`.
+- Patient result uses an explain-then-act layout (status chip, upload preview, symptoms, meaning + signal tiles, next-step advisory, nurse education links). When image `screening_result` is `normal` but high-risk symptoms are present, display uses suspected chrome with dual tiles (影像模型 / 症狀綜合) without mutating stored `screening_result`.
 - Frontend API client code exists under `apps/frontend/lib/api/`.
 - Mock staff dashboard exists in `apps/frontend/app/admin/page.tsx`, `apps/frontend/app/admin/patients/[id]/page.tsx`, and `apps/frontend/lib/mock-data.ts`.
 - Backend classifier endpoint exists in `apps/backend/app/api/routes/predict.py`.
