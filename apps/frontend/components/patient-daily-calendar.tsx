@@ -249,7 +249,10 @@ export function PatientDailyCalendar({
 
     return panelCells.map((cell) => {
       const isMutedAdjacentDay = !cell.isCurrentMonth;
-      const backgroundClass = isMutedAdjacentDay ? "bg-zinc-100" : dayStyle(cell.uploadCount, cell.hasSuspectedRisk);
+      const backgroundClass =
+        isMutedAdjacentDay && cell.uploadCount <= 0
+          ? "bg-zinc-100"
+          : dayStyle(cell.uploadCount, cell.hasSuspectedRisk);
       return (
         <button
           type="button"

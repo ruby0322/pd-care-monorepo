@@ -128,7 +128,10 @@ export function getRelativeMonthKey(monthKey: string, offset: number): string {
 }
 
 function formatDateKeyFromUtc(utcDate: Date): string {
-  return utcDate.toISOString().slice(0, 10);
+  const year = utcDate.getUTCFullYear();
+  const month = utcDate.getUTCMonth() + 1;
+  const day = utcDate.getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 export function buildTaipeiMonthGrid(monthKey: string): TaipeiMonthGrid {
