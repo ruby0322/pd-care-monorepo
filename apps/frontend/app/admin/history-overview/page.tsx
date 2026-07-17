@@ -74,7 +74,10 @@ function suggestedLabel(upload: StaffHistoryOverviewUploadItem): StaffAnnotation
   if (upload.annotation_label) {
     return upload.annotation_label;
   }
-  if (upload.screening_result === "suspected") {
+  if (upload.screening_result === "rejected" || upload.screening_result === "technical_error") {
+    return "rejected";
+  }
+  if (upload.symptom_aware_priority === "suspected" || upload.screening_result === "suspected") {
     return "suspected";
   }
   if (upload.screening_result === "normal") {
@@ -666,8 +669,12 @@ export default function AdminHistoryOverviewPage() {
                     <dd className="text-right text-zinc-900">{riskLabel(selectedUpload)}</dd>
                   </div>
                   <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">AI 原始結果</dt>
+                    <dt className="text-zinc-400">影像判讀</dt>
                     <dd className="text-right text-zinc-900">{selectedUpload.screening_result}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-zinc-400">症狀綜合</dt>
+                    <dd className="text-right text-zinc-900">{selectedUpload.symptom_aware_priority}</dd>
                   </div>
                   <div className="flex items-start justify-between gap-4">
                     <dt className="text-zinc-400">機率</dt>

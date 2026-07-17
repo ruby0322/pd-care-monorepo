@@ -82,6 +82,9 @@ Response shape:
           "symptom_pain": true,
           "symptom_discharge": false,
           "symptom_pus": false,
+          "symptom_cloudy_dialysate": false,
+          "has_high_risk_symptoms": true,
+          "symptom_aware_priority": "suspected",
           "annotation_label": "confirmed_infection",
           "annotation_comment": "doctor reviewed",
           "risk_rank": 0

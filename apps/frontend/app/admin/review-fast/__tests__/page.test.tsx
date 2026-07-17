@@ -37,6 +37,9 @@ type QueueItem = {
   symptom_pain: boolean;
   symptom_discharge: boolean;
   symptom_pus: boolean;
+  symptom_cloudy_dialysate: boolean;
+  has_high_risk_symptoms: boolean;
+  symptom_aware_priority: "normal" | "suspected";
 };
 
 function makeQueueItem(overrides?: Partial<QueueItem>): QueueItem {
@@ -54,6 +57,9 @@ function makeQueueItem(overrides?: Partial<QueueItem>): QueueItem {
     symptom_pain: false,
     symptom_discharge: false,
     symptom_pus: false,
+    symptom_cloudy_dialysate: false,
+    has_high_risk_symptoms: false,
+    symptom_aware_priority: "suspected",
     ...overrides,
   };
 }
@@ -64,7 +70,13 @@ describe("AdminFastReviewPage symptom modal", () => {
   });
 
   test("shows only positive symptoms in modal", async () => {
-    const selectedItem = makeQueueItem({ symptom_pain: true, symptom_discharge: false, symptom_pus: true });
+    const selectedItem = makeQueueItem({
+      symptom_pain: true,
+      symptom_discharge: false,
+      symptom_pus: true,
+      has_high_risk_symptoms: true,
+      symptom_aware_priority: "suspected",
+    });
     (useRapidReviewGridState as jest.Mock).mockReturnValue({
       loading: false,
       saving: false,
@@ -85,13 +97,23 @@ describe("AdminFastReviewPage symptom modal", () => {
 
     expect(await screen.findByText("症狀")).toBeInTheDocument();
     expect(screen.getByText("疼痛")).toBeInTheDocument();
-    expect(screen.getByText("膿液")).toBeInTheDocument();
+    expect(screen.getByText("膿")).toBeInTheDocument();
     expect(screen.queryByText("分泌物")).not.toBeInTheDocument();
     expect(screen.queryByText("無症狀")).not.toBeInTheDocument();
+    expect(screen.getByText("影像判讀")).toBeInTheDocument();
+    expect(screen.getByText("症狀綜合")).toBeInTheDocument();
   });
 
   test("shows 無症狀 when no symptoms are positive", async () => {
-    const selectedItem = makeQueueItem({ symptom_pain: false, symptom_discharge: false, symptom_pus: false });
+    const selectedItem = makeQueueItem({
+      screening_result: "normal",
+      symptom_pain: false,
+      symptom_discharge: false,
+      symptom_pus: false,
+      symptom_cloudy_dialysate: false,
+      has_high_risk_symptoms: false,
+      symptom_aware_priority: "normal",
+    });
     (useRapidReviewGridState as jest.Mock).mockReturnValue({
       loading: false,
       saving: false,
@@ -114,6 +136,6 @@ describe("AdminFastReviewPage symptom modal", () => {
     expect(screen.getByText("無症狀")).toBeInTheDocument();
     expect(screen.queryByText("疼痛")).not.toBeInTheDocument();
     expect(screen.queryByText("分泌物")).not.toBeInTheDocument();
-    expect(screen.queryByText("膿液")).not.toBeInTheDocument();
+    expect(screen.queryByText("膿")).not.toBeInTheDocument();
   });
 });

@@ -31,6 +31,9 @@ export type PatientUploadResponse = {
   symptom_pain: boolean;
   symptom_discharge: boolean;
   symptom_pus: boolean;
+  symptom_cloudy_dialysate: boolean;
+  has_high_risk_symptoms: boolean;
+  symptom_aware_priority: "normal" | "suspected";
   prediction:
     | (PredictResponse & {
         screening: PredictResponse["screening"] & {
@@ -47,6 +50,7 @@ export async function uploadPatientExitSiteImage(
     pain: boolean;
     discharge: boolean;
     pus: boolean;
+    cloudyDialysate: boolean;
   }
 ): Promise<PatientUploadResponse> {
   const formData = new FormData();
@@ -54,6 +58,7 @@ export async function uploadPatientExitSiteImage(
   formData.append("pain", String(symptoms.pain));
   formData.append("discharge", String(symptoms.discharge));
   formData.append("pus", String(symptoms.pus));
+  formData.append("cloudy_dialysate", String(symptoms.cloudyDialysate));
 
   const { data } = await apiClient.post<PatientUploadResponse>("/v1/patient/uploads", formData, {
     headers: {
@@ -76,6 +81,9 @@ export type PatientUploadResultResponse = {
   symptom_pain: boolean;
   symptom_discharge: boolean;
   symptom_pus: boolean;
+  symptom_cloudy_dialysate: boolean;
+  has_high_risk_symptoms: boolean;
+  symptom_aware_priority: "normal" | "suspected";
   created_at: string;
 };
 

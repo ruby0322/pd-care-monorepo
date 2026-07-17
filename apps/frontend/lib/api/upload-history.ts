@@ -32,6 +32,9 @@ export type PatientDayUploadItem = {
   symptom_pain: boolean;
   symptom_discharge: boolean;
   symptom_pus: boolean;
+  symptom_cloudy_dialysate: boolean;
+  has_high_risk_symptoms: boolean;
+  symptom_aware_priority: "normal" | "suspected";
   annotation_label: string | null;
   annotation_comment: string | null;
 };
@@ -53,6 +56,9 @@ export type PatientUploadDetailResponse = {
   symptom_pain: boolean;
   symptom_discharge: boolean;
   symptom_pus: boolean;
+  symptom_cloudy_dialysate: boolean;
+  has_high_risk_symptoms: boolean;
+  symptom_aware_priority: "normal" | "suspected";
   annotation_label: string | null;
   annotation_comment: string | null;
   image_url: string;

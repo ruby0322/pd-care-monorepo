@@ -114,7 +114,9 @@ Acceptance criteria:
 
 The patient capture flow keeps the current guided-camera direction from the brief: simple instructions, circular alignment guidance, and image upload to the backend.
 
-Before image submission, the patient must complete a symptom modal in the capture page. The modal is required and allows structured symptom reporting using three booleans: `pain`, `discharge`, and `pus`. To reduce friction, the modal includes a quick action for "no symptoms" that sets all three values to `false`.
+Before image submission, the patient must complete a symptom modal in the capture page. The modal is required and allows structured symptom reporting using four booleans: `pain`, `discharge`, `pus`, and `cloudy_dialysate` (UI labels: 疼痛 / 分泌物 / 膿 / 透析液混濁). To reduce friction, the modal includes a quick action for "no symptoms" that sets all four values to `false`.
+
+High-risk self-report symptoms (`pain`, `pus`, `cloudy_dialysate` — not `discharge`) do not mutate the image-only `screening_result`. They raise a derived `symptom_aware_priority`, surface dual patient/staff messaging, and create a staff notification even when AI screening is `normal`.
 
 Week-1 backend behavior:
 
@@ -123,18 +125,21 @@ Week-1 backend behavior:
 - Store upload metadata and object key in Postgres.
 - Run the existing classifier endpoint or internal classifier service.
 - Persist AI result, probability/confidence, threshold, and model/version metadata when available.
-- Create a dashboard notification when the result is suspected risk.
+- Create a dashboard notification when the result is suspected risk **or** high-risk symptoms are reported.
 - Return a patient-facing result payload.
-- Persist patient symptom fields (`pain`, `discharge`, `pus`) with each upload record.
+- Persist patient symptom fields (`pain`, `discharge`, `pus`, `cloudy_dialysate`) with each upload record.
+- Return derived fields `has_high_risk_symptoms` and `symptom_aware_priority` on upload/result/staff payloads.
 
 Acceptance criteria:
 
-- Patient sees normal, suspected-risk, or rejected/error state after upload.
+- Patient sees normal, suspected-risk, or rejected/error state after upload (image verdict), plus a separate symptom advisory when high-risk symptoms are checked.
+- When image `screening_result` is `normal` but high-risk symptoms are present, the patient result page uses suspected-infection chrome with a dual-column strip (**影像模型：正常** | **症狀綜合：高風險**); `screening_result` itself remains image-only.
 - Suspected-risk copy says staff will review and that the system does not provide diagnosis.
 - Failed upload states distinguish technical failure from image rejection when the backend can provide a reason.
-- Upload payload accepts `pain`, `discharge`, `pus` as booleans.
+- Upload payload accepts `pain`, `discharge`, `pus`, `cloudy_dialysate` as booleans.
 - Result, day list, and upload detail endpoints return persisted symptom fields for the same upload.
 - Historical uploads created before symptom rollout remain readable and resolve symptom fields to `false`.
+- Staff review surfaces separate **影像判讀** (`screening_result`) and **症狀綜合** (`symptom_aware_priority`).
 
 ### Staff Review And Notifications
 
@@ -165,7 +170,7 @@ Postgres stores:
 - LINE identity bindings.
 - Pending identity-link requests.
 - Upload records.
-- Upload-level symptom fields (`pain`, `discharge`, `pus`) stored with each upload record.
+- Upload-level symptom fields (`pain`, `discharge`, `pus`, `cloudy_dialysate`) stored with each upload record.
 - AI screening results.
 - Dashboard notifications.
 - Staff annotations.
