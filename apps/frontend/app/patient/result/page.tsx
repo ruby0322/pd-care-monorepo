@@ -26,7 +26,7 @@ const EDUCATION_MATERIALS = [
   { label: "導管出口照護影片", href: "https://youtu.be/KOMvyUt0ap4?si=O4IM6e2LONrNGhYn" },
 ] as const;
 
-function formatResultTimestamp(date: Date): string {
+export function formatResultTimestamp(date: Date): string {
   return date.toLocaleString("zh-TW", {
     timeZone: "Asia/Taipei",
     year: "numeric",

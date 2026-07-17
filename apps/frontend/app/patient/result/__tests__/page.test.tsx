@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 
-import ResultPage from "@/app/patient/result/page";
+import ResultPage, { formatResultTimestamp } from "@/app/patient/result/page";
 import { getPatientUploadResult } from "@/lib/api/predict";
 import { fetchPatientUploadDetail } from "@/lib/api/upload-history";
 import { getPatientSession } from "@/lib/auth/patient-session";
@@ -129,12 +129,38 @@ describe("Patient ResultPage v6 layout", () => {
         "src",
         "https://example.test/upload-128.jpg"
       );
-      // Asia/Taipei formatting of 2026-07-17T09:00:00+00:00
-      expect(screen.getByText("2026/07/17 下午05:00")).toBeInTheDocument();
+      expect(screen.getByText(formatResultTimestamp(new Date("2026-07-17T09:00:00+00:00")))).toBeInTheDocument();
     });
 
     expect(screen.getByRole("link", { name: /回到追蹤日曆/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /返回追蹤首頁/ })).not.toBeInTheDocument();
+  });
+
+  test("preview fetch failure still renders result chrome and upload id", async () => {
+    setParams({
+      result: "normal",
+      uploadId: "128",
+      aiResultId: "9",
+      confidence: "72",
+      pain: "true",
+      pus: "true",
+    });
+    (fetchPatientUploadDetail as jest.Mock).mockRejectedValue(new Error("preview unavailable"));
+
+    render(<ResultPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("疑似感染風險")).toBeInTheDocument();
+    });
+
+    expect(fetchPatientUploadDetail).toHaveBeenCalledWith(128);
+    expect(screen.getByText("上傳 #128")).toBeInTheDocument();
+    expect(screen.queryByAltText("upload-preview-128")).not.toBeInTheDocument();
+    expect(screen.getByText("本次上傳預覽")).toBeInTheDocument();
+    expect(screen.getByText("這代表什麼")).toBeInTheDocument();
+    expect(screen.getByText("症狀綜合")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /回到追蹤日曆/ })).toBeInTheDocument();
+    expect(screen.getByText("附加衛教影片及素材").closest("section")).toHaveClass("bg-red-600");
   });
 
   test("normal without high-risk symptoms shows emerald education and single model tile", async () => {
