@@ -1,7 +1,7 @@
 /** Frame-diff camera stability helpers for live capture guidance. */
 
 export const STABILITY_SAMPLE_SIZE = 64;
-export const STABILITY_MAD_THRESHOLD = 9.2; // 8 × 1.15 — higher shake tolerance
+export const STABILITY_MAD_THRESHOLD = 13.8; // 9.2 × 1.5 — higher shake tolerance
 export const STABILITY_REQUIRED_STABLE_SAMPLES = 3;
 
 export type StabilityTracker = {
