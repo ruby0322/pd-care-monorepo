@@ -423,6 +423,8 @@ Deferred work: [`backlog/`](../backlog/README.md) (K8s cutover →
 
 ## 10) Troubleshooting
 
+Host reboot, disk-full `minikube start`, bind-mount moves of the `minikube` volume, or a wiped `/etc/kubernetes` after `docker rm minikube`: see [`../ops/k8s-minikube-volume-migration-and-recovery.md`](../ops/k8s-minikube-volume-migration-and-recovery.md) and the [k8s-minikube-recovery](../../.cursor/skills/k8s-minikube-recovery/SKILL.md) skill.
+
 ### Public URL fails but `--resolve` to Minikube IP works
 
 Usually the **ingress bridge is not running** or is pointing at the wrong NodePort.

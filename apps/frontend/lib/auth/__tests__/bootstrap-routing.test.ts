@@ -24,6 +24,7 @@ describe("bootstrap routing helpers", () => {
   it("maps role-select destinations from next path intent", () => {
     expect(resolveRoleSelectDestination("/apps")).toBe("/onboarding/admin");
     expect(resolveRoleSelectDestination("/patient/capture")).toBe("/onboarding/patient");
+    expect(resolveRoleSelectDestination("/role-select")).toBe("/role-select");
     expect(resolveRoleSelectDestination(null)).toBe("/");
   });
 

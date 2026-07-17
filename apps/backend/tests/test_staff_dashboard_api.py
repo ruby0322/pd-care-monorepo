@@ -371,6 +371,7 @@ def test_staff_upload_queue_includes_symptom_flags(tmp_path: Path) -> None:
             latest_upload.symptom_pain = True
             latest_upload.symptom_discharge = False
             latest_upload.symptom_pus = True
+            latest_upload.symptom_cloudy_dialysate = True
             session.commit()
 
         token = _login_staff_token(client)
@@ -381,6 +382,95 @@ def test_staff_upload_queue_includes_symptom_flags(tmp_path: Path) -> None:
         assert item["symptom_pain"] is True
         assert item["symptom_discharge"] is False
         assert item["symptom_pus"] is True
+        assert item["symptom_cloudy_dialysate"] is True
+        assert item["has_high_risk_symptoms"] is True
+        assert item["symptom_aware_priority"] == "suspected"
+
+
+def test_staff_patient_detail_counts_symptom_elevated_separately(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-detail-elevated.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-DETAIL-ELEVATED",
+            line_user_id="U_PATIENT_DETAIL_ELEVATED",
+            uploads=[
+                (datetime(2026, 5, 1, 8, 0, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 5, 2, 8, 0, tzinfo=timezone.utc), "suspected"),
+                (datetime(2026, 5, 3, 8, 0, tzinfo=timezone.utc), "normal"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            uploads = (
+                session.query(Upload)
+                .filter(Upload.patient_id == patient_id)
+                .order_by(Upload.created_at.asc())
+                .all()
+            )
+            uploads[0].symptom_pain = True
+            uploads[2].symptom_discharge = True
+            session.commit()
+
+        token = _login_staff_token(client)
+        response = client.get(
+            f"/v1/staff/patients/{patient_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total_uploads"] == 3
+        assert payload["suspected_uploads"] == 1
+        assert payload["symptom_elevated_uploads"] == 1
+        assert payload["rejected_uploads"] == 0
+
+
+def test_staff_upload_queue_suspected_only_includes_elevated_tier(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-queue-suspected-only.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id = _seed_patient_with_custom_uploads(
+            client,
+            case_number="P-QUEUE-ELEVATED",
+            line_user_id="U_PATIENT_QUEUE_ELEVATED",
+            uploads=[
+                (datetime(2026, 5, 1, 8, 0, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 5, 2, 8, 0, tzinfo=timezone.utc), "suspected"),
+                (datetime(2026, 5, 3, 8, 0, tzinfo=timezone.utc), "normal"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            uploads = (
+                session.query(Upload)
+                .filter(Upload.patient_id == patient_id)
+                .order_by(Upload.created_at.asc())
+                .all()
+            )
+            uploads[0].symptom_pain = True
+            uploads[2].symptom_discharge = True
+            session.commit()
+            elevated_id = uploads[0].id
+            suspected_id = uploads[1].id
+            discharge_only_id = uploads[2].id
+
+        token = _login_staff_token(client)
+        response = client.get(
+            "/v1/staff/uploads/queue?suspected_only=true&limit=20",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        upload_ids = {item["upload_id"] for item in response.json()["items"]}
+        assert elevated_id in upload_ids
+        assert suspected_id in upload_ids
+        assert discharge_only_id not in upload_ids
 
 
 def test_staff_patient_filters_use_latest_upload_status_and_created_range(tmp_path: Path) -> None:
@@ -439,12 +529,12 @@ def test_staff_patient_filters_use_latest_upload_status_and_created_range(tmp_pa
         assert feb_cases == {"P-LATEST-SUS"}
 
 
-def test_staff_patient_list_suspected_patients_uses_latest_status(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path / "staff-dashboard-suspected-patient-count-latest.db")
+def test_staff_patient_list_risk_user_counts_use_period_tiers(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-risk-user-counts.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         staff_identity_id = _seed_staff(client)
-        patient_latest_suspected = _seed_patient_with_custom_uploads(
+        patient_with_suspected = _seed_patient_with_custom_uploads(
             client,
             case_number="P-LATEST-SUS-COUNT",
             line_user_id="U_PATIENT_LATEST_SUS_COUNT",
@@ -453,7 +543,7 @@ def test_staff_patient_list_suspected_patients_uses_latest_status(tmp_path: Path
                 (datetime(2026, 2, 11, 10, 0, tzinfo=timezone.utc), "suspected"),
             ],
         )
-        patient_latest_normal = _seed_patient_with_custom_uploads(
+        patient_had_suspected_then_normal = _seed_patient_with_custom_uploads(
             client,
             case_number="P-LATEST-NOR-COUNT",
             line_user_id="U_PATIENT_LATEST_NOR_COUNT",
@@ -462,16 +552,61 @@ def test_staff_patient_list_suspected_patients_uses_latest_status(tmp_path: Path
                 (datetime(2026, 2, 12, 10, 0, tzinfo=timezone.utc), "normal"),
             ],
         )
-        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_latest_suspected)
-        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_latest_normal)
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            elevated_patient = Patient(
+                case_number="P-ELEV-ONLY-COUNT",
+                birth_date="1985-01-01",
+                full_name="Elevated Only",
+                is_active=True,
+            )
+            session.add(elevated_patient)
+            session.flush()
+            session.add(
+                LiffIdentity(
+                    line_user_id="U_PATIENT_ELEV_ONLY_COUNT",
+                    display_name="Elevated Only",
+                    picture_url=None,
+                    patient_id=elevated_patient.id,
+                    role="patient",
+                )
+            )
+            elevated_upload = Upload(
+                patient_id=elevated_patient.id,
+                object_key="patients/elev-only/1.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 2, 13, 10, 0, tzinfo=timezone.utc),
+                symptom_pain=True,
+                symptom_discharge=False,
+                symptom_pus=False,
+                symptom_cloudy_dialysate=False,
+            )
+            session.add(elevated_upload)
+            session.flush()
+            session.add(
+                AIResult(
+                    upload_id=elevated_upload.id,
+                    screening_result="normal",
+                    probability=0.2,
+                    threshold=0.5,
+                )
+            )
+            session.commit()
+            elevated_patient_id = elevated_patient.id
+
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_with_suspected)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_had_suspected_then_normal)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=elevated_patient_id)
         token = _login_staff_token(client)
         headers = {"Authorization": f"Bearer {token}"}
 
         response = client.get("/v1/staff/patients", headers=headers)
         assert response.status_code == 200
         payload = response.json()
-        assert payload["total_patients"] == 2
-        assert payload["suspected_patients"] == 1
+        assert payload["total_patients"] == 3
+        # Any suspected-tier upload in the period counts (including older suspected then normal).
+        assert payload["suspected_patients"] == 2
+        assert payload["symptom_elevated_patients"] == 1
 
 
 def test_staff_patient_list_supports_limit_offset_pagination(tmp_path: Path) -> None:
@@ -772,6 +907,19 @@ def test_staff_patient_upload_calendar_groups_by_taipei_date(tmp_path: Path) -> 
             ],
         )
         _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            elevated_upload = (
+                session.query(Upload)
+                .filter(Upload.patient_id == patient_id)
+                .order_by(Upload.created_at.asc())
+                .first()
+            )
+            assert elevated_upload is not None
+            elevated_upload.symptom_pain = True
+            session.commit()
+
         token = _login_staff_token(client)
 
         response = client.get(
@@ -781,8 +929,8 @@ def test_staff_patient_upload_calendar_groups_by_taipei_date(tmp_path: Path) -> 
 
         assert response.status_code == 200
         assert response.json()["items"] == [
-            {"date": "2026-04-30", "upload_count": 1, "has_suspected_risk": False},
-            {"date": "2026-05-01", "upload_count": 2, "has_suspected_risk": True},
+            {"date": "2026-04-30", "upload_count": 1, "has_suspected_risk": False, "has_symptom_elevated_risk": True},
+            {"date": "2026-05-01", "upload_count": 2, "has_suspected_risk": True, "has_symptom_elevated_risk": False},
         ]
 
 
@@ -850,6 +998,7 @@ def test_staff_patient_detail_returns_counts_without_embedded_uploads(tmp_path: 
         assert "uploads" not in payload
         assert payload["total_uploads"] == 3
         assert payload["suspected_uploads"] == 1
+        assert payload["symptom_elevated_uploads"] == 0
         assert payload["rejected_uploads"] == 1
 
 
@@ -1209,7 +1358,10 @@ def test_staff_history_overview_endpoints_return_expected_shape(tmp_path: Path) 
         assert day_0529["upload_count"] == 3
         assert day_0529["uploaded_users"] == 2
         assert day_0529["suspected_infected_users"] == 2
+        assert day_0529["symptom_elevated_users"] == 0
         assert day_0529["has_infection_risk"] is True
+        assert day_0529["has_symptom_elevated_risk"] is False
+        assert day_0529["infection_rate"] == 1.0
 
         overview_response = client.get(
             "/v1/staff/uploads/history-overview",
@@ -1224,6 +1376,9 @@ def test_staff_history_overview_endpoints_return_expected_shape(tmp_path: Path) 
         assert overview_response.status_code == 200
         overview_payload = overview_response.json()
         assert overview_payload["kpi"]["uploads"] == 3
+        assert overview_payload["kpi"]["suspected_infected_users"] == 2
+        assert overview_payload["kpi"]["symptom_elevated_users"] == 0
+        assert overview_payload["kpi"]["infection_rate"] == 1.0
         assert overview_payload["group_by_user"] is True
         assert len(overview_payload["groups"]) == 2
         first_group_upload = overview_payload["groups"][0]["uploads"][0]
@@ -1244,6 +1399,8 @@ def test_staff_history_overview_endpoints_return_expected_shape(tmp_path: Path) 
         day_0529_calendar = next(item for item in calendar_items if item["local_date"] == "2026-05-29")
         assert day_0529_calendar["risky_patient_count"] == 2
         assert day_0529_calendar["has_infection_risk"] is True
+        assert day_0529_calendar["symptom_elevated_patient_count"] == 0
+        assert day_0529_calendar["has_symptom_elevated_risk"] is False
 
 
 def test_staff_history_overview_uses_linked_admin_identity_profile(tmp_path: Path) -> None:
@@ -1279,4 +1436,210 @@ def test_staff_history_overview_uses_linked_admin_identity_profile(tmp_path: Pat
         assert history_a_group["line_display_name"] == "History Display A"
         assert history_a_group["picture_url"] == "https://example.com/a.jpg"
 
+
+def test_staff_history_overview_counts_symptom_elevated_separately(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-history-overview-elevated.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            elevated_patient = Patient(
+                case_number="HX-ELEVATED",
+                birth_date="1985-01-01",
+                full_name="Elevated Only",
+                gender="unknown",
+                is_active=True,
+            )
+            suspected_patient = Patient(
+                case_number="HX-SUSPECTED",
+                birth_date="1986-01-01",
+                full_name="AI Suspected",
+                gender="unknown",
+                is_active=True,
+            )
+            cleared_patient = Patient(
+                case_number="HX-CLEARED",
+                birth_date="1987-01-01",
+                full_name="Annotated Normal",
+                gender="unknown",
+                is_active=True,
+            )
+            normal_patient = Patient(
+                case_number="HX-NORMAL",
+                birth_date="1988-01-01",
+                full_name="Image Normal",
+                gender="unknown",
+                is_active=True,
+            )
+            both_patient = Patient(
+                case_number="HX-BOTH",
+                birth_date="1989-01-01",
+                full_name="Both Tiers",
+                gender="unknown",
+                is_active=True,
+            )
+            session.add_all([elevated_patient, suspected_patient, cleared_patient, normal_patient, both_patient])
+            session.flush()
+
+            elevated_upload = Upload(
+                patient_id=elevated_patient.id,
+                object_key="patients/elevated/1.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 7, 10, 2, 0, tzinfo=timezone.utc),
+                symptom_pain=True,
+                symptom_discharge=False,
+                symptom_pus=False,
+                symptom_cloudy_dialysate=False,
+            )
+            suspected_upload = Upload(
+                patient_id=suspected_patient.id,
+                object_key="patients/suspected/1.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 7, 10, 3, 0, tzinfo=timezone.utc),
+                symptom_pain=False,
+                symptom_discharge=False,
+                symptom_pus=False,
+                symptom_cloudy_dialysate=False,
+            )
+            cleared_upload = Upload(
+                patient_id=cleared_patient.id,
+                object_key="patients/cleared/1.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 7, 10, 4, 0, tzinfo=timezone.utc),
+                symptom_pain=False,
+                symptom_discharge=False,
+                symptom_pus=True,
+                symptom_cloudy_dialysate=False,
+            )
+            normal_upload = Upload(
+                patient_id=normal_patient.id,
+                object_key="patients/normal/1.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 7, 10, 5, 0, tzinfo=timezone.utc),
+                symptom_pain=False,
+                symptom_discharge=False,
+                symptom_pus=False,
+                symptom_cloudy_dialysate=False,
+            )
+            both_elevated_upload = Upload(
+                patient_id=both_patient.id,
+                object_key="patients/both/elevated.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 7, 10, 6, 0, tzinfo=timezone.utc),
+                symptom_pain=True,
+                symptom_discharge=False,
+                symptom_pus=False,
+                symptom_cloudy_dialysate=False,
+            )
+            both_suspected_upload = Upload(
+                patient_id=both_patient.id,
+                object_key="patients/both/suspected.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 7, 10, 7, 0, tzinfo=timezone.utc),
+                symptom_pain=False,
+                symptom_discharge=False,
+                symptom_pus=False,
+                symptom_cloudy_dialysate=False,
+            )
+            session.add_all(
+                [
+                    elevated_upload,
+                    suspected_upload,
+                    cleared_upload,
+                    normal_upload,
+                    both_elevated_upload,
+                    both_suspected_upload,
+                ]
+            )
+            session.flush()
+            session.add_all(
+                [
+                    AIResult(upload_id=elevated_upload.id, screening_result="normal", probability=0.2, threshold=0.5),
+                    AIResult(upload_id=suspected_upload.id, screening_result="suspected", probability=0.9, threshold=0.5),
+                    AIResult(upload_id=cleared_upload.id, screening_result="normal", probability=0.15, threshold=0.5),
+                    AIResult(upload_id=normal_upload.id, screening_result="normal", probability=0.1, threshold=0.5),
+                    AIResult(upload_id=both_elevated_upload.id, screening_result="normal", probability=0.2, threshold=0.5),
+                    AIResult(upload_id=both_suspected_upload.id, screening_result="suspected", probability=0.8, threshold=0.5),
+                    Annotation(
+                        patient_id=cleared_patient.id,
+                        upload_id=cleared_upload.id,
+                        reviewer_identity_id=staff_identity_id,
+                        label="normal",
+                        comment="cleared",
+                        patient_read_at=None,
+                    ),
+                ]
+            )
+            session.commit()
+            elevated_patient_id = elevated_patient.id
+            suspected_patient_id = suspected_patient.id
+            cleared_patient_id = cleared_patient.id
+            normal_patient_id = normal_patient.id
+            both_patient_id = both_patient.id
+            elevated_upload_id = elevated_upload.id
+            normal_upload_id = normal_upload.id
+
+        for patient_id in (
+            elevated_patient_id,
+            suspected_patient_id,
+            cleared_patient_id,
+            normal_patient_id,
+            both_patient_id,
+        ):
+            _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        days_response = client.get("/v1/staff/uploads/history-overview/days", headers=headers)
+        assert days_response.status_code == 200
+        day = next(item for item in days_response.json()["items"] if item["local_date"] == "2026-07-10")
+        assert day["uploaded_users"] == 5
+        # suspected_patient + both_patient; elevated_only remains elevated
+        assert day["suspected_infected_users"] == 2
+        assert day["symptom_elevated_users"] == 1
+        assert day["risky_patient_count"] == 2
+        assert day["symptom_elevated_patient_count"] == 1
+        assert day["has_infection_risk"] is True
+        assert day["has_symptom_elevated_risk"] is True
+        # union of exclusive buckets: 2 suspected + 1 elevated = 3 / 5
+        assert day["infection_rate"] == 0.6
+
+        overview_response = client.get(
+            "/v1/staff/uploads/history-overview",
+            headers=headers,
+            params={
+                "local_date": "2026-07-10",
+                "sort_by": "risk",
+                "group_by_user": "false",
+            },
+        )
+        assert overview_response.status_code == 200
+        payload = overview_response.json()
+        assert payload["kpi"]["suspected_infected_users"] == 2
+        assert payload["kpi"]["symptom_elevated_users"] == 1
+        assert payload["kpi"]["infection_rate"] == 0.6
+        items = payload["items"]
+        assert items[0]["screening_result"] == "suspected"
+        assert items[0]["risk_rank"] == 1
+        elevated_item = next(item for item in items if item["upload_id"] == elevated_upload_id)
+        normal_item = next(item for item in items if item["upload_id"] == normal_upload_id)
+        assert elevated_item["risk_rank"] == 2
+        assert normal_item["risk_rank"] == 3
+        elevated_index = next(i for i, item in enumerate(items) if item["upload_id"] == elevated_upload_id)
+        normal_index = next(i for i, item in enumerate(items) if item["upload_id"] == normal_upload_id)
+        assert elevated_index < normal_index
+
+        calendar_response = client.get(
+            "/v1/staff/uploads/history-overview/calendar",
+            headers=headers,
+            params={"year": 2026, "month": 7},
+        )
+        assert calendar_response.status_code == 200
+        calendar_day = next(item for item in calendar_response.json()["items"] if item["local_date"] == "2026-07-10")
+        assert calendar_day["risky_patient_count"] == 2
+        assert calendar_day["has_infection_risk"] is True
+        assert calendar_day["symptom_elevated_patient_count"] == 1
+        assert calendar_day["has_symptom_elevated_risk"] is True
 

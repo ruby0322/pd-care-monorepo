@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 
-from sqlalchemy import Select, and_, select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, Upload
 from app.services.staff_dashboard import calculate_age
+from app.services.symptoms import CalendarRiskTier, calendar_risk_tier, counts_toward_suspected_rate
 from app.services.taipei_dates import normalize_datetime, to_taipei_date
-RISKY_ANNOTATION_LABELS = {"suspected", "confirmed_infection"}
 
 
 @dataclass(frozen=True)
@@ -19,9 +19,12 @@ class HistoryOverviewDaySummary:
     upload_count: int
     uploaded_users: int
     suspected_infected_users: int
+    symptom_elevated_users: int
     infection_rate: float
     risky_patient_count: int
     has_infection_risk: bool
+    symptom_elevated_patient_count: int
+    has_symptom_elevated_risk: bool
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,7 @@ class HistoryOverviewUploadItemData:
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
     annotation_label: str | None
     annotation_comment: str | None
     risk_rank: int
@@ -76,6 +80,7 @@ class HistoryOverviewData:
     uploaded_users: int
     uploads: int
     suspected_infected_users: int
+    symptom_elevated_users: int
     infection_rate: float
     items: list[HistoryOverviewUploadItemData]
     groups: list[HistoryOverviewUserGroupData]
@@ -86,6 +91,8 @@ class HistoryOverviewCalendarItem:
     local_date: date
     risky_patient_count: int
     has_infection_risk: bool
+    symptom_elevated_patient_count: int
+    has_symptom_elevated_risk: bool
 
 
 @dataclass(frozen=True)
@@ -108,6 +115,7 @@ class _RawUploadRow:
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
     annotation_label: str | None
     annotation_comment: str | None
     local_date: date
@@ -118,9 +126,7 @@ def _load_identity_by_patient(session: Session, *, patient_ids: set[int]) -> dic
         return {}
     rows = session.execute(
         select(LiffIdentity)
-        .where(
-            LiffIdentity.patient_id.in_(patient_ids)
-        )
+        .where(LiffIdentity.patient_id.in_(patient_ids))
         .order_by(LiffIdentity.patient_id.asc(), LiffIdentity.id.asc())
     ).scalars()
     result: dict[int, LiffIdentity] = {}
@@ -147,28 +153,68 @@ def _load_latest_annotation_by_upload(session: Session, *, upload_ids: set[int])
     return result
 
 
-def _risk_rank(*, screening_result: str, annotation_label: str | None) -> int:
+def _tier_for_row(row: _RawUploadRow) -> CalendarRiskTier:
+    return calendar_risk_tier(
+        screening_result=row.screening_result,
+        annotation_label=row.annotation_label,
+        symptom_pain=row.symptom_pain,
+        symptom_pus=row.symptom_pus,
+        symptom_cloudy_dialysate=row.symptom_cloudy_dialysate,
+    )
+
+
+def _risk_rank(
+    *,
+    screening_result: str,
+    annotation_label: str | None,
+    symptom_pain: bool,
+    symptom_pus: bool,
+    symptom_cloudy_dialysate: bool,
+) -> int:
+    """Lower rank = higher priority in risk sort.
+
+    0 confirmed_infection, 1 suspected (annotation/AI), 2 elevated symptoms,
+    3 normal, 4 rejected/other.
+    """
     if annotation_label == "confirmed_infection":
         return 0
     if annotation_label == "suspected":
         return 1
-    if annotation_label == "normal":
-        return 2
     if annotation_label == "rejected":
+        return 4
+    if annotation_label == "normal":
         return 3
     if screening_result == "suspected":
         return 1
-    if screening_result == "normal":
+    tier = calendar_risk_tier(
+        screening_result=screening_result,
+        annotation_label=annotation_label,
+        symptom_pain=symptom_pain,
+        symptom_pus=symptom_pus,
+        symptom_cloudy_dialysate=symptom_cloudy_dialysate,
+    )
+    if tier == "elevated":
         return 2
-    return 3
+    if screening_result == "normal":
+        return 3
+    return 4
 
 
-def _is_infected_user(*, screening_result: str, annotation_label: str | None) -> bool:
-    if annotation_label == "confirmed_infection":
-        return True
-    if annotation_label is None and screening_result == "suspected":
-        return True
-    return False
+def _day_patient_risk_sets(day_rows: list[_RawUploadRow]) -> tuple[set[int], set[int], set[int]]:
+    suspected_patient_ids: set[int] = set()
+    elevated_patient_ids: set[int] = set()
+    rate_patient_ids: set[int] = set()
+    for row in day_rows:
+        tier = _tier_for_row(row)
+        if tier == "suspected":
+            suspected_patient_ids.add(row.patient_id)
+        elif tier == "elevated":
+            elevated_patient_ids.add(row.patient_id)
+        if counts_toward_suspected_rate(tier):
+            rate_patient_ids.add(row.patient_id)
+    # Patient-day buckets are mutually exclusive: any suspected upload wins over elevated-only.
+    elevated_patient_ids -= suspected_patient_ids
+    return suspected_patient_ids, elevated_patient_ids, rate_patient_ids
 
 
 def _raw_rows(session: Session, *, accessible_patient_ids: set[int] | None = None) -> list[_RawUploadRow]:
@@ -211,6 +257,7 @@ def _raw_rows(session: Session, *, accessible_patient_ids: set[int] | None = Non
                 symptom_pain=upload.symptom_pain,
                 symptom_discharge=upload.symptom_discharge,
                 symptom_pus=upload.symptom_pus,
+                symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
                 annotation_label=annotation.label if annotation else None,
                 annotation_comment=annotation.comment if annotation else None,
                 local_date=to_taipei_date(upload.created_at),
@@ -233,23 +280,23 @@ def list_history_overview_days(
     for local_day in sorted(grouped.keys(), reverse=True):
         day_rows = grouped[local_day]
         patient_ids = {row.patient_id for row in day_rows}
-        infected_patient_ids = {
-            row.patient_id
-            for row in day_rows
-            if _is_infected_user(screening_result=row.screening_result, annotation_label=row.annotation_label)
-        }
+        suspected_patient_ids, elevated_patient_ids, rate_patient_ids = _day_patient_risk_sets(day_rows)
         uploaded_users = len(patient_ids)
-        suspected_infected_users = len(infected_patient_ids)
-        infection_rate = (suspected_infected_users / uploaded_users) if uploaded_users > 0 else 0.0
+        suspected_infected_users = len(suspected_patient_ids)
+        symptom_elevated_users = len(elevated_patient_ids)
+        infection_rate = (len(rate_patient_ids) / uploaded_users) if uploaded_users > 0 else 0.0
         result.append(
             HistoryOverviewDaySummary(
                 local_date=local_day,
                 upload_count=len(day_rows),
                 uploaded_users=uploaded_users,
                 suspected_infected_users=suspected_infected_users,
+                symptom_elevated_users=symptom_elevated_users,
                 infection_rate=infection_rate,
                 risky_patient_count=suspected_infected_users,
                 has_infection_risk=suspected_infected_users > 0,
+                symptom_elevated_patient_count=symptom_elevated_users,
+                has_symptom_elevated_risk=symptom_elevated_users > 0,
             )
         )
     return result
@@ -275,9 +322,16 @@ def _to_upload_item(row: _RawUploadRow) -> HistoryOverviewUploadItemData:
         symptom_pain=row.symptom_pain,
         symptom_discharge=row.symptom_discharge,
         symptom_pus=row.symptom_pus,
+        symptom_cloudy_dialysate=row.symptom_cloudy_dialysate,
         annotation_label=row.annotation_label,
         annotation_comment=row.annotation_comment,
-        risk_rank=_risk_rank(screening_result=row.screening_result, annotation_label=row.annotation_label),
+        risk_rank=_risk_rank(
+            screening_result=row.screening_result,
+            annotation_label=row.annotation_label,
+            symptom_pain=row.symptom_pain,
+            symptom_pus=row.symptom_pus,
+            symptom_cloudy_dialysate=row.symptom_cloudy_dialysate,
+        ),
     )
 
 
@@ -298,7 +352,10 @@ def _sort_groups(groups: list[HistoryOverviewUserGroupData], *, group_sort_by: s
     if group_sort_by == "uploads":
         return sorted(
             groups,
-            key=lambda group: (group.upload_count, normalize_datetime(group.latest_upload_at).timestamp() if group.latest_upload_at else -1),
+            key=lambda group: (
+                group.upload_count,
+                normalize_datetime(group.latest_upload_at).timestamp() if group.latest_upload_at else -1,
+            ),
             reverse=True,
         )
     if group_sort_by == "age":
@@ -331,14 +388,11 @@ def get_history_overview(
     sorted_items = _sort_uploads(upload_items, sort_by=sort_by)
 
     patient_ids = {row.patient_id for row in rows}
-    infected_patient_ids = {
-        row.patient_id
-        for row in rows
-        if _is_infected_user(screening_result=row.screening_result, annotation_label=row.annotation_label)
-    }
+    suspected_patient_ids, elevated_patient_ids, rate_patient_ids = _day_patient_risk_sets(rows)
     uploaded_users = len(patient_ids)
-    suspected_infected_users = len(infected_patient_ids)
-    infection_rate = (suspected_infected_users / uploaded_users) if uploaded_users > 0 else 0.0
+    suspected_infected_users = len(suspected_patient_ids)
+    symptom_elevated_users = len(elevated_patient_ids)
+    infection_rate = (len(rate_patient_ids) / uploaded_users) if uploaded_users > 0 else 0.0
 
     grouped_items: dict[int, list[HistoryOverviewUploadItemData]] = defaultdict(list)
     for item in sorted_items:
@@ -380,6 +434,7 @@ def get_history_overview(
         uploaded_users=uploaded_users,
         uploads=len(sorted_items),
         suspected_infected_users=suspected_infected_users,
+        symptom_elevated_users=symptom_elevated_users,
         infection_rate=infection_rate,
         items=sorted_items if not group_by_user else [],
         groups=sorted_groups if group_by_user else [],
@@ -399,6 +454,8 @@ def get_history_overview_calendar_month(
             local_date=item.local_date,
             risky_patient_count=item.risky_patient_count,
             has_infection_risk=item.has_infection_risk,
+            symptom_elevated_patient_count=item.symptom_elevated_patient_count,
+            has_symptom_elevated_risk=item.has_symptom_elevated_risk,
         )
         for item in days
         if item.local_date.year == year and item.local_date.month == month

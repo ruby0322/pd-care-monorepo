@@ -24,6 +24,7 @@ export type StaffPatientListResponse = {
   total_patients: number;
   total_uploads: number;
   suspected_patients: number;
+  symptom_elevated_patients: number;
   limit: number;
   offset: number;
   items: StaffPatientSummary[];
@@ -53,6 +54,7 @@ export type StaffPatientDetailResponse = {
   is_active: boolean;
   total_uploads: number;
   suspected_uploads: number;
+  symptom_elevated_uploads: number;
   rejected_uploads: number;
 };
 
@@ -67,6 +69,7 @@ export type StaffPatientUploadCalendarDay = {
   date: string;
   upload_count: number;
   has_suspected_risk: boolean;
+  has_symptom_elevated_risk?: boolean;
 };
 
 export type StaffPatientUploadCalendarResponse = {
@@ -104,6 +107,9 @@ export type StaffUploadQueueItem = {
   symptom_pain: boolean;
   symptom_discharge: boolean;
   symptom_pus: boolean;
+  symptom_cloudy_dialysate: boolean;
+  has_high_risk_symptoms: boolean;
+  symptom_aware_priority: "normal" | "suspected";
 };
 
 export type StaffUploadQueueResponse = { items: StaffUploadQueueItem[] };
@@ -117,9 +123,12 @@ export type StaffHistoryOverviewDayItem = {
   upload_count: number;
   uploaded_users: number;
   suspected_infected_users: number;
+  symptom_elevated_users: number;
   infection_rate: number;
   risky_patient_count: number;
   has_infection_risk: boolean;
+  symptom_elevated_patient_count: number;
+  has_symptom_elevated_risk: boolean;
 };
 
 export type StaffHistoryOverviewDaysResponse = {
@@ -130,6 +139,7 @@ export type StaffHistoryOverviewKpi = {
   uploaded_users: number;
   uploads: number;
   suspected_infected_users: number;
+  symptom_elevated_users: number;
   infection_rate: number;
 };
 
@@ -152,6 +162,9 @@ export type StaffHistoryOverviewUploadItem = {
   symptom_pain: boolean;
   symptom_discharge: boolean;
   symptom_pus: boolean;
+  symptom_cloudy_dialysate: boolean;
+  has_high_risk_symptoms: boolean;
+  symptom_aware_priority: "normal" | "suspected";
   annotation_label: "normal" | "suspected" | "confirmed_infection" | "rejected" | null;
   annotation_comment: string | null;
   risk_rank: number;
@@ -188,6 +201,8 @@ export type StaffHistoryOverviewCalendarItem = {
   local_date: string;
   risky_patient_count: number;
   has_infection_risk: boolean;
+  symptom_elevated_patient_count: number;
+  has_symptom_elevated_risk: boolean;
 };
 
 export type StaffHistoryOverviewCalendarResponse = {
@@ -252,6 +267,9 @@ export type AdminTodaySuspectedSummaryResponse = {
   date: string;
   total_uploads: number;
   suspected_uploads: number;
+  symptom_elevated_uploads: number;
+  suspected_users: number;
+  symptom_elevated_users: number;
   normal_uploads: number;
   suspected_ratio: number;
 };
@@ -297,6 +315,7 @@ export type AdminDailySuspectedSeriesPoint = {
   date: string;
   total_uploads: number;
   suspected_uploads: number;
+  symptom_elevated_uploads: number;
   suspected_ratio: number;
 };
 
@@ -569,16 +588,19 @@ export async function fetchHistoryOverviewCalendar(params: {
 }
 
 function riskRank(item: StaffUploadQueueItem): number {
-  if (item.screening_result === "suspected") {
+  if (item.symptom_aware_priority === "suspected") {
     return 0;
   }
-  if (item.screening_result === "normal") {
+  if (item.screening_result === "suspected") {
     return 1;
   }
-  if (item.screening_result === "technical_error") {
+  if (item.screening_result === "normal") {
     return 2;
   }
-  return 3;
+  if (item.screening_result === "technical_error") {
+    return 3;
+  }
+  return 4;
 }
 
 export function sortUploadsByRisk(items: StaffUploadQueueItem[]): StaffRapidReviewQueueItem[] {
@@ -698,8 +720,25 @@ export async function fetchAdminGenderDistribution(
   return data;
 }
 
-export async function fetchAdminTodaySuspectedSummary(): Promise<AdminTodaySuspectedSummaryResponse> {
-  const { data } = await apiClient.get<AdminTodaySuspectedSummaryResponse>("/v1/staff/admin/analytics/suspected-infections/today");
+export async function fetchAdminSuspectedSummary(params?: {
+  months?: number;
+  ageMin?: number;
+  ageMax?: number;
+  infectionStatus?: "all" | "suspected" | "normal";
+  isActiveFilter?: "all" | "active" | "inactive";
+}): Promise<AdminTodaySuspectedSummaryResponse> {
+  const { data } = await apiClient.get<AdminTodaySuspectedSummaryResponse>(
+    "/v1/staff/admin/analytics/suspected-infections/summary",
+    {
+      params: {
+        months: params?.months,
+        age_min: params?.ageMin,
+        age_max: params?.ageMax,
+        infection_status: params?.infectionStatus ?? "all",
+        is_active_filter: params?.isActiveFilter ?? "all",
+      },
+    }
+  );
   return data;
 }
 

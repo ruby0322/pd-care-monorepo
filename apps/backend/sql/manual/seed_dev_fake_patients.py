@@ -199,6 +199,7 @@ def _seed_uploads(
                     symptom_pain=upload_index % 3 == 0,
                     symptom_discharge=upload_index % 2 == 0,
                     symptom_pus=upload_index % 4 == 0,
+                    symptom_cloudy_dialysate=upload_index % 5 == 0,
                 )
                 upload_total += 1
                 print(

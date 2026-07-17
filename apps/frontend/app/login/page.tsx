@@ -9,7 +9,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient, getApiErrorCode, getApiErrorDetail } from "@/lib/api/client";
 import { fetchAuthBootstrap } from "@/lib/api/identity";
 import { isAdminIntent, isPatientRoute, resolveBootstrapDestination, resolveRoleSelectDestination } from "@/lib/auth/bootstrap-routing";
-import { getLiffLoginProof, readSafeNextPath } from "@/lib/auth/liff";
+import { getLiffLoginProof, isLiffDevBypassActive, readSafeNextPath } from "@/lib/auth/liff";
 import { setPatientSession } from "@/lib/auth/patient-session";
 import { setActiveApp } from "@/lib/auth/principal-session";
 import { setStaffSession } from "@/lib/auth/staff-session";
@@ -165,6 +165,14 @@ function LoginPageInner() {
         </button>
 
         {errorMessage ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{errorMessage}</p> : null}
+
+        {isLiffDevBypassActive() ? (
+          <p className="text-center text-xs text-zinc-500">
+            <Link href="/dev/personas" className="underline underline-offset-4 hover:text-zinc-800">
+              切換測試身分
+            </Link>
+          </p>
+        ) : null}
 
         <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
           <Link href="/privacy-policy" className="underline underline-offset-4 hover:text-zinc-800">

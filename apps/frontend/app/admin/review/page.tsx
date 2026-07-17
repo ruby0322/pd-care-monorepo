@@ -149,8 +149,12 @@ export default function AdminRapidReviewPage() {
             <dd className="text-right text-zinc-900">{new Date(currentItem.created_at).toLocaleString("zh-TW")}</dd>
           </div>
           <div className="flex items-start justify-between gap-4">
-            <dt className="text-zinc-400">AI 結果</dt>
+            <dt className="text-zinc-400">影像判讀</dt>
             <dd className="text-right text-zinc-900">{currentItem.screening_result}</dd>
+          </div>
+          <div className="flex items-start justify-between gap-4">
+            <dt className="text-zinc-400">症狀綜合</dt>
+            <dd className="text-right text-zinc-900">{currentItem.symptom_aware_priority}</dd>
           </div>
           <div className="flex items-start justify-between gap-4">
             <dt className="text-zinc-400">機率</dt>

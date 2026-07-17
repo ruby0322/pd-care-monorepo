@@ -70,6 +70,7 @@ class Upload(Base):
     symptom_pain: Mapped[bool] = mapped_column(default=False, nullable=False)
     symptom_discharge: Mapped[bool] = mapped_column(default=False, nullable=False)
     symptom_pus: Mapped[bool] = mapped_column(default=False, nullable=False)
+    symptom_cloudy_dialysate: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

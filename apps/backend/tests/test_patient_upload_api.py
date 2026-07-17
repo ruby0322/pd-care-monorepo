@@ -180,9 +180,10 @@ def test_patient_upload_persists_upload_and_ai_result(tmp_path: Path) -> None:
         response = client.post(
             "/v1/patient/uploads",
             data={
-                "pain": "true",
+                "pain": "false",
                 "discharge": "true",
                 "pus": "false",
+                "cloudy_dialysate": "false",
             },
             files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
@@ -195,9 +196,12 @@ def test_patient_upload_persists_upload_and_ai_result(tmp_path: Path) -> None:
         assert payload["upload_id"] > 0
         assert payload["ai_result_id"] > 0
         assert payload["notification_id"] is None
-        assert payload["symptom_pain"] is True
+        assert payload["symptom_pain"] is False
         assert payload["symptom_discharge"] is True
         assert payload["symptom_pus"] is False
+        assert payload["symptom_cloudy_dialysate"] is False
+        assert payload["has_high_risk_symptoms"] is False
+        assert payload["symptom_aware_priority"] == "normal"
         assert payload["prediction"]["screening"]["is_infection_positive"] is False
 
         assert len(fake_storage.stored) == 1
@@ -210,9 +214,10 @@ def test_patient_upload_persists_upload_and_ai_result(tmp_path: Path) -> None:
             notifications = session.query(Notification).all()
             assert len(uploads) == 1
             assert uploads[0].object_key == f"patients/{patient_id}/uploads/{payload['upload_id']}.jpg"
-            assert uploads[0].symptom_pain is True
+            assert uploads[0].symptom_pain is False
             assert uploads[0].symptom_discharge is True
             assert uploads[0].symptom_pus is False
+            assert uploads[0].symptom_cloudy_dialysate is False
             assert len(ai_results) == 1
             assert ai_results[0].upload_id == uploads[0].id
             assert len(notifications) == 0
@@ -254,6 +259,47 @@ def test_patient_upload_creates_notification_for_suspected_risk(tmp_path: Path) 
             assert notifications[0].patient_id == patient_id
             assert notifications[0].upload_id == payload["upload_id"]
             assert notifications[0].ai_result_id == payload["ai_result_id"]
+
+
+def test_patient_upload_creates_notification_for_high_risk_symptoms_when_ai_normal(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path / "upload-high-risk-symptoms.db")
+    app = create_app(settings=settings, loaded_model=_make_loaded_model(_NormalModel(), settings))
+    with TestClient(app) as client:
+        patient_id = _seed_bound_identity(client, line_user_id="U_LINE_BOUND_HIGH_RISK")
+        client.app.state.storage_service = _FakeStorageService()
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_BOUND_HIGH_RISK")
+
+        response = client.post(
+            "/v1/patient/uploads",
+            data={
+                "pain": "false",
+                "discharge": "false",
+                "pus": "true",
+                "cloudy_dialysate": "true",
+            },
+            files={"file": ("capture.jpg", _make_image_bytes(), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["patient_id"] == patient_id
+        assert payload["screening_result"] == "normal"
+        assert payload["notification_id"] is not None
+        assert payload["symptom_pain"] is False
+        assert payload["symptom_pus"] is True
+        assert payload["symptom_cloudy_dialysate"] is True
+        assert payload["has_high_risk_symptoms"] is True
+        assert payload["symptom_aware_priority"] == "suspected"
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            notifications = session.query(Notification).all()
+            assert len(notifications) == 1
+            assert notifications[0].patient_id == patient_id
+            assert "High-risk symptoms reported" in (notifications[0].summary or "")
+            assert "pus" in (notifications[0].summary or "")
+            assert "cloudy_dialysate" in (notifications[0].summary or "")
 
 
 def test_patient_upload_rejected_when_prescreen_detects_non_exit_site(

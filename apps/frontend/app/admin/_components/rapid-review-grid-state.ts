@@ -36,13 +36,13 @@ type RapidReviewGridState = {
 };
 
 function mapPredictionToLabel(item: StaffRapidReviewQueueItem): AnnotationLabel {
-  if (item.screening_result === "normal") {
-    return "normal";
+  if (item.screening_result === "rejected" || item.screening_result === "technical_error") {
+    return "rejected";
   }
-  if (item.screening_result === "suspected") {
+  if (item.symptom_aware_priority === "suspected" || item.screening_result === "suspected") {
     return "suspected";
   }
-  return "rejected";
+  return "normal";
 }
 
 export function useRapidReviewGridState(): RapidReviewGridState {

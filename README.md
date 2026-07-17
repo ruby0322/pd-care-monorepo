@@ -114,13 +114,25 @@ When pre-screen is **disabled**, or inference **throws**, the backend **does not
 
 ### Quick Start (Application Development)
 
-Start the frontend and backend together from the repository root:
+Real LINE / LIFF login does **not** work against `localhost` (Endpoint URL is the deployed HTTPS host). Use the host-local stub path:
 
 ```bash
+# Infra only (Postgres + SeaweedFS)
+npm run dev:infra
+
+# One-time: host-oriented env (127.0.0.1 + LINE_VERIFY_MODE=stub; leave LIFF unset)
+cp apps/backend/.env.local.example apps/backend/.env
+cp apps/frontend/.env.local.example apps/frontend/.env.local
+
+npm run seed:dev-personas
 npm run dev
+# Then open http://localhost:3000/dev/personas to pick a role
+# Remote abbey over VPN: npm run dev:abbey → http://abbey.lu.im.ntu.edu.tw:3010/dev/personas
 ```
 
-The root `npm run dev` command starts both servers at the same time and prefixes log lines with color-coded `FRONTEND` and `BACKEND` labels.
+Details and troubleshooting: [`docs/ops/local-dev-without-line.md`](docs/ops/local-dev-without-line.md).
+
+`npm run dev` starts Next.js and FastAPI (uvicorn) on the host with color-coded `FRONTEND` / `BACKEND` logs. It does **not** start Postgres or SeaweedFS — use `npm run dev:infra` for those.
 
 ### Quick Start (Compose Stack)
 
@@ -147,9 +159,11 @@ For dual-namespace deployment (`pd-care-dev`, `pd-care-prod`), use:
 ### Root Commands
 
 ```bash
+npm run dev:infra
 npm run dev:frontend
 npm run dev:backend
 npm run dev
+npm run seed:dev-personas
 npm run build
 npm run lint
 npm run test

@@ -35,6 +35,7 @@ jest.mock("@/lib/api/identity", () => ({
 
 jest.mock("@/lib/auth/liff", () => ({
   getLiffLoginProof: jest.fn(),
+  isLiffDevBypassActive: jest.fn(() => false),
   readSafeNextPath: jest.fn((value: string | null) => value),
 }));
 

@@ -11,6 +11,7 @@ export interface AIResult {
 export interface Symptoms {
   pain: boolean;
   discharge: boolean;
+  pus: boolean;
   cloudyDialysate: boolean;
 }
 

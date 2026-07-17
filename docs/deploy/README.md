@@ -13,4 +13,6 @@ Kubernetes, GitOps, TLS, and environment cutover for `pd-care-dev` and `pd-care-
 | [`argocd-dashboard.md`](argocd-dashboard.md) | Argo CD UI access |
 | [`tls-renewal.md`](tls-renewal.md) | cert-manager TLS operations |
 
+Host storage moves and Minikube control-plane recovery (reboot / bind-mount / wiped container layer): [`../ops/k8s-minikube-volume-migration-and-recovery.md`](../ops/k8s-minikube-volume-migration-and-recovery.md).
+
 Deferred platform and cutover items: [`../backlog/README.md`](../backlog/README.md).
