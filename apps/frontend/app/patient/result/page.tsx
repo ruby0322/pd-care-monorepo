@@ -1,20 +1,56 @@
 "use client";
 
-import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
-import { getPatientUploadResult } from "@/lib/api/predict";
-import { getPatientSession } from "@/lib/auth/patient-session";
 import clsx from "clsx";
-import { AlertTriangle, CalendarDays, CheckCircle, Home, RotateCcw, ShieldAlert, XCircle } from "lucide-react";
+import { CalendarDays, RotateCcw } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
-type ResultState = "normal" | "suspected" | "rejected" | "technical_error";
+import { getApiErrorDetail, getReadableApiError } from "@/lib/api/client";
+import { getPatientUploadResult } from "@/lib/api/predict";
+import { fetchPatientUploadDetail } from "@/lib/api/upload-history";
+import { getPatientSession } from "@/lib/auth/patient-session";
+import {
+  activeSymptomLabels,
+  isSymptomElevatedFromNormal,
+  type ScreeningResult,
+  type SymptomFlags,
+} from "@/lib/symptoms";
+import { useClientSnapshot } from "@/lib/utils/use-client-snapshot";
+
+type ResultState = ScreeningResult;
 
 const EDUCATION_MATERIALS = [
   { label: "導管出口換藥影片", href: "https://youtu.be/3aADSNm-9B0?si=lGOmXhqPxJgL11Gd" },
   { label: "導管出口照護影片", href: "https://youtu.be/KOMvyUt0ap4?si=O4IM6e2LONrNGhYn" },
 ] as const;
+
+function formatResultTimestamp(date: Date): string {
+  return date.toLocaleString("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function SignalDot({ tone }: { tone: "green" | "orange" | "amber" | "zinc" }) {
+  return (
+    <span
+      aria-hidden
+      className={clsx(
+        "inline-block h-2 w-2 shrink-0 rounded-sm",
+        tone === "green" && "bg-emerald-500",
+        tone === "orange" && "bg-orange-500",
+        tone === "amber" && "bg-amber-500",
+        tone === "zinc" && "bg-zinc-400"
+      )}
+    />
+  );
+}
 
 function ResultPageInner() {
   const searchParams = useSearchParams();
@@ -33,16 +69,15 @@ function ResultPageInner() {
       ? Math.max(0, Math.min(100, Number(confidenceRaw)))
       : null;
   const hasDurableIds = uploadId !== null || aiResultId !== null;
+
   const [hydratedResult, setHydratedResult] = useState<ResultState | null>(null);
   const [hydratedErrorReason, setHydratedErrorReason] = useState<string | null>(null);
   const [hydratedConfidence, setHydratedConfidence] = useState<number | null>(null);
-  const [hydratedSymptoms, setHydratedSymptoms] = useState<{
-    pain: boolean;
-    discharge: boolean;
-    pus: boolean;
-  } | null>(null);
+  const [hydratedSymptoms, setHydratedSymptoms] = useState<SymptomFlags | null>(null);
   const [isHydrating, setIsHydrating] = useState(false);
   const [hydrateError, setHydrateError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ uploadId: number; url: string } | null>(null);
+  const [previewBroken, setPreviewBroken] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +134,34 @@ function ResultPageInner() {
     };
   }, [aiResultId, hasDurableIds, uploadId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (uploadId === null) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      try {
+        if (!getPatientSession()) {
+          return;
+        }
+        const detail = await fetchPatientUploadDetail(uploadId);
+        if (!cancelled) {
+          setPreview({ uploadId, url: detail.image_url });
+          setPreviewBroken(false);
+        }
+      } catch {
+        // Keep page usable without a preview when detail fetch fails.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [uploadId]);
+
   const result = useMemo<ResultState>(() => {
     if (hydratedResult) {
       return hydratedResult;
@@ -112,208 +175,299 @@ function ResultPageInner() {
   const effectiveConfidence = hydratedConfidence ?? queryConfidence;
   const effectiveReason = hydratedErrorReason ?? rejectionReason;
 
-  const now = new Date().toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-  const config = {
-    normal: {
-      icon: CheckCircle,
-      color: "emerald",
-      title: "出口狀態正常",
-      subtitle: "系統未偵測到明顯感染風險",
-      message: "系統判讀結果：出口狀態正常，建議維持隔日換藥一次。",
-      bg: "bg-emerald-50",
-      border: "border-emerald-100",
-      iconColor: "text-emerald-500",
-      titleColor: "text-emerald-700",
-    },
-    suspected: {
-      icon: AlertTriangle,
-      color: "red",
-      title: "疑似感染",
-      subtitle: "系統偵測到疑似感染風險",
-      message:
-        "系統判讀結果：疑似感染，建議盡速就醫接受處置。延遲治療可能導致病情惡化。已通知照護團隊儀表板，護理人員將進一步檢視。",
-      bg: "bg-red-50",
-      border: "border-red-100",
-      iconColor: "text-red-500",
-      titleColor: "text-red-700",
-    },
-    rejected: {
-      icon: XCircle,
-      color: "amber",
-      title: "影像不符合判讀條件",
-      subtitle: "請重新拍攝後再送出",
-      message: "本次照片無法完成判讀，可能是光線不足、對焦不清或出口位置未完整入鏡。",
-      bg: "bg-amber-50",
-      border: "border-amber-100",
-      iconColor: "text-amber-500",
-      titleColor: "text-amber-700",
-    },
-    technical_error: {
-      icon: ShieldAlert,
-      color: "zinc",
-      title: "系統暫時無法完成判讀",
-      subtitle: "請稍後再試或重新上傳",
-      message: "本次分析過程發生技術性問題，系統未產生可用結果。",
-      bg: "bg-zinc-100",
-      border: "border-zinc-200",
-      iconColor: "text-zinc-500",
-      titleColor: "text-zinc-700",
-    },
+  const symptomFlags: SymptomFlags = hydratedSymptoms ?? {
+    pain,
+    discharge,
+    pus,
   };
+  const activeSymptoms = activeSymptomLabels(symptomFlags);
+  const elevatedFromNormal = isSymptomElevatedFromNormal(result, symptomFlags);
+  const displayResult: ResultState = elevatedFromNormal ? "suspected" : result;
+  const showEducation = displayResult === "normal" || displayResult === "suspected";
+  const showModelConfidence =
+    effectiveConfidence !== null && result !== "rejected" && result !== "technical_error";
 
-  const currentConfig = config[result];
-  const { icon: Icon } = currentConfig;
+  const now = useClientSnapshot(() => formatResultTimestamp(new Date()), "");
 
-  const activeSymptoms = [
-    (hydratedSymptoms?.pain ?? pain) && "疼痛",
-    (hydratedSymptoms?.discharge ?? discharge) && "分泌物",
-    (hydratedSymptoms?.pus ?? pus) && "流膿",
-  ].filter(Boolean);
+  const statusChip = (() => {
+    if (elevatedFromNormal) {
+      return {
+        label: "疑似感染風險",
+        className: "border-red-200 bg-red-50 text-red-700",
+      };
+    }
+    if (result === "normal") {
+      return {
+        label: "判讀傷口正常",
+        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      };
+    }
+    if (result === "suspected") {
+      return {
+        label: "疑似感染",
+        className: "border-red-200 bg-red-50 text-red-700",
+      };
+    }
+    if (result === "rejected") {
+      return {
+        label: "影像不符合判讀條件",
+        className: "border-amber-200 bg-amber-50 text-amber-700",
+      };
+    }
+    return {
+      label: "系統暫時無法完成判讀",
+      className: "border-zinc-200 bg-zinc-100 text-zinc-700",
+    };
+  })();
+
+  const meaningCopy = (() => {
+    if (elevatedFromNormal) {
+      return "影像模型判讀正常，但您回報的症狀屬高風險，仍以症狀為準，建議盡速聯繫護理師並返院追蹤。";
+    }
+    if (result === "normal") {
+      return "系統未偵測到明顯感染風險。建議維持隔日換藥一次，並持續依日曆追蹤出口狀況。";
+    }
+    if (result === "suspected") {
+      return "系統偵測到疑似感染風險。建議盡速就醫接受處置。延遲治療可能導致病情惡化。已通知照護團隊儀表板，護理人員將進一步檢視。";
+    }
+    if (result === "rejected") {
+      return effectiveReason
+        ? `影像未通過原因：${effectiveReason}`
+        : "本次照片無法完成判讀，可能是光線不足、對焦不清或出口位置未完整入鏡。";
+    }
+    return effectiveReason || hydrateError
+      ? `技術性問題：${effectiveReason ?? hydrateError}`
+      : "本次分析過程發生技術性問題，系統未產生可用結果。";
+  })();
+
+  const nextStepCopy = (() => {
+    if (elevatedFromNormal || result === "suspected") {
+      return "請盡速與腹膜透析護理師聯繫，並安排返院追蹤。";
+    }
+    if (result === "normal") {
+      return "維持日常換藥節奏，並回到追蹤日曆繼續紀錄。";
+    }
+    if (result === "rejected") {
+      return "請調整光線與對焦後重新拍攝，再送出判讀。";
+    }
+    return "請稍後再試，或重新上傳一張清晰的出口照片。";
+  })();
+
+  const modelVerdictLabel = (() => {
+    if (result === "suspected") {
+      return "疑似感染";
+    }
+    if (result === "rejected") {
+      return "不合格";
+    }
+    if (result === "technical_error") {
+      return "無法判讀";
+    }
+    return "正常";
+  })();
+
+  const modelDotTone = (() => {
+    if (result === "suspected") {
+      return "orange" as const;
+    }
+    if (result === "rejected") {
+      return "amber" as const;
+    }
+    if (result === "technical_error") {
+      return "zinc" as const;
+    }
+    return "green" as const;
+  })();
 
   return (
-    <div className="min-h-[100dvh] bg-white flex flex-col">
-      <header className="px-5 pt-12 pb-6">
-        <h1 className="text-base font-semibold text-zinc-900">分析結果</h1>
-        <p className="text-xs text-zinc-400 mt-0.5">{now}</p>
+    <div className="flex min-h-[100dvh] flex-col bg-white">
+      <header className="border-b border-zinc-100 px-5 pb-3 pt-12">
+        <p className="text-xs text-zinc-400">分析結果</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <span
+            className={clsx(
+              "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+              statusChip.className
+            )}
+          >
+            {statusChip.label}
+          </span>
+          {now ? <span className="text-xs text-zinc-400">{now}</span> : null}
+        </div>
       </header>
 
-      <main className="flex-1 flex flex-col px-5 pb-8 gap-5">
-        <div className={clsx("flex flex-col items-center gap-3 px-6 py-8 rounded-2xl border", currentConfig.bg, currentConfig.border)}>
-          <Icon className={clsx("w-12 h-12", currentConfig.iconColor)} strokeWidth={1.5} />
-          <div className="text-center">
-            <h2 className={clsx("text-xl font-semibold", currentConfig.titleColor)}>
-              {currentConfig.title}
-            </h2>
-            <p className="text-sm text-zinc-500 mt-1">{currentConfig.subtitle}</p>
+      <main className="flex flex-1 flex-col gap-4 px-5 pb-8 pt-4">
+        {uploadId !== null ? (
+          <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100">
+            <div className="absolute right-2 top-2 z-10 rounded-md bg-zinc-900/70 px-2 py-0.5 text-[10px] font-medium tracking-wide text-zinc-50">
+              上傳 #{uploadId}
+            </div>
+            {preview?.uploadId === uploadId && preview.url && !previewBroken ? (
+              <Image
+                src={preview.url}
+                alt={`upload-preview-${uploadId}`}
+                fill
+                unoptimized
+                className="object-cover"
+                onError={() => setPreviewBroken(true)}
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-xs text-zinc-500">
+                本次上傳預覽
+              </div>
+            )}
           </div>
-        </div>
+        ) : null}
 
-        {effectiveConfidence !== null && result !== "rejected" && result !== "technical_error" && (
-          <div className="px-5 py-4 rounded-2xl bg-zinc-50 border border-zinc-100">
-            <p className="text-xs text-zinc-400 uppercase tracking-wider mb-1">確信度</p>
-            <p className="text-lg font-semibold text-zinc-900">{effectiveConfidence}%</p>
-          </div>
-        )}
-
-        {(uploadId || aiResultId) && (
-          <div className="px-5 py-4 rounded-2xl bg-zinc-50 border border-zinc-100">
-            <p className="text-xs text-zinc-400 uppercase tracking-wider mb-1">紀錄編號</p>
-            <p className="text-sm text-zinc-700">
-              {uploadId ? `上傳 #${uploadId}` : "上傳編號未提供"}
-              {aiResultId ? ` / 判讀 #${aiResultId}` : ""}
-            </p>
-          </div>
-        )}
-
-        {isHydrating && (
-          <div className="px-5 py-4 rounded-2xl bg-zinc-50 border border-zinc-100">
-            <p className="text-sm text-zinc-600">正在同步最新判讀紀錄...</p>
-          </div>
-        )}
-
-        <div className="px-5 py-4 rounded-2xl bg-zinc-50 border border-zinc-100">
-          <p className="text-sm text-zinc-700 leading-relaxed">
-            {result === "rejected" && effectiveReason
-              ? `影像未通過原因：${effectiveReason}`
-              : result === "technical_error" && (effectiveReason || hydrateError)
-                ? `技術性問題：${effectiveReason ?? hydrateError}`
-              : currentConfig.message}
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">本次症狀紀錄</h3>
+        <section>
+          <h2 className="mb-2 text-[10px] font-semibold tracking-wider text-zinc-600">本次症狀紀錄</h2>
           {activeSymptoms.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {activeSymptoms.map((s) => (
-                <span key={s as string} className="px-3 py-1.5 rounded-full bg-red-50 border border-red-100 text-red-600 text-xs font-medium">
-                  {s}
+              {activeSymptoms.map((label) => (
+                <span
+                  key={label}
+                  className="rounded-full border border-red-100 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600"
+                >
+                  {label}
                 </span>
               ))}
             </div>
           ) : (
-            <span className="text-sm text-zinc-400">無症狀回報</span>
+            <p className="text-xs text-zinc-400">無症狀回報</p>
           )}
-        </div>
+        </section>
 
-        {result === "normal" && (
-          <div className="px-5 py-4 rounded-2xl bg-emerald-50 border border-emerald-100">
-            <p className="text-sm font-medium text-emerald-700">附加衛教影片及素材</p>
-            <div className="mt-2 flex flex-col gap-2">
-              {EDUCATION_MATERIALS.map(({ label, href }) => (
-                <a
-                  key={href}
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-emerald-700 underline underline-offset-2"
-                >
-                  {label}
-                </a>
-              ))}
+        {isHydrating ? <p className="text-sm text-zinc-500">正在同步最新判讀紀錄...</p> : null}
+
+        <section>
+          <h2 className="mb-1.5 text-[10px] font-semibold tracking-wider text-zinc-600">這代表什麼</h2>
+          <p className="text-sm leading-relaxed text-zinc-600">{meaningCopy}</p>
+
+          {elevatedFromNormal ? (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-[10px] border border-zinc-200 bg-zinc-50 p-2.5">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[10px] text-zinc-500">影像模型</p>
+                  <SignalDot tone="green" />
+                </div>
+                <p className="mt-1 text-sm font-semibold text-zinc-900">
+                  正常
+                  {showModelConfidence ? (
+                    <span className="font-normal text-zinc-400"> ({effectiveConfidence}%)</span>
+                  ) : null}
+                </p>
+              </div>
+              <div className="rounded-[10px] border border-zinc-200 bg-zinc-50 p-2.5">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[10px] text-zinc-500">症狀綜合</p>
+                  <SignalDot tone="orange" />
+                </div>
+                <p className="mt-1 text-sm font-semibold text-zinc-900">高風險</p>
+              </div>
             </div>
-          </div>
-        )}
-
-        {result === "suspected" && (
-          <div className="flex flex-col gap-2 px-4 py-4 rounded-2xl bg-red-600 text-white">
-            <p className="text-sm font-medium text-red-100">附加衛教影片及素材</p>
-            <div className="flex flex-col gap-2">
-              {EDUCATION_MATERIALS.map(({ label, href }) => (
-                <a
-                  key={href}
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm underline underline-offset-2 text-white"
-                >
-                  {label}
-                </a>
-              ))}
+          ) : (
+            <div className="mt-3 rounded-[10px] border border-zinc-200 bg-zinc-50 p-2.5">
+              <div className="flex items-center gap-1.5">
+                <p className="text-[10px] text-zinc-500">影像模型</p>
+                <SignalDot tone={modelDotTone} />
+              </div>
+              <p className="mt-1 text-sm font-semibold text-zinc-900">
+                {modelVerdictLabel}
+                {showModelConfidence ? (
+                  <span className="font-normal text-zinc-400"> ({effectiveConfidence}%)</span>
+                ) : null}
+              </p>
             </div>
-          </div>
-        )}
+          )}
+        </section>
 
-        <div className="mt-auto flex flex-col gap-3 pt-4">
-          {uploadId ? (
-            <Link
-              href={`/patient/uploads/${uploadId}`}
-              className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl border border-zinc-200 text-zinc-700 text-sm font-medium hover:bg-zinc-50 transition-colors"
-            >
-              <CalendarDays className="w-4 h-4" strokeWidth={1.5} />
-              查看本次上傳明細
-            </Link>
-          ) : null}
+        <section
+          className={clsx(
+            "rounded-xl border p-3",
+            elevatedFromNormal || result === "suspected"
+              ? "border-zinc-200 bg-zinc-50"
+              : "border-zinc-200 bg-zinc-50"
+          )}
+        >
+          <h2
+            className={clsx(
+              "text-[10px] font-semibold tracking-wider",
+              elevatedFromNormal || result === "suspected" ? "text-red-600" : "text-zinc-600"
+            )}
+          >
+            建議下一步
+          </h2>
+          <p className="mt-1 text-sm font-medium leading-relaxed text-zinc-900">{nextStepCopy}</p>
+        </section>
+
+        {showEducation ? (
+          displayResult === "normal" ? (
+            <section className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+              <p className="text-sm font-medium text-emerald-700">附加衛教影片及素材</p>
+              <div className="mt-2 flex flex-col gap-2">
+                {EDUCATION_MATERIALS.map(({ label, href }) => (
+                  <a
+                    key={href}
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-emerald-700 underline underline-offset-2"
+                  >
+                    {label}
+                  </a>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="rounded-xl bg-red-600 px-4 py-3 text-white">
+              <p className="text-sm font-medium text-red-100">附加衛教影片及素材</p>
+              <div className="mt-2 flex flex-col gap-2">
+                {EDUCATION_MATERIALS.map(({ label, href }) => (
+                  <a
+                    key={href}
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-white underline underline-offset-2"
+                  >
+                    {label}
+                  </a>
+                ))}
+              </div>
+            </section>
+          )
+        ) : null}
+
+        <div className="mt-auto flex flex-col gap-3 pt-2">
           {result === "rejected" || result === "technical_error" ? (
             <Link
               href="/patient/capture"
-              className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 py-4 text-sm font-medium text-white transition-colors hover:bg-zinc-800"
             >
-              <RotateCcw className="w-4 h-4" strokeWidth={1.5} />
+              <RotateCcw className="h-4 w-4" strokeWidth={1.5} />
               重新拍攝
             </Link>
           ) : null}
           <Link
             href="/patient"
-            className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors"
+            className={clsx(
+              "flex w-full items-center justify-center gap-2 rounded-xl py-4 text-sm font-medium transition-colors",
+              result === "rejected" || result === "technical_error"
+                ? "border border-zinc-200 text-zinc-700 hover:bg-zinc-50"
+                : "bg-zinc-900 text-white hover:bg-zinc-800"
+            )}
           >
-            <CalendarDays className="w-4 h-4" strokeWidth={1.5} />
+            <CalendarDays className="h-4 w-4" strokeWidth={1.5} />
             回到追蹤日曆
           </Link>
-          <Link
-            href="/patient"
-            className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl border border-zinc-200 text-zinc-700 text-sm font-medium hover:bg-zinc-50 transition-colors"
-          >
-            <Home className="w-4 h-4" strokeWidth={1.5} />
-            返回追蹤首頁
-          </Link>
+          {uploadId ? (
+            <Link
+              href={`/patient/uploads/${uploadId}`}
+              className="flex w-full items-center justify-center py-2 text-sm text-zinc-500 transition-colors hover:text-zinc-700"
+            >
+              查看本次上傳明細
+            </Link>
+          ) : null}
         </div>
 
         <div className="space-y-1 pb-2 text-center text-xs text-zinc-500">

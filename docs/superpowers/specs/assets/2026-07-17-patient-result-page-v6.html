@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <title>Patient result page — approved v6 mockup</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #fafafa; margin: 0; padding: 24px; color: #18181b; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    .note { font-size: 13px; color: #71717a; margin-bottom: 20px; }
+    .split { display: flex; flex-wrap: wrap; gap: 24px; }
+    .phone { width: 300px; background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; overflow: hidden; }
+    .label { font-size: 12px; color: #71717a; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Approved visual reference (v6)</h1>
+  <p class="note">Canonical mockup from companion brainstorm. Implement against this plus the design spec.</p>
+  <div class="split">
+    <div>
+      <div class="label">Suspected / elevated</div>
+      <div class="phone">
+        <div style="padding:14px 16px 10px;border-bottom:1px solid #f4f4f5;">
+          <div style="font-size:11px;color:#a1a1aa;">分析結果</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <span style="padding:3px 8px;border-radius:999px;background:#fef2f2;border:1px solid #fecaca;font-size:11px;font-weight:600;color:#b91c1c;">疑似感染風險</span>
+            <span style="font-size:11px;color:#a1a1aa;">07/17 16:52</span>
+          </div>
+        </div>
+        <div style="padding:12px 16px 0;">
+          <div style="aspect-ratio:4/3;border-radius:12px;border:1px solid #e4e4e7;background:#e4e4e7;position:relative;">
+            <div style="position:absolute;top:8px;right:8px;padding:3px 8px;border-radius:6px;background:rgba(24,24,27,0.72);color:#fafafa;font-size:10px;">上傳 #128</div>
+          </div>
+        </div>
+        <div style="padding:10px 16px 0;">
+          <div style="font-size:10px;font-weight:600;color:#52525b;margin-bottom:8px;">本次症狀紀錄</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <span style="padding:4px 10px;border-radius:999px;background:#fef2f2;border:1px solid #fecaca;font-size:11px;font-weight:500;color:#dc2626;">疼痛</span>
+            <span style="padding:4px 10px;border-radius:999px;background:#fef2f2;border:1px solid #fecaca;font-size:11px;font-weight:500;color:#dc2626;">膿</span>
+          </div>
+        </div>
+        <div style="padding:14px 16px;">
+          <div style="font-size:10px;font-weight:600;color:#52525b;margin-bottom:6px;">這代表什麼</div>
+          <div style="font-size:13px;color:#3f3f46;line-height:1.5;">影像模型判讀正常，但您回報的症狀屬高風險，仍以症狀為準，建議盡速聯繫護理師並返院追蹤。</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;">
+            <div style="padding:10px;border:1px solid #e4e4e7;border-radius:10px;background:#fafafa;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <div style="font-size:10px;color:#71717a;">影像模型</div>
+                <span style="width:8px;height:8px;border-radius:2px;background:#10b981;"></span>
+              </div>
+              <div style="font-size:13px;font-weight:600;margin-top:4px;">正常 <span style="font-weight:400;color:#a1a1aa;">(72%)</span></div>
+            </div>
+            <div style="padding:10px;border:1px solid #e4e4e7;border-radius:10px;background:#fafafa;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <div style="font-size:10px;color:#71717a;">症狀綜合</div>
+                <span style="width:8px;height:8px;border-radius:2px;background:#f97316;"></span>
+              </div>
+              <div style="font-size:13px;font-weight:600;margin-top:4px;">高風險</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin:0 12px;padding:12px;border:1px solid #e4e4e7;border-radius:12px;background:#fafafa;">
+          <div style="font-size:10px;font-weight:600;color:#dc2626;">建議下一步</div>
+          <div style="font-size:13px;font-weight:500;margin-top:4px;line-height:1.4;">請盡速與腹膜透析護理師聯繫，並安排返院追蹤。</div>
+        </div>
+        <div style="margin:12px;padding:12px;border-radius:12px;background:#dc2626;color:#fff;">
+          <div style="font-size:12px;color:#fecaca;">附加衛教影片及素材</div>
+          <div style="margin-top:8px;font-size:13px;text-decoration:underline;">導管出口換藥影片</div>
+          <div style="margin-top:6px;font-size:13px;text-decoration:underline;">導管出口照護影片</div>
+        </div>
+        <div style="padding:4px 12px 14px;">
+          <div style="background:#18181b;color:#fff;text-align:center;padding:12px;border-radius:10px;font-size:13px;">回到追蹤日曆</div>
+          <div style="margin-top:8px;text-align:center;font-size:12px;color:#71717a;padding:6px;">查看本次上傳明細</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="label">Normal</div>
+      <div class="phone">
+        <div style="padding:14px 16px 10px;border-bottom:1px solid #f4f4f5;">
+          <div style="font-size:11px;color:#a1a1aa;">分析結果</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <span style="padding:3px 8px;border-radius:999px;background:#ecfdf5;border:1px solid #a7f3d0;font-size:11px;font-weight:600;color:#047857;">判讀傷口正常</span>
+            <span style="font-size:11px;color:#a1a1aa;">07/17 16:52</span>
+          </div>
+        </div>
+        <div style="padding:12px 16px 0;">
+          <div style="aspect-ratio:4/3;border-radius:12px;border:1px solid #e4e4e7;background:#e4e4e7;position:relative;">
+            <div style="position:absolute;top:8px;right:8px;padding:3px 8px;border-radius:6px;background:rgba(24,24,27,0.72);color:#fafafa;font-size:10px;">上傳 #129</div>
+          </div>
+        </div>
+        <div style="padding:10px 16px 0;">
+          <div style="font-size:10px;font-weight:600;color:#52525b;margin-bottom:8px;">本次症狀紀錄</div>
+          <div style="font-size:12px;color:#a1a1aa;">無症狀回報</div>
+        </div>
+        <div style="padding:14px 16px;">
+          <div style="font-size:10px;font-weight:600;color:#52525b;margin-bottom:6px;">這代表什麼</div>
+          <div style="font-size:13px;color:#3f3f46;line-height:1.5;">系統未偵測到明顯感染風險。建議維持隔日換藥一次，並持續依日曆追蹤出口狀況。</div>
+          <div style="margin-top:12px;padding:10px;border:1px solid #e4e4e7;border-radius:10px;background:#fafafa;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div style="font-size:10px;color:#71717a;">影像模型</div>
+              <span style="width:8px;height:8px;border-radius:2px;background:#10b981;"></span>
+            </div>
+            <div style="font-size:13px;font-weight:600;margin-top:4px;">正常 <span style="font-weight:400;color:#a1a1aa;">(88%)</span></div>
+          </div>
+        </div>
+        <div style="margin:0 12px;padding:12px;border:1px solid #e4e4e7;border-radius:12px;background:#fafafa;">
+          <div style="font-size:10px;font-weight:600;color:#52525b;">建議下一步</div>
+          <div style="font-size:13px;font-weight:500;margin-top:4px;">維持日常換藥節奏，並回到追蹤日曆繼續紀錄。</div>
+        </div>
+        <div style="margin:12px;padding:12px;border-radius:12px;border:1px solid #a7f3d0;background:#ecfdf5;">
+          <div style="font-size:12px;font-weight:500;color:#047857;">附加衛教影片及素材</div>
+          <div style="margin-top:8px;font-size:13px;color:#047857;text-decoration:underline;">導管出口換藥影片</div>
+          <div style="margin-top:6px;font-size:13px;color:#047857;text-decoration:underline;">導管出口照護影片</div>
+        </div>
+        <div style="padding:4px 12px 14px;">
+          <div style="background:#18181b;color:#fff;text-align:center;padding:12px;border-radius:10px;font-size:13px;">回到追蹤日曆</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
