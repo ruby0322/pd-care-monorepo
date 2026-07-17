@@ -105,6 +105,7 @@ function makeOverviewResponse(
       uploaded_users: 1,
       uploads: 1,
       suspected_infected_users: 1,
+      symptom_elevated_users: 0,
       infection_rate: 1,
     },
     items: group.uploads,
@@ -125,9 +126,12 @@ describe("AdminHistoryOverviewPage grouped patient navigation", () => {
           upload_count: 1,
           uploaded_users: 1,
           suspected_infected_users: 1,
+          symptom_elevated_users: 0,
           infection_rate: 1,
           risky_patient_count: 1,
           has_infection_risk: true,
+          symptom_elevated_patient_count: 0,
+          has_symptom_elevated_risk: false,
         },
       ],
     });
@@ -135,7 +139,15 @@ describe("AdminHistoryOverviewPage grouped patient navigation", () => {
     (fetchHistoryOverviewCalendar as jest.Mock).mockResolvedValue({
       year: 2026,
       month: 7,
-      items: [{ local_date: "2026-07-10", risky_patient_count: 1, has_infection_risk: true }],
+      items: [
+        {
+          local_date: "2026-07-10",
+          risky_patient_count: 1,
+          has_infection_risk: true,
+          symptom_elevated_patient_count: 0,
+          has_symptom_elevated_risk: false,
+        },
+      ],
     });
     (fetchUploadImageAccess as jest.Mock).mockResolvedValue({ image_url: "/mock-upload.jpg" });
   });
@@ -258,5 +270,80 @@ describe("AdminHistoryOverviewPage grouped patient navigation", () => {
         groupSortBy: "age",
       });
     });
+  });
+});
+
+describe("AdminHistoryOverviewPage symptom elevated risk", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    window.IntersectionObserver = MockIntersectionObserver as unknown as typeof IntersectionObserver;
+
+    (fetchHistoryOverviewDays as jest.Mock).mockResolvedValue({
+      items: [
+        {
+          local_date: "2026-07-10",
+          upload_count: 1,
+          uploaded_users: 1,
+          suspected_infected_users: 0,
+          symptom_elevated_users: 1,
+          infection_rate: 1,
+          risky_patient_count: 0,
+          has_infection_risk: false,
+          symptom_elevated_patient_count: 1,
+          has_symptom_elevated_risk: true,
+        },
+      ],
+    });
+    (fetchHistoryOverview as jest.Mock).mockResolvedValue(
+      makeOverviewResponse({
+        kpi: {
+          uploaded_users: 1,
+          uploads: 1,
+          suspected_infected_users: 0,
+          symptom_elevated_users: 1,
+          infection_rate: 1,
+        },
+        groups: [
+          makeGroup({
+            uploads: [
+              makeUpload({
+                screening_result: "normal",
+                risk_rank: 2,
+                has_high_risk_symptoms: true,
+                symptom_aware_priority: "suspected",
+              }),
+            ],
+            highest_risk_rank: 2,
+          }),
+        ],
+      })
+    );
+    (fetchHistoryOverviewCalendar as jest.Mock).mockResolvedValue({
+      year: 2026,
+      month: 7,
+      items: [
+        {
+          local_date: "2026-07-10",
+          risky_patient_count: 0,
+          has_infection_risk: false,
+          symptom_elevated_patient_count: 1,
+          has_symptom_elevated_risk: true,
+        },
+      ],
+    });
+    (fetchUploadImageAccess as jest.Mock).mockResolvedValue({ image_url: "/mock-upload.jpg" });
+  });
+
+  test("shows elevated KPI and orange calendar tone when only symptom elevated risk is present", async () => {
+    render(<AdminHistoryOverviewPage />);
+
+    expect(await screen.findByText("症狀高風險人數")).toBeInTheDocument();
+    await waitFor(() => {
+      const card = screen.getByText("症狀高風險人數").closest("div");
+      expect(card).toHaveTextContent("1");
+    });
+
+    const elevatedDay = await screen.findByTitle("2026-07-10 症狀高風險 1");
+    expect(elevatedDay.className).toContain("bg-orange-200");
   });
 });

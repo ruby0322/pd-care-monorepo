@@ -53,6 +53,7 @@ export type StaffPatientDetailResponse = {
   is_active: boolean;
   total_uploads: number;
   suspected_uploads: number;
+  symptom_elevated_uploads: number;
   rejected_uploads: number;
 };
 
@@ -121,9 +122,12 @@ export type StaffHistoryOverviewDayItem = {
   upload_count: number;
   uploaded_users: number;
   suspected_infected_users: number;
+  symptom_elevated_users: number;
   infection_rate: number;
   risky_patient_count: number;
   has_infection_risk: boolean;
+  symptom_elevated_patient_count: number;
+  has_symptom_elevated_risk: boolean;
 };
 
 export type StaffHistoryOverviewDaysResponse = {
@@ -134,6 +138,7 @@ export type StaffHistoryOverviewKpi = {
   uploaded_users: number;
   uploads: number;
   suspected_infected_users: number;
+  symptom_elevated_users: number;
   infection_rate: number;
 };
 
@@ -195,6 +200,8 @@ export type StaffHistoryOverviewCalendarItem = {
   local_date: string;
   risky_patient_count: number;
   has_infection_risk: boolean;
+  symptom_elevated_patient_count: number;
+  has_symptom_elevated_risk: boolean;
 };
 
 export type StaffHistoryOverviewCalendarResponse = {
@@ -259,6 +266,7 @@ export type AdminTodaySuspectedSummaryResponse = {
   date: string;
   total_uploads: number;
   suspected_uploads: number;
+  symptom_elevated_uploads: number;
   normal_uploads: number;
   suspected_ratio: number;
 };
@@ -304,6 +312,7 @@ export type AdminDailySuspectedSeriesPoint = {
   date: string;
   total_uploads: number;
   suspected_uploads: number;
+  symptom_elevated_uploads: number;
   suspected_ratio: number;
 };
 

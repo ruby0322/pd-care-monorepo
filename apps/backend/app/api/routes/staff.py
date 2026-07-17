@@ -18,6 +18,7 @@ from app.api.routes.staff_parts.shared import (
     assert_upload_access as _assert_upload_access,
     get_accessible_patient_ids as _get_accessible_patient_ids,
 )
+from app.services.taipei_dates import normalize_datetime
 from app.api.deps.auth import (
     bearer_scheme,
     get_current_principal,
@@ -195,7 +196,11 @@ async def get_staff_patients(
         elif sort_key == "age":
             rows.sort(key=lambda row: calculate_age(row.patient.birth_date) or -1, reverse=reverse)
         else:
-            rows.sort(key=lambda row: row.latest_upload_at or row.patient.created_at, reverse=reverse)
+            # SQLite often returns naive created_at; upload timestamps may be aware.
+            rows.sort(
+                key=lambda row: normalize_datetime(row.latest_upload_at or row.patient.created_at),
+                reverse=reverse,
+            )
 
         total_patients = len(rows)
         total_uploads = sum(row.upload_count for row in rows)
@@ -330,7 +335,7 @@ async def get_staff_patient_detail(
             patient_id=patient_id,
         )
 
-        total_uploads, suspected_uploads, rejected_uploads = get_patient_upload_counts(
+        total_uploads, suspected_uploads, rejected_uploads, symptom_elevated_uploads = get_patient_upload_counts(
             session,
             patient_id=patient_id,
         )
@@ -349,6 +354,7 @@ async def get_staff_patient_detail(
             is_active=patient.is_active,
             total_uploads=total_uploads,
             suspected_uploads=suspected_uploads,
+            symptom_elevated_uploads=symptom_elevated_uploads,
             rejected_uploads=rejected_uploads,
         )
     finally:
@@ -511,9 +517,12 @@ async def get_staff_history_overview_days(
                     upload_count=row.upload_count,
                     uploaded_users=row.uploaded_users,
                     suspected_infected_users=row.suspected_infected_users,
+                    symptom_elevated_users=row.symptom_elevated_users,
                     infection_rate=row.infection_rate,
                     risky_patient_count=row.risky_patient_count,
                     has_infection_risk=row.has_infection_risk,
+                    symptom_elevated_patient_count=row.symptom_elevated_patient_count,
+                    has_symptom_elevated_risk=row.has_symptom_elevated_risk,
                 )
                 for row in rows
             ]
@@ -556,6 +565,7 @@ async def get_staff_history_overview(
                 uploaded_users=data.uploaded_users,
                 uploads=data.uploads,
                 suspected_infected_users=data.suspected_infected_users,
+                symptom_elevated_users=data.symptom_elevated_users,
                 infection_rate=data.infection_rate,
             ),
             items=[
@@ -670,6 +680,8 @@ async def get_staff_history_overview_calendar(
                     local_date=item.local_date.isoformat(),
                     risky_patient_count=item.risky_patient_count,
                     has_infection_risk=item.has_infection_risk,
+                    symptom_elevated_patient_count=item.symptom_elevated_patient_count,
+                    has_symptom_elevated_risk=item.has_symptom_elevated_risk,
                 )
                 for item in rows
             ],

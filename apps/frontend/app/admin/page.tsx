@@ -100,6 +100,7 @@ export default function AdminDashboard() {
   const [showAllQueue, setShowAllQueue] = useState(false);
   const [showAllPending, setShowAllPending] = useState(false);
   const [todayChartType, setTodayChartType] = useState<ChartType>("bar");
+  const [riskChartMode, setRiskChartMode] = useState<"split" | "aggregate">("split");
   const [activeWindowDays, setActiveWindowDays] = useState<(typeof ACTIVE_WINDOW_OPTIONS)[number]>(7);
   const [activeLookbackDays, setActiveLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
   const [activeInterval, setActiveInterval] = useState<"day" | "week">("day");
@@ -107,12 +108,19 @@ export default function AdminDashboard() {
   const [todaySummary, setTodaySummary] = useState<{
     total_uploads: number;
     suspected_uploads: number;
+    symptom_elevated_uploads: number;
     normal_uploads: number;
     suspected_ratio: number;
   } | null>(null);
   const [activeUsersSeries, setActiveUsersSeries] = useState<{ date: string; active_users: number }[]>([]);
   const [dailySuspectedSeries, setDailySuspectedSeries] = useState<
-    { date: string; total_uploads: number; suspected_uploads: number; suspected_ratio: number }[]
+    {
+      date: string;
+      total_uploads: number;
+      suspected_uploads: number;
+      symptom_elevated_uploads: number;
+      suspected_ratio: number;
+    }[]
   >([]);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const { notifications, unreadCount, markNotificationRead, markingIds, error: notificationError } = useAdminNotifications();
@@ -201,13 +209,22 @@ export default function AdminDashboard() {
     () => (showAllPending ? pendingItems : pendingItems.slice(0, 3)),
     [pendingItems, showAllPending]
   );
-  const todayChartData = useMemo(
-    () => [
-      { key: "suspected", label: "疑似感染", count: todaySummary?.suspected_uploads ?? 0, fill: "#dc2626" },
-      { key: "normal", label: "正常", count: todaySummary?.normal_uploads ?? 0, fill: "#16a34a" },
-    ],
-    [todaySummary]
-  );
+  const todayChartData = useMemo(() => {
+    const suspected = todaySummary?.suspected_uploads ?? 0;
+    const elevated = todaySummary?.symptom_elevated_uploads ?? 0;
+    const normal = todaySummary?.normal_uploads ?? 0;
+    if (riskChartMode === "aggregate") {
+      return [
+        { key: "risk", label: "風險合計", count: suspected + elevated, fill: "#dc2626" },
+        { key: "normal", label: "正常", count: normal, fill: "#16a34a" },
+      ];
+    }
+    return [
+      { key: "suspected", label: "疑似感染", count: suspected, fill: "#dc2626" },
+      { key: "elevated", label: "症狀高風險", count: elevated, fill: "#f97316" },
+      { key: "normal", label: "正常", count: normal, fill: "#16a34a" },
+    ];
+  }, [riskChartMode, todaySummary]);
   const activeUserChartData = useMemo(
     () =>
       activeUsersSeries.map((point) => ({
@@ -218,25 +235,54 @@ export default function AdminDashboard() {
   );
   const dailySuspectedChartData = useMemo(
     () =>
-      dailySuspectedSeries.map((point) => ({
-        ...point,
-        shortDate: new Date(point.date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }),
-        ratio_pct: Number((point.suspected_ratio * 100).toFixed(1)),
-      })),
-    [dailySuspectedSeries]
+      dailySuspectedSeries.map((point) => {
+        const elevated = point.symptom_elevated_uploads ?? 0;
+        const riskTotal = point.suspected_uploads + elevated;
+        const ratioBase = riskChartMode === "aggregate" ? riskTotal : point.suspected_uploads;
+        return {
+          ...point,
+          symptom_elevated_uploads: elevated,
+          risk_total: riskTotal,
+          shortDate: new Date(point.date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }),
+          ratio_pct: Number(
+            (point.total_uploads > 0 ? (ratioBase / point.total_uploads) * 100 : 0).toFixed(1)
+          ),
+        };
+      }),
+    [dailySuspectedSeries, riskChartMode]
   );
+  const todayRiskRatio = useMemo(() => {
+    if (!todaySummary || todaySummary.total_uploads <= 0) {
+      return 0;
+    }
+    if (riskChartMode === "aggregate") {
+      return (
+        (todaySummary.suspected_uploads + todaySummary.symptom_elevated_uploads) / todaySummary.total_uploads
+      );
+    }
+    return todaySummary.suspected_ratio;
+  }, [riskChartMode, todaySummary]);
   const todayChartConfig: ChartConfig = {
     suspected: { label: "疑似感染", color: "#dc2626" },
+    elevated: { label: "症狀高風險", color: "#f97316" },
+    risk: { label: "風險合計", color: "#dc2626" },
     normal: { label: "正常", color: "#16a34a" },
     count: { label: "筆數" },
   };
   const activeChartConfig: ChartConfig = {
     active_users: { label: "活躍用戶", color: "#2563eb" },
   };
-  const dailyChartConfig: ChartConfig = {
-    suspected_uploads: { label: "疑似數量", color: "#dc2626" },
-    ratio_pct: { label: "疑似比例(%)", color: "#2563eb" },
-  };
+  const dailyChartConfig: ChartConfig =
+    riskChartMode === "aggregate"
+      ? {
+          risk_total: { label: "風險合計", color: "#dc2626" },
+          ratio_pct: { label: "風險比例(%)", color: "#2563eb" },
+        }
+      : {
+          suspected_uploads: { label: "疑似數量", color: "#dc2626" },
+          symptom_elevated_uploads: { label: "症狀高風險", color: "#f97316" },
+          ratio_pct: { label: "疑似比例(%)", color: "#2563eb" },
+        };
   const suspectedKpi = getSuspectedKpi(months, stats.suspectedPatients, todaySummary?.suspected_uploads);
 
   async function refreshPending() {
@@ -475,31 +521,54 @@ export default function AdminDashboard() {
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <div className="space-y-3">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-medium text-zinc-900">今日疑似感染</h3>
-              <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
-                <button
-                  className={clsx(
-                    "rounded px-2 py-1",
-                    todayChartType === "bar" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
-                  )}
-                  onClick={() => setTodayChartType("bar")}
-                >
-                  長條
-                </button>
-                <button
-                  className={clsx(
-                    "rounded px-2 py-1",
-                    todayChartType === "pie" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
-                  )}
-                  onClick={() => setTodayChartType("pie")}
-                >
-                  圓餅
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      riskChartMode === "split" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setRiskChartMode("split")}
+                  >
+                    分開
+                  </button>
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      riskChartMode === "aggregate" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setRiskChartMode("aggregate")}
+                  >
+                    合計
+                  </button>
+                </div>
+                <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 text-xs">
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      todayChartType === "bar" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setTodayChartType("bar")}
+                  >
+                    長條
+                  </button>
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      todayChartType === "pie" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setTodayChartType("pie")}
+                  >
+                    圓餅
+                  </button>
+                </div>
               </div>
             </div>
             <p className="mb-2 text-xs text-zinc-500">
-              疑似比例 {((todaySummary?.suspected_ratio ?? 0) * 100).toFixed(1)}%（共 {todaySummary?.total_uploads ?? 0} 筆）
+              {riskChartMode === "aggregate" ? "風險比例" : "疑似比例"}{" "}
+              {(todayRiskRatio * 100).toFixed(1)}%（共 {todaySummary?.total_uploads ?? 0} 筆）
             </p>
             <ChartContainer className="h-64 w-full" config={todayChartConfig}>
               {todayChartType === "bar" ? (
@@ -578,17 +647,39 @@ export default function AdminDashboard() {
           <div className="space-y-3 xl:col-span-2">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-medium text-zinc-900">每日疑似感染比例與數量</h3>
-              <select
-                className="rounded-lg border border-zinc-200 px-2 py-1 text-xs"
-                value={dailyLookbackDays}
-                onChange={(event) => setDailyLookbackDays(Number(event.target.value) as (typeof LOOKBACK_OPTIONS)[number])}
-              >
-                {LOOKBACK_OPTIONS.map((value) => (
-                  <option key={value} value={value}>
-                    最近{value}天
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1">
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      riskChartMode === "split" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setRiskChartMode("split")}
+                  >
+                    分開
+                  </button>
+                  <button
+                    className={clsx(
+                      "rounded px-2 py-1",
+                      riskChartMode === "aggregate" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    )}
+                    onClick={() => setRiskChartMode("aggregate")}
+                  >
+                    合計
+                  </button>
+                </div>
+                <select
+                  className="rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+                  value={dailyLookbackDays}
+                  onChange={(event) => setDailyLookbackDays(Number(event.target.value) as (typeof LOOKBACK_OPTIONS)[number])}
+                >
+                  {LOOKBACK_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      最近{value}天
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <ChartContainer className="h-72 w-full" config={dailyChartConfig}>
               <LineChart data={dailySuspectedChartData}>
@@ -597,7 +688,26 @@ export default function AdminDashboard() {
                 <YAxis yAxisId="left" tickLine={false} axisLine={false} allowDecimals={false} />
                 <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} unit="%" />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Line yAxisId="left" dataKey="suspected_uploads" stroke="var(--color-suspected_uploads)" strokeWidth={2} dot={false} />
+                {riskChartMode === "aggregate" ? (
+                  <Line yAxisId="left" dataKey="risk_total" stroke="var(--color-risk_total)" strokeWidth={2} dot={false} />
+                ) : (
+                  <>
+                    <Line
+                      yAxisId="left"
+                      dataKey="suspected_uploads"
+                      stroke="var(--color-suspected_uploads)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      yAxisId="left"
+                      dataKey="symptom_elevated_uploads"
+                      stroke="var(--color-symptom_elevated_uploads)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </>
+                )}
                 <Line yAxisId="right" dataKey="ratio_pct" stroke="var(--color-ratio_pct)" strokeWidth={2} dot={false} />
                 <ChartLegend content={<ChartLegendContent />} />
               </LineChart>
