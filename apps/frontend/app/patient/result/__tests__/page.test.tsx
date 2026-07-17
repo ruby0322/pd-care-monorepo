@@ -119,7 +119,7 @@ describe("Patient ResultPage v6 layout", () => {
     expect(screen.getByText("疼痛")).toBeInTheDocument();
     expect(screen.getByText("膿")).toBeInTheDocument();
 
-    expect(screen.getByText("附加衛教影片及素材")).toBeInTheDocument();
+    expect(screen.getByText("附加衛教影片及素材").closest("section")).toHaveClass("bg-red-600");
     expect(screen.getByRole("link", { name: "導管出口換藥影片" })).toBeInTheDocument();
 
     expect(screen.getByText("上傳 #128")).toBeInTheDocument();
@@ -129,6 +129,8 @@ describe("Patient ResultPage v6 layout", () => {
         "src",
         "https://example.test/upload-128.jpg"
       );
+      // Asia/Taipei formatting of 2026-07-17T09:00:00+00:00
+      expect(screen.getByText("2026/07/17 下午05:00")).toBeInTheDocument();
     });
 
     expect(screen.getByRole("link", { name: /回到追蹤日曆/ })).toBeInTheDocument();
@@ -185,7 +187,7 @@ describe("Patient ResultPage v6 layout", () => {
     expect(screen.queryByText("症狀綜合")).not.toBeInTheDocument();
     expect(screen.getByText(/\(88%\)/)).toBeInTheDocument();
     expect(screen.getByText("無症狀回報")).toBeInTheDocument();
-    expect(screen.getByText("附加衛教影片及素材")).toBeInTheDocument();
+    expect(screen.getByText("附加衛教影片及素材").closest("section")).toHaveClass("bg-emerald-50");
     expect(screen.getByRole("link", { name: /回到追蹤日曆/ })).toHaveAttribute("href", "/patient");
   });
 
@@ -250,6 +252,53 @@ describe("Patient ResultPage v6 layout", () => {
       expect(screen.getAllByText("疑似感染").length).toBeGreaterThanOrEqual(1);
     });
     expect(screen.queryByText("症狀綜合")).not.toBeInTheDocument();
-    expect(screen.getByText("附加衛教影片及素材")).toBeInTheDocument();
+    expect(screen.getByText("附加衛教影片及素材").closest("section")).toHaveClass("bg-red-600");
+  });
+
+  test("technical_error shows retake CTA and omits education", async () => {
+    setParams({
+      result: "technical_error",
+      reason: "模型逾時",
+    });
+
+    render(<ResultPage />);
+
+    expect(await screen.findByText("系統暫時無法完成判讀")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /重新拍攝/ })).toHaveAttribute("href", "/patient/capture");
+    expect(screen.queryByText("附加衛教影片及素材")).not.toBeInTheDocument();
+    expect(screen.getByText(/技術性問題：模型逾時/)).toBeInTheDocument();
+  });
+
+  test("discharge-only does not elevate normal results", async () => {
+    setParams({
+      result: "normal",
+      confidence: "80",
+      discharge: "true",
+      pain: "false",
+      pus: "false",
+    });
+
+    render(<ResultPage />);
+
+    expect(await screen.findByText("判讀傷口正常")).toBeInTheDocument();
+    expect(screen.queryByText("疑似感染風險")).not.toBeInTheDocument();
+    expect(screen.queryByText("症狀綜合")).not.toBeInTheDocument();
+    expect(screen.getByText("分泌物")).toBeInTheDocument();
+    expect(screen.getByText("附加衛教影片及素材").closest("section")).toHaveClass("bg-emerald-50");
+  });
+
+  test("legacy cloudyDialysate query param elevates as pus high-risk", async () => {
+    setParams({
+      result: "normal",
+      confidence: "70",
+      cloudyDialysate: "true",
+    });
+
+    render(<ResultPage />);
+
+    expect(await screen.findByText("疑似感染風險")).toBeInTheDocument();
+    expect(screen.getByText("症狀綜合")).toBeInTheDocument();
+    expect(screen.getByText("膿")).toBeInTheDocument();
+    expect(screen.getByText("附加衛教影片及素材").closest("section")).toHaveClass("bg-red-600");
   });
 });

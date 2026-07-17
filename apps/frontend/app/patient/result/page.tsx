@@ -74,6 +74,7 @@ function ResultPageInner() {
   const [hydratedErrorReason, setHydratedErrorReason] = useState<string | null>(null);
   const [hydratedConfidence, setHydratedConfidence] = useState<number | null>(null);
   const [hydratedSymptoms, setHydratedSymptoms] = useState<SymptomFlags | null>(null);
+  const [hydratedCreatedAt, setHydratedCreatedAt] = useState<string | null>(null);
   const [isHydrating, setIsHydrating] = useState(false);
   const [hydrateError, setHydrateError] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ uploadId: number; url: string } | null>(null);
@@ -116,6 +117,7 @@ function ResultPageInner() {
           discharge: payload.symptom_discharge,
           pus: payload.symptom_pus,
         });
+        setHydratedCreatedAt(payload.created_at);
       } catch (error) {
         if (cancelled) {
           return;
@@ -187,7 +189,16 @@ function ResultPageInner() {
   const showModelConfidence =
     effectiveConfidence !== null && result !== "rejected" && result !== "technical_error";
 
-  const now = useClientSnapshot(() => formatResultTimestamp(new Date()), "");
+  // Prefer durable upload created_at when hydrated; otherwise page-load time (query-only flows).
+  const displayTimestamp = useClientSnapshot(() => {
+    if (hydratedCreatedAt) {
+      const parsed = new Date(hydratedCreatedAt);
+      if (!Number.isNaN(parsed.getTime())) {
+        return formatResultTimestamp(parsed);
+      }
+    }
+    return formatResultTimestamp(new Date());
+  }, "");
 
   const statusChip = (() => {
     if (elevatedFromNormal) {
@@ -292,7 +303,7 @@ function ResultPageInner() {
           >
             {statusChip.label}
           </span>
-          {now ? <span className="text-xs text-zinc-400">{now}</span> : null}
+          {displayTimestamp ? <span className="text-xs text-zinc-400">{displayTimestamp}</span> : null}
         </div>
       </header>
 
@@ -381,14 +392,7 @@ function ResultPageInner() {
           )}
         </section>
 
-        <section
-          className={clsx(
-            "rounded-xl border p-3",
-            elevatedFromNormal || result === "suspected"
-              ? "border-zinc-200 bg-zinc-50"
-              : "border-zinc-200 bg-zinc-50"
-          )}
-        >
+        <section className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
           <h2
             className={clsx(
               "text-[10px] font-semibold tracking-wider",
