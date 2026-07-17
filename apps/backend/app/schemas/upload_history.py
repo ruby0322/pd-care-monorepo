@@ -37,6 +37,9 @@ class PatientDayUploadItemResponse(BaseModel):
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
     annotation_label: str | None
     annotation_comment: str | None
 
@@ -58,6 +61,9 @@ class PatientUploadDetailResponse(BaseModel):
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
     annotation_label: str | None
     annotation_comment: str | None
     image_url: str

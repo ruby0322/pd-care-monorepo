@@ -30,6 +30,7 @@ from app.services.model_loader import LoadedModel
 from app.services.prescreen import LoadedPrescreenModel
 from app.services.storage import StorageService
 from app.services.upload import get_patient_result_for_line_user, persist_patient_upload
+from app.services.symptoms import derived_symptom_fields
 from app.services.upload_history import (
     get_patient_upload_detail,
     list_patient_uploads_by_local_day,
@@ -213,9 +214,13 @@ async def patient_uploads_by_day(
                     threshold=item.threshold,
                     model_version=item.model_version,
                     error_reason=item.error_reason,
-                    symptom_pain=item.symptom_pain,
-                    symptom_discharge=item.symptom_discharge,
-                    symptom_pus=item.symptom_pus,
+                    **derived_symptom_fields(
+                        screening_result=item.screening_result,
+                        symptom_pain=item.symptom_pain,
+                        symptom_discharge=item.symptom_discharge,
+                        symptom_pus=item.symptom_pus,
+                        symptom_cloudy_dialysate=item.symptom_cloudy_dialysate,
+                    ),
                     annotation_label=item.annotation_label,
                     annotation_comment=item.annotation_comment,
                 )
@@ -256,9 +261,13 @@ async def patient_upload_detail(
             threshold=detail.threshold,
             model_version=detail.model_version,
             error_reason=detail.error_reason,
-            symptom_pain=detail.symptom_pain,
-            symptom_discharge=detail.symptom_discharge,
-            symptom_pus=detail.symptom_pus,
+            **derived_symptom_fields(
+                screening_result=detail.screening_result,
+                symptom_pain=detail.symptom_pain,
+                symptom_discharge=detail.symptom_discharge,
+                symptom_pus=detail.symptom_pus,
+                symptom_cloudy_dialysate=detail.symptom_cloudy_dialysate,
+            ),
             annotation_label=detail.annotation_label,
             annotation_comment=detail.annotation_comment,
             image_url=image_url,
@@ -421,6 +430,7 @@ async def upload_patient_image(
     pain: bool = Form(default=False),
     discharge: bool = Form(default=False),
     pus: bool = Form(default=False),
+    cloudy_dialysate: bool = Form(default=False),
     file: UploadFile = File(...),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> PatientUploadResponse:
@@ -472,6 +482,7 @@ async def upload_patient_image(
             symptom_pain=pain,
             symptom_discharge=discharge,
             symptom_pus=pus,
+            symptom_cloudy_dialysate=cloudy_dialysate,
         )
         return PatientUploadResponse(
             upload_id=persisted.upload.id,
@@ -481,9 +492,13 @@ async def upload_patient_image(
             model_version=persisted.ai_result.model_version,
             threshold=persisted.ai_result.threshold,
             notification_id=persisted.notification.id if persisted.notification else None,
-            symptom_pain=persisted.upload.symptom_pain,
-            symptom_discharge=persisted.upload.symptom_discharge,
-            symptom_pus=persisted.upload.symptom_pus,
+            **derived_symptom_fields(
+                screening_result=persisted.ai_result.screening_result,
+                symptom_pain=persisted.upload.symptom_pain,
+                symptom_discharge=persisted.upload.symptom_discharge,
+                symptom_pus=persisted.upload.symptom_pus,
+                symptom_cloudy_dialysate=persisted.upload.symptom_cloudy_dialysate,
+            ),
             prediction=persisted.prediction,
         )
     finally:
@@ -527,9 +542,13 @@ async def get_patient_upload_result(
             threshold=persisted.ai_result.threshold,
             model_version=persisted.ai_result.model_version,
             error_reason=persisted.ai_result.error_reason,
-            symptom_pain=persisted.upload.symptom_pain,
-            symptom_discharge=persisted.upload.symptom_discharge,
-            symptom_pus=persisted.upload.symptom_pus,
+            **derived_symptom_fields(
+                screening_result=persisted.ai_result.screening_result,
+                symptom_pain=persisted.upload.symptom_pain,
+                symptom_discharge=persisted.upload.symptom_discharge,
+                symptom_pus=persisted.upload.symptom_pus,
+                symptom_cloudy_dialysate=persisted.upload.symptom_cloudy_dialysate,
+            ),
             created_at=persisted.ai_result.created_at,
         )
     finally:

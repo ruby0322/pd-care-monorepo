@@ -44,6 +44,7 @@ class HistoryOverviewUploadItemData:
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
     annotation_label: str | None
     annotation_comment: str | None
     risk_rank: int
@@ -108,6 +109,7 @@ class _RawUploadRow:
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
     annotation_label: str | None
     annotation_comment: str | None
     local_date: date
@@ -211,6 +213,7 @@ def _raw_rows(session: Session, *, accessible_patient_ids: set[int] | None = Non
                 symptom_pain=upload.symptom_pain,
                 symptom_discharge=upload.symptom_discharge,
                 symptom_pus=upload.symptom_pus,
+                symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
                 annotation_label=annotation.label if annotation else None,
                 annotation_comment=annotation.comment if annotation else None,
                 local_date=to_taipei_date(upload.created_at),
@@ -275,6 +278,7 @@ def _to_upload_item(row: _RawUploadRow) -> HistoryOverviewUploadItemData:
         symptom_pain=row.symptom_pain,
         symptom_discharge=row.symptom_discharge,
         symptom_pus=row.symptom_pus,
+        symptom_cloudy_dialysate=row.symptom_cloudy_dialysate,
         annotation_label=row.annotation_label,
         annotation_comment=row.annotation_comment,
         risk_rank=_risk_rank(screening_result=row.screening_result, annotation_label=row.annotation_label),

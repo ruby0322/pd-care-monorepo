@@ -89,6 +89,9 @@ class StaffUploadQueueItem(BaseModel):
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
 
 
 class StaffUploadQueueResponse(BaseModel):
@@ -135,6 +138,9 @@ class StaffHistoryOverviewUploadItem(BaseModel):
     symptom_pain: bool
     symptom_discharge: bool
     symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
     annotation_label: str | None
     annotation_comment: str | None
     risk_rank: int

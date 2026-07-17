@@ -409,9 +409,14 @@ def test_patient_uploads_by_day_returns_day_scoped_records(tmp_path: Path) -> No
         assert payload["items"][0]["symptom_pain"] is False
         assert payload["items"][0]["symptom_discharge"] is True
         assert payload["items"][0]["symptom_pus"] is False
+        assert payload["items"][0]["symptom_cloudy_dialysate"] is False
+        assert payload["items"][0]["has_high_risk_symptoms"] is False
+        assert payload["items"][0]["symptom_aware_priority"] == "normal"
         assert payload["items"][1]["symptom_pain"] is True
         assert payload["items"][1]["symptom_discharge"] is True
         assert payload["items"][1]["symptom_pus"] is True
+        assert payload["items"][1]["has_high_risk_symptoms"] is True
+        assert payload["items"][1]["symptom_aware_priority"] == "suspected"
 
 
 def test_patient_upload_detail_returns_prev_next_and_latest_annotation(tmp_path: Path) -> None:
@@ -459,6 +464,9 @@ def test_patient_upload_detail_returns_prev_next_and_latest_annotation(tmp_path:
         assert payload["symptom_pain"] is True
         assert payload["symptom_discharge"] is True
         assert payload["symptom_pus"] is True
+        assert payload["symptom_cloudy_dialysate"] is False
+        assert payload["has_high_risk_symptoms"] is True
+        assert payload["symptom_aware_priority"] == "suspected"
         assert payload["prev_upload_id"] is not None
         assert payload["next_upload_id"] is None
         assert payload["image_url"].startswith(f"/api/v1/patient/uploads/{target_upload_id}/image-public?token=")

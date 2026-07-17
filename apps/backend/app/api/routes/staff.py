@@ -86,6 +86,7 @@ from app.services.staff_history_overview import (
     get_history_overview_calendar_month,
     list_history_overview_days,
 )
+from app.services.symptoms import derived_symptom_fields
 
 router = APIRouter(tags=["Staff"])
 
@@ -471,9 +472,13 @@ async def get_staff_upload_queue(
                     threshold=ai_result.threshold,
                     model_version=ai_result.model_version,
                     has_annotation=has_annotation,
-                    symptom_pain=upload.symptom_pain,
-                    symptom_discharge=upload.symptom_discharge,
-                    symptom_pus=upload.symptom_pus,
+                    **derived_symptom_fields(
+                        screening_result=ai_result.screening_result,
+                        symptom_pain=upload.symptom_pain,
+                        symptom_discharge=upload.symptom_discharge,
+                        symptom_pus=upload.symptom_pus,
+                        symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
+                    ),
                 )
                 for upload, ai_result, patient, line_user_id, has_annotation in rows
             ]
@@ -570,9 +575,13 @@ async def get_staff_history_overview(
                     probability=item.probability,
                     threshold=item.threshold,
                     model_version=item.model_version,
-                    symptom_pain=item.symptom_pain,
-                    symptom_discharge=item.symptom_discharge,
-                    symptom_pus=item.symptom_pus,
+                    **derived_symptom_fields(
+                        screening_result=item.screening_result,
+                        symptom_pain=item.symptom_pain,
+                        symptom_discharge=item.symptom_discharge,
+                        symptom_pus=item.symptom_pus,
+                        symptom_cloudy_dialysate=item.symptom_cloudy_dialysate,
+                    ),
                     annotation_label=item.annotation_label,
                     annotation_comment=item.annotation_comment,
                     risk_rank=item.risk_rank,
@@ -611,9 +620,13 @@ async def get_staff_history_overview(
                             probability=item.probability,
                             threshold=item.threshold,
                             model_version=item.model_version,
-                            symptom_pain=item.symptom_pain,
-                            symptom_discharge=item.symptom_discharge,
-                            symptom_pus=item.symptom_pus,
+                            **derived_symptom_fields(
+                                screening_result=item.screening_result,
+                                symptom_pain=item.symptom_pain,
+                                symptom_discharge=item.symptom_discharge,
+                                symptom_pus=item.symptom_pus,
+                                symptom_cloudy_dialysate=item.symptom_cloudy_dialysate,
+                            ),
                             annotation_label=item.annotation_label,
                             annotation_comment=item.annotation_comment,
                             risk_rank=item.risk_rank,

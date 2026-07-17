@@ -371,6 +371,7 @@ def test_staff_upload_queue_includes_symptom_flags(tmp_path: Path) -> None:
             latest_upload.symptom_pain = True
             latest_upload.symptom_discharge = False
             latest_upload.symptom_pus = True
+            latest_upload.symptom_cloudy_dialysate = True
             session.commit()
 
         token = _login_staff_token(client)
@@ -381,6 +382,9 @@ def test_staff_upload_queue_includes_symptom_flags(tmp_path: Path) -> None:
         assert item["symptom_pain"] is True
         assert item["symptom_discharge"] is False
         assert item["symptom_pus"] is True
+        assert item["symptom_cloudy_dialysate"] is True
+        assert item["has_high_risk_symptoms"] is True
+        assert item["symptom_aware_priority"] == "suspected"
 
 
 def test_staff_patient_filters_use_latest_upload_status_and_created_range(tmp_path: Path) -> None:
