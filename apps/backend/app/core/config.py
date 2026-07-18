@@ -94,6 +94,8 @@ class Settings:
     prescreen_model_revision: str | None = None
     prescreen_reject_reason: str = "non_exit_site_or_random_photo"
     prescreen_model_cache_dir: Path | None = None
+    prescreen_max_concurrent: int = 4
+    prescreen_inference_wait_seconds: float = 1.5
     hf_token: str | None = None
 
     @property
@@ -172,5 +174,7 @@ def get_settings() -> Settings:
             or "non_exit_site_or_random_photo"
         ),
         prescreen_model_cache_dir=prescreen_model_cache_dir,
+        prescreen_max_concurrent=_parse_int("PRESCREEN_MAX_CONCURRENT", 4),
+        prescreen_inference_wait_seconds=_parse_float("PRESCREEN_INFERENCE_WAIT_SECONDS", 1.5),
         hf_token=(os.getenv("HF_TOKEN") or "").strip() or None,
     )

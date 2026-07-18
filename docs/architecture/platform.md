@@ -53,7 +53,7 @@ Each namespace runs a full copy of the app stack from `k8s/base/`:
 
 **Prod hardening** (`k8s/overlays/prod/`):
 
-- Frontend and backend `replicas: 2`, rolling update `maxUnavailable: 0`
+- Frontend `replicas: 2`, backend `replicas: 3`, rolling update `maxUnavailable: 0`
 - `PodDisruptionBudget` on backend
 - `RUN_DB_MIGRATIONS=false` on backend pods; Alembic via PreSync `migrate-job`
 - GHCR image tags promoted by CD workflows

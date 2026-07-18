@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import date
 from typing import Literal
 
@@ -34,6 +33,10 @@ from app.services.prescreen import (
     LoadedPrescreenModel,
     PrescreenInferenceError,
     is_exit_site_present,
+)
+from app.services.prescreen_inference_gate import (
+    PrescreenInferenceBusyError,
+    get_prescreen_inference_gate,
 )
 from app.services.prescreen_rate_limit import prescreen_rate_limiter
 from app.services.storage import StorageService
@@ -475,13 +478,17 @@ async def prescreen_patient_image(
 
     try:
         live_threshold = loaded_prescreen_model.threshold * LIVE_PRESCREEN_THRESHOLD_FACTOR
-        present = await asyncio.to_thread(
+        gate = get_prescreen_inference_gate(
+            max_concurrent=settings.prescreen_max_concurrent,
+            wait_timeout_seconds=settings.prescreen_inference_wait_seconds,
+        )
+        present = await gate.run(
             is_exit_site_present,
             loaded_prescreen_model,
             payload,
             threshold_override=live_threshold,
         )
-    except PrescreenInferenceError:
+    except (PrescreenInferenceError, PrescreenInferenceBusyError):
         return PatientPrescreenResponse(present=True, checked=False)
 
     return PatientPrescreenResponse(present=present, checked=True)

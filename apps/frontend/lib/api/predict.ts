@@ -1,3 +1,5 @@
+import { isAxiosError } from "axios";
+
 import { apiClient } from "@/lib/api/client";
 
 export type PredictResponse = {
@@ -25,6 +27,32 @@ export type PatientPrescreenResponse = {
   checked: boolean;
 };
 
+const PRESCREEN_429_MAX_RETRIES = 2;
+const PRESCREEN_429_BACKOFF_MS = [400, 800] as const;
+
+/** Resolves after `ms`, or rejects immediately if `signal` aborts (including mid-wait). */
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export async function prescreenPatientExitSiteImage(
   file: File,
   options?: { signal?: AbortSignal }
@@ -32,15 +60,30 @@ export async function prescreenPatientExitSiteImage(
   const formData = new FormData();
   formData.append("file", file);
 
-  const { data } = await apiClient.post<PatientPrescreenResponse>("/v1/patient/prescreen", formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
-    signal: options?.signal,
-    timeout: 8000,
-  });
-
-  return data;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= PRESCREEN_429_MAX_RETRIES; attempt += 1) {
+    try {
+      const { data } = await apiClient.post<PatientPrescreenResponse>("/v1/patient/prescreen", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        signal: options?.signal,
+        timeout: 8000,
+      });
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (options?.signal?.aborted) {
+        throw error;
+      }
+      const status = isAxiosError(error) ? error.response?.status : undefined;
+      if (status !== 429 || attempt >= PRESCREEN_429_MAX_RETRIES) {
+        throw error;
+      }
+      await sleep(PRESCREEN_429_BACKOFF_MS[attempt] ?? 800, options?.signal);
+    }
+  }
+  throw lastError;
 }
 
 export type PatientUploadResponse = {
