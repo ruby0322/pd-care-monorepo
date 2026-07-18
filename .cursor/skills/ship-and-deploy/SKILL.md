@@ -3,7 +3,7 @@ name: ship-and-deploy
 description: >-
   Stage, commit, push, and redeploy the PD Care monorepo using project git
   hooks. Supports Docker Compose and Kubernetes (pd-care-dev / pd-care-prod).
-  Prod K8s uses zero-downtime rolling (replicas 2, migrate Job for backend).
+  Prod K8s uses zero-downtime rolling (FE replicas 2, BE replicas 3, migrate Job for backend).
   Ask the user for deploy target when method or environment is unspecified.
   Prefer scoped redeploys. Protect production data (volumes, PVCs, Postgres).
   Use when the user asks to ship, commit, push, deploy, redeploy, or release.
@@ -43,7 +43,7 @@ End-to-end workflow for committing code and redeploying this repository.
 - **Rolling recreate** — Compose: `docker compose up --build -d <service>`; K8s: `kubectl rollout restart deploy/<name> -n <namespace>`
 - **Data authority follows the chosen deploy path** — Compose named volumes when Compose is active production; `pd-care-prod` PVCs when K8s is active production (see [k8s-minikube.md](../../../docs/deploy/k8s-minikube.md) §8)
 - **Migration caution** — review new Alembic migrations before backend deploy; on K8s prod run `backend-migrate` Job once before rollout (pods use `RUN_DB_MIGRATIONS=false`)
-- **Prod zero-downtime rolling** — `pd-care-prod` FE/BE use `replicas: 2`, `maxUnavailable: 0`, `maxSurge: 1`; see [k8s-zero-downtime-rollout.md](../../../docs/deploy/k8s-zero-downtime-rollout.md)
+- **Prod zero-downtime rolling** — `pd-care-prod` FE `replicas: 2`, BE `replicas: 3`, `maxUnavailable: 0`, `maxSurge: 1`; see [k8s-zero-downtime-rollout.md](../../../docs/deploy/k8s-zero-downtime-rollout.md)
 
 See [reference.md](reference.md) for the path → service mapping and forbidden-command list.
 
@@ -299,7 +299,7 @@ curl -fsS https://<domain>/api/readyz
 
 Use `test.pd.lu.im.ntu.edu.tw` for dev, `pd.lu.im.ntu.edu.tw` for prod (ingress bridge must be running for public DNS).
 
-For prod rolling deploys, expect `backend 2/2` and `frontend 2/2`. Optional continuous probe during rollout: see [k8s-zero-downtime-rollout.md](../../../docs/deploy/k8s-zero-downtime-rollout.md).
+For prod rolling deploys, expect `backend 3/3` and `frontend 2/2`. Optional continuous probe during rollout: see [k8s-zero-downtime-rollout.md](../../../docs/deploy/k8s-zero-downtime-rollout.md).
 
 Report:
 

@@ -2,6 +2,9 @@ from __future__ import annotations
 # pyright: reportMissingImports=false
 
 import io
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +18,7 @@ from app.db.models import AIResult, LiffIdentity, Notification, Patient, Pending
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
 from app.services.prescreen import LIVE_PRESCREEN_THRESHOLD_FACTOR, PrescreenInferenceError
+from app.services.prescreen_inference_gate import reset_prescreen_inference_gate
 from app.services.prescreen_rate_limit import prescreen_rate_limiter
 from tests.db_test_utils import migrated_sqlite_database_url
 
@@ -127,8 +131,9 @@ def _issue_token_for_line_user(
 
 
 @pytest.fixture(autouse=True)
-def _reset_prescreen_rate_limiter() -> None:
+def _reset_prescreen_gates() -> None:
     prescreen_rate_limiter.reset()
+    reset_prescreen_inference_gate()
 
 
 def test_prescreen_returns_present_true_when_model_detects_exit_site(
@@ -357,3 +362,55 @@ def test_prescreen_rate_limits_second_request(
 
         assert first.status_code == 200
         assert second.status_code == 429
+
+
+def test_prescreen_fails_open_when_inference_gate_busy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = replace(
+        _make_settings(tmp_path / "prescreen-busy.db"),
+        prescreen_enabled=True,
+        prescreen_max_concurrent=1,
+        prescreen_inference_wait_seconds=0.05,
+    )
+    app = create_app(
+        settings=settings,
+        loaded_model=SimpleNamespace(device="cpu"),
+        loaded_prescreen_model=SimpleNamespace(device="cpu", threshold=0.5),
+    )
+
+    held = threading.Event()
+
+    def _slow_infer(_loaded: object, _bytes: bytes, **_kwargs: object) -> bool:
+        held.set()
+        time.sleep(0.4)
+        return True
+
+    monkeypatch.setattr("app.api.routes.patient.is_exit_site_present", _slow_infer)
+    monkeypatch.setattr(prescreen_rate_limiter, "allow", lambda _patient_id: True)
+
+    with TestClient(app) as client:
+        _seed_bound_identity(client, line_user_id="U_LINE_PRESCREEN_BUSY_A", case_number="P_BUSY_A")
+        _seed_bound_identity(client, line_user_id="U_LINE_PRESCREEN_BUSY_B", case_number="P_BUSY_B")
+        token_a = _issue_token_for_line_user(client, line_user_id="U_LINE_PRESCREEN_BUSY_A")
+        token_b = _issue_token_for_line_user(client, line_user_id="U_LINE_PRESCREEN_BUSY_B")
+        image_bytes = _make_image_bytes()
+
+        def _post(token: str):
+            return client.post(
+                "/v1/patient/prescreen",
+                files={"file": ("frame.jpg", image_bytes, "image/jpeg")},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_a = executor.submit(_post, token_a)
+            assert held.wait(timeout=2.0)
+            future_b = executor.submit(_post, token_b)
+            response_b = future_b.result(timeout=2.0)
+            response_a = future_a.result(timeout=2.0)
+
+        assert response_a.status_code == 200
+        assert response_a.json() == {"present": True, "checked": True}
+        assert response_b.status_code == 200
+        assert response_b.json() == {"present": True, "checked": False}

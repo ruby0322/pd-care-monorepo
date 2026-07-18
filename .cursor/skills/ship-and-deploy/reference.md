@@ -52,8 +52,8 @@ Never append `-v` on production-like hosts.
 | Target | Redeploy | Verify | Data safety |
 | --- | --- | --- | --- |
 | **Compose** | `docker compose up --build -d <service>` | `curl http://127.0.0.1:8000/healthz` | Named volumes when Compose is active production |
-| **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; single replica; migrations on pod start |
-| **K8s `pd-care-prod`** | build image; backend: migrate Job then rollout; frontend: rollout only | `curl https://pd.lu.im.ntu.edu.tw/api/healthz`; expect `2/2` replicas | **PVCs authoritative**; zero-downtime rolling (`maxUnavailable: 0`) |
+| **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; backend `replicas: 2`; migrations on pod start |
+| **K8s `pd-care-prod`** | build image; backend: migrate Job then rollout; frontend: rollout only | `curl https://pd.lu.im.ntu.edu.tw/api/healthz`; expect backend `3/3`, frontend `2/2` | **PVCs authoritative**; zero-downtime rolling (`maxUnavailable: 0`) |
 | **K8s GitOps (Argo CD)** | push image-tag changes into `k8s/overlays/*/kustomization.yaml`; Argo reconciles | Argo app health + ingress health checks | `pd-care-monorepo` is public (no Git PAT); require `ghcr-pull-secret` when GHCR packages are private; migration hook runs PreSync in prod |
 | **Ingress bridge** | `docker compose -f docker-compose.ingress-bridge.yml up -d` | public HTTPS smoke on prod/dev domains; `curl -s -o /dev/null -w '%{http_code}' http://<host>/` returns non-connection-refused | Host `:443` + `:80` → Minikube ingress (required for cert-manager HTTP-01) |
 | **Commit/push only** | skip deploy | — | — |
@@ -82,7 +82,8 @@ Argo CD application definitions:
 
 | Resource | Setting |
 | --- | --- |
-| Frontend / backend replicas | `2` |
+| Frontend replicas | `2` |
+| Backend replicas | `3` |
 | Rolling strategy | `maxUnavailable: 0`, `maxSurge: 1` |
 | preStop | frontend `sleep 10`, backend `sleep 15` |
 | PodDisruptionBudgets | `minAvailable: 1` per app |
@@ -131,7 +132,7 @@ while true; do
 done
 ```
 
-Acceptance: no sustained `readyz` failures; `kubectl get deploy backend frontend -n pd-care-prod` shows `2/2` for both.
+Acceptance: no sustained `readyz` failures; `kubectl get deploy backend frontend -n pd-care-prod` shows `backend 3/3` and `frontend 2/2`.
 
 ### Migration behavior by deploy path
 

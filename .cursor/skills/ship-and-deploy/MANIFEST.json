@@ -1,8 +1,8 @@
 {
   "skill": "ship-and-deploy",
-  "version": "1.5.3",
-  "last_audited_commit": "95616b8",
-  "last_audited_at": "2026-07-17",
+  "version": "1.5.4",
+  "last_audited_commit": "aedde78",
+  "last_audited_at": "2026-07-18",
   "sources": [
     {
       "path": "package.json",

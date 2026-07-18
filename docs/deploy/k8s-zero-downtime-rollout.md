@@ -5,11 +5,11 @@ This runbook verifies rolling upgrades for `pd-care-prod` frontend/backend witho
 ## Preconditions
 
 - `k8s/overlays/prod` includes:
-  - frontend and backend `replicas: 2`
+  - frontend `replicas: 2`, backend `replicas: 3`
   - `RollingUpdate` with `maxUnavailable: 0`, `maxSurge: 1`
   - backend `RUN_DB_MIGRATIONS=false`
   - `backend-migrate` Job manifest
-- Minikube resources can briefly handle 3 backend pods during surge.
+- Minikube resources can briefly handle 4 backend pods during surge (3 ready + 1 surge).
 
 ## Backend deploy sequence (prod)
 
@@ -72,4 +72,4 @@ kubectl get endpoints backend -n pd-care-prod -w
 kubectl get deploy backend frontend -n pd-care-prod
 ```
 
-Expected: `backend 2/2` and `frontend 2/2`.
+Expected: `backend 3/3` and `frontend 2/2`.
