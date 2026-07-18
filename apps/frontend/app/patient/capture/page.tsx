@@ -18,7 +18,7 @@ import {
   type StabilityTracker,
 } from "@/lib/camera-stability";
 import { SYMPTOM_KEYS, SYMPTOM_LABELS, type SymptomFlags } from "@/lib/symptoms";
-import { AlignCenter, Camera, ChevronLeft, Eye, Sun } from "lucide-react";
+import { AlignCenter, Camera, ChevronLeft, Eye, Sun, SwitchCamera } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -288,7 +288,7 @@ function CameraView({
         onClick={handleCapture}
         disabled={!shutterReady}
         aria-label="拍攝"
-        className="absolute bottom-28 left-1/2 z-20 flex h-16 w-16 -translate-x-1/2 items-center justify-center rounded-full border-4 border-white bg-white/20 transition-colors hover:bg-white/30 disabled:opacity-40"
+        className="absolute bottom-36 left-1/2 z-20 flex h-16 w-16 -translate-x-1/2 items-center justify-center rounded-full border-4 border-white bg-white/20 transition-colors hover:bg-white/30 disabled:opacity-40"
       >
         <div className="w-10 h-10 rounded-full bg-white" />
       </button>
@@ -541,14 +541,16 @@ function CapturePageInner() {
         />
         {!capturedImage && !cameraError && (
           <button
+            type="button"
             onClick={handleSwitchCamera}
-            className="absolute right-5 bottom-28 z-20 rounded-xl border border-white/30 bg-black/45 px-3 py-2 text-xs font-medium text-white hover:bg-black/60 transition-colors"
+            aria-label={facingMode === "environment" ? "切換至前鏡頭" : "切換至後鏡頭"}
+            className="absolute right-5 bottom-36 z-20 flex h-12 w-12 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white transition-colors hover:bg-black/60"
           >
-            切換至{facingMode === "environment" ? "前鏡頭" : "後鏡頭"}
+            <SwitchCamera className="h-6 w-6" strokeWidth={1.75} />
           </button>
         )}
         {!capturedImage && !cameraError && cameraNoticeMessage && (
-          <div className="absolute left-5 right-5 bottom-48 z-20 rounded-xl border border-white/30 bg-black/55 px-3 py-2 text-center text-xs text-white">
+          <div className="absolute left-5 right-5 bottom-56 z-20 rounded-xl border border-white/30 bg-black/55 px-3 py-2 text-center text-xs text-white">
             {cameraNoticeMessage}
           </div>
         )}
@@ -609,20 +611,24 @@ function CapturePageInner() {
               />
             </svg>
             {showLiveGuidance && (
-              <p className="absolute left-[-1.5rem] right-[-1.5rem] top-full mt-4 px-1 text-center text-sm font-medium leading-snug text-white drop-shadow">
+              <p
+                className="absolute bottom-full left-1/2 z-10 mb-3 w-[min(22rem,calc(100vw-2.5rem))] -translate-x-1/2 rounded-2xl border border-white/20 bg-black/60 px-3.5 py-2.5 text-center font-medium leading-snug text-white shadow-lg backdrop-blur-md backdrop-saturate-150 [font-size:clamp(0.95rem,2.8vw+0.55rem,1.2rem)]"
+                role="status"
+                aria-live="polite"
+              >
                 {GUIDANCE_COPY[guidanceStatus]}
               </p>
             )}
           </div>
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-6 bg-gradient-to-t from-black/80 to-transparent">
-          <div className="flex items-center justify-center gap-6 mb-6">
+        <div className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-8 bg-gradient-to-t from-black/80 to-transparent">
+          <div className="mb-2 flex items-center justify-center gap-6 pt-2">
             {([{ icon: Sun, label: "確保光線充足" }, { icon: AlignCenter, label: "對齊出口位置" }, { icon: Eye, label: "導管清晰可見" }] as const).map(
               ({ icon: Icon, label }) => (
                 <div key={label} className="flex flex-col items-center gap-1">
-                  <Icon className="w-4 h-4 text-white/60" strokeWidth={1.5} />
-                  <span className="text-white/50 text-xs">{label}</span>
+                  <Icon className="h-5 w-5 text-white/60" strokeWidth={1.5} />
+                  <span className="text-[0.8rem] text-white/55 sm:text-sm">{label}</span>
                 </div>
               )
             )}
