@@ -15,7 +15,7 @@ class PrescreenInferenceBusyError(RuntimeError):
 class PrescreenInferenceGate:
     """Process-local concurrency cap for CLIP prescreen inference."""
 
-    def __init__(self, *, max_concurrent: int = 2, wait_timeout_seconds: float = 1.5) -> None:
+    def __init__(self, *, max_concurrent: int = 4, wait_timeout_seconds: float = 1.5) -> None:
         if max_concurrent < 1:
             raise ValueError("max_concurrent must be >= 1")
         if wait_timeout_seconds < 0:
@@ -51,7 +51,7 @@ _gate_config: tuple[int, float] | None = None
 
 def get_prescreen_inference_gate(
     *,
-    max_concurrent: int = 2,
+    max_concurrent: int = 4,
     wait_timeout_seconds: float = 1.5,
 ) -> PrescreenInferenceGate:
     global _gate, _gate_config

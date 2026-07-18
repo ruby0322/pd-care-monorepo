@@ -52,7 +52,7 @@ Never append `-v` on production-like hosts.
 | Target | Redeploy | Verify | Data safety |
 | --- | --- | --- | --- |
 | **Compose** | `docker compose up --build -d <service>` | `curl http://127.0.0.1:8000/healthz` | Named volumes when Compose is active production |
-| **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; backend `replicas: 2`; migrations on pod start |
+| **K8s `pd-care-dev`** | `eval "$(minikube docker-env)"`, build `:dev` if frontend, `kubectl rollout restart -n pd-care-dev` | `curl https://test.pd.lu.im.ntu.edu.tw/api/healthz` | Dev namespace; backend `replicas: 1`; migrations on pod start |
 | **K8s `pd-care-prod`** | build image; backend: migrate Job then rollout; frontend: rollout only | `curl https://pd.lu.im.ntu.edu.tw/api/healthz`; expect backend `3/3`, frontend `2/2` | **PVCs authoritative**; zero-downtime rolling (`maxUnavailable: 0`) |
 | **K8s GitOps (Argo CD)** | push image-tag changes into `k8s/overlays/*/kustomization.yaml`; Argo reconciles | Argo app health + ingress health checks | `pd-care-monorepo` is public (no Git PAT); require `ghcr-pull-secret` when GHCR packages are private; migration hook runs PreSync in prod |
 | **Ingress bridge** | `docker compose -f docker-compose.ingress-bridge.yml up -d` | public HTTPS smoke on prod/dev domains; `curl -s -o /dev/null -w '%{http_code}' http://<host>/` returns non-connection-refused | Host `:443` + `:80` → Minikube ingress (required for cert-manager HTTP-01) |

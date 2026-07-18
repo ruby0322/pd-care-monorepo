@@ -4,7 +4,7 @@ Track skill updates separately from application commits so drift is auditable.
 
 | Date | Version | Commit audited | Change |
 | --- | --- | --- | --- |
-| 2026-07-18 | 1.5.4 | aedde78 | Prod backend replicas 3 / dev backend 2 for live-prescreen concurrency; keep frontend prod at 2 |
+| 2026-07-18 | 1.5.4 | aedde78 | Prod backend replicas 3 / dev backend 1 for live-prescreen concurrency; PRESCREEN_MAX_CONCURRENT 4 |
 | 2026-07-17 | 1.5.3 | 95616b8 | Align prod migrate docs to `kubectl apply -k` (image rewrite); note full-overlay scope vs Job-only; prefer Argo CD |
 | 2026-07-04 | 1.5.2 | d20d28a | Ingress bridge docs: host `:80` + `:443` for cert-manager HTTP-01; K8s TLS notes in reference |
 | 2026-07-02 | 1.5.1 | cea9e69 | Add Argo CD bootstrap/verify scripts and document CI-gated promotion follow-ups |

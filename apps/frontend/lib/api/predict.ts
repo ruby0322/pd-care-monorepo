@@ -30,9 +30,26 @@ export type PatientPrescreenResponse = {
 const PRESCREEN_429_MAX_RETRIES = 2;
 const PRESCREEN_429_BACKOFF_MS = [400, 800] as const;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
+/** Resolves after `ms`, or rejects immediately if `signal` aborts (including mid-wait). */
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -63,7 +80,7 @@ export async function prescreenPatientExitSiteImage(
       if (status !== 429 || attempt >= PRESCREEN_429_MAX_RETRIES) {
         throw error;
       }
-      await sleep(PRESCREEN_429_BACKOFF_MS[attempt] ?? 800);
+      await sleep(PRESCREEN_429_BACKOFF_MS[attempt] ?? 800, options?.signal);
     }
   }
   throw lastError;

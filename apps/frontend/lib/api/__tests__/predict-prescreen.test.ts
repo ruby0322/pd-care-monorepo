@@ -76,4 +76,19 @@ describe("prescreenPatientExitSiteImage", () => {
     await expect(prescreenPatientExitSiteImage(file)).rejects.toBe(error);
     expect(postMock).toHaveBeenCalledTimes(1);
   });
+
+  it("aborts during 429 backoff without waiting for the full timer", async () => {
+    const postMock = apiClient.post as jest.Mock;
+    postMock.mockRejectedValueOnce(axios429());
+
+    const controller = new AbortController();
+    const file = new File([new Uint8Array([1, 2, 3])], "frame.jpg", { type: "image/jpeg" });
+    const promise = prescreenPatientExitSiteImage(file, { signal: controller.signal });
+    const expectation = expect(promise).rejects.toMatchObject({ name: "AbortError" });
+
+    await Promise.resolve();
+    controller.abort();
+    await expectation;
+    expect(postMock).toHaveBeenCalledTimes(1);
+  });
 });

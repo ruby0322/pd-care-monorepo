@@ -30,12 +30,13 @@ Single-request latency is far below the previous 1 s guess; concurrency thrash a
 | Topic | Choice |
 | --- | --- |
 | Prod backend replicas | `3` |
-| Dev backend replicas | `2` |
+| Dev backend replicas | `1` |
 | Prod frontend replicas | unchanged (`2`) |
-| Inference semaphore | max **2** concurrent CLIP calls per process |
-| Semaphore wait | **1.5 s**; then fail-open `{present:true, checked:false}` |
+| Inference semaphore | max **4** concurrent CLIP calls per process (`PRESCREEN_MAX_CONCURRENT`) |
+| Semaphore wait | **1.5 s** (`PRESCREEN_INFERENCE_WAIT_SECONDS`); then fail-open `{present:true, checked:false}` |
 | Per-patient rate limit | unchanged (~1 s, process-local → 429) |
-| Frontend 429 | up to **2** retries with 400 ms / 800 ms backoff |
+| Frontend 429 | up to **2** retries with 400 ms / 800 ms backoff; backoff respects `AbortSignal` |
+| K8s tunables | both env vars set in `k8s/base/configmap.yaml` (defaults match code) |
 
 ## Architecture
 
