@@ -113,7 +113,7 @@ describe("guidance status mapping", () => {
   });
 
   it("uses patient-readable copy that mentions exit site when realigning", () => {
-    expect(GUIDANCE_COPY.realign).toContain("出口部位");
+    expect(GUIDANCE_COPY.realign).toContain("出口");
     expect(GUIDANCE_COPY.ok).toContain("可以按下快門");
     expect(GUIDANCE_COPY.shaky).toContain("握穩");
   });

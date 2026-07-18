@@ -99,10 +99,10 @@ export function isShutterEnabled(status: PresenceGuidanceStatus): boolean {
 }
 
 export const GUIDANCE_COPY: Record<PresenceGuidanceStatus, string> = {
-  shaky: "畫面晃動中，請將手機握穩後再對準出口",
+  shaky: "畫面晃動中，請握穩後再對準出口",
   idle: "請把腹膜透析的出口部位放進圓圈內",
   ok: "已找到出口部位，可以按下快門",
-  realign: "圓圈內還看不到出口部位，請調整角度或距離",
+  realign: "圓圈內看不到出口，請調整角度距離",
   unavailable: "暫時無法自動檢查，仍可拍照上傳",
 };
 
