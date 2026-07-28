@@ -45,6 +45,7 @@ app/
 tests/
 sql/manual/       optional manual seeds (calendar demo); not executed automatically
 requirements.txt
+requirements-core.txt
 requirements-dev.txt
 Dockerfile
 ```
@@ -55,6 +56,7 @@ Dockerfile
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
+python3 -m pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cpu
 python3 -m pip install -r requirements-dev.txt
 cp .env.example .env
 set -a
@@ -118,6 +120,8 @@ Important settings:
 - `MODEL_ARCH`: fallback reconstruction arch when `MODEL_BACKBONE=none`
 
 ## Docker
+
+The production image installs CPU-only PyTorch wheels (not the default CUDA build from PyPI), keeping the image around **2–3 GB** instead of ~9 GB. Inference remains CPU-only (`DEVICE=cpu`).
 
 ### Build
 

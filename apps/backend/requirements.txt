@@ -1,18 +1,4 @@
-fastapi
-python-multipart
-Pillow
-requests
-sqlalchemy
-alembic
-psycopg[binary]
-boto3
-numpy
-joblib
-scikit-learn
-huggingface_hub
-transformers
-torch==2.9.1
-torchvision==0.24.1
-uvicorn[standard]
-prometheus-fastapi-instrumentator
-
+# PyTorch is installed separately from the CPU wheel index.
+# Docker: see Dockerfile
+# Local / CI: pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cpu
+-r requirements-core.txt

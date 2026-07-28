@@ -14,8 +14,11 @@ RUN useradd --create-home --shell /bin/bash appuser
 
 WORKDIR ${APP_HOME}
 
-COPY requirements.txt ./requirements.txt
-RUN python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+COPY requirements-core.txt ./requirements-core.txt
+RUN python -m pip install --upgrade pip && \
+    python -m pip install torch==2.9.1 torchvision==0.24.1 \
+      --index-url https://download.pytorch.org/whl/cpu && \
+    python -m pip install -r requirements-core.txt
 
 COPY app ./app
 COPY migrations ./migrations

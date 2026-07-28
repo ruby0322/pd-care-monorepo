@@ -1,0 +1,15 @@
+fastapi
+python-multipart
+Pillow
+requests
+sqlalchemy
+alembic
+psycopg[binary]
+boto3
+numpy
+joblib
+scikit-learn
+huggingface_hub
+transformers
+uvicorn[standard]
+prometheus-fastapi-instrumentator
