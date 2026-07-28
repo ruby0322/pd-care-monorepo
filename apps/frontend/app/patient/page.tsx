@@ -2,7 +2,7 @@
 
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
 import { getApiErrorDetail } from "@/lib/api/client";
-import { bindIdentity, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
+import { bindIdentityWithRetry, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
 import {
     fetchPatientMessages,
     fetchUploadHistoryByMonthWindow,
@@ -246,14 +246,17 @@ export default function PatientPage() {
     try {
       setSubmitting(true);
       setError(null);
-      const result = await bindIdentity({
-        line_id_token: (await getLiffLoginProof()).idToken,
-        case_number: caseNumber.trim(),
-        birth_date: birthDate,
-      });
+      const result = await bindIdentityWithRetry(
+        {
+          case_number: caseNumber.trim(),
+          birth_date: birthDate,
+        },
+        async () => (await getLiffLoginProof()).idToken,
+        () => setError("連線失敗，正在重試…")
+      );
       setStatus(result.status);
     } catch (err) {
-      setError(getApiErrorDetail(err) ?? "綁定失敗，請稍後再試或聯絡護理師。");
+      setError(getApiErrorDetail(err) ?? "綁定失敗，請稍後再試。");
     } finally {
       setSubmitting(false);
     }

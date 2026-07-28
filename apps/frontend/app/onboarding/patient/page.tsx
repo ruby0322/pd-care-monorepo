@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
-import { bindIdentity, fetchAuthBootstrap, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
+import { bindIdentityWithRetry, fetchAuthBootstrap, fetchIdentityStatus, IdentityStatus } from "@/lib/api/identity";
 import { getApiErrorDetail } from "@/lib/api/client";
 import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
 import { PATIENT_ONBOARDING_INTENT } from "@/lib/auth/patient-onboarding-intent";
@@ -88,18 +88,23 @@ function PatientOnboardingPageInner() {
       setSubmitting(true);
       setError(null);
       const proof = await getLiffLoginProof();
-      const bindResult = await bindIdentity({
-        line_id_token: proof.idToken,
-        case_number: caseNumber.trim(),
-        birth_date: birthDate,
-      });
+      const bindResult = await bindIdentityWithRetry(
+        {
+          case_number: caseNumber.trim(),
+          birth_date: birthDate,
+        },
+        async () => (await getLiffLoginProof()).idToken,
+        () => setError("連線失敗，正在重試…")
+      );
       setStatus(bindResult.status);
-      const bootstrap = await fetchAuthBootstrap(proof.idToken);
-      if (bootstrap.next_step === "patient_app") {
-        router.replace(buildLoginPath("/patient"));
+      if (bindResult.status === "matched") {
+        const bootstrap = await fetchAuthBootstrap(proof.idToken);
+        if (bootstrap.next_step === "patient_app") {
+          router.replace(buildLoginPath("/patient"));
+        }
       }
     } catch (err) {
-      setError(getApiErrorDetail(err) ?? "綁定失敗，請稍後再試或聯絡護理師。");
+      setError(getApiErrorDetail(err) ?? "綁定失敗，請稍後再試。");
     } finally {
       setSubmitting(false);
     }

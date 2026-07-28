@@ -22,7 +22,7 @@ data:
   LINE_VERIFY_MODE: "line"
   LINE_CHANNEL_ID: "1657724367"
   LINE_VERIFY_ENDPOINT: "https://api.line.me/oauth2/v2.1/verify"
-  LINE_VERIFY_TIMEOUT_SECONDS: "5"
+  LINE_VERIFY_TIMEOUT_SECONDS: "10"
   PRESCREEN_ENABLED: "true"
   PRESCREEN_MODEL_REPO_ID: "ruby0322/pd-exit-site-clip-linear-probe"
   PRESCREEN_MODEL_REVISION: ""

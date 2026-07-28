@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -194,3 +195,25 @@ def test_bind_status_rejects_invalid_line_token(tmp_path: Path) -> None:
     with TestClient(app) as client:
         response = client.post("/v1/identity/bind/status", json={"line_id_token": "not-a-stub-token"})
         assert response.status_code == 400
+        payload = response.json()
+        assert payload["detail"]["code"] == "LINE_TOKEN_INVALID"
+        assert payload["detail"]["message"] == "LINE 登入失敗，請重新開啟。"
+
+
+def test_bind_status_returns_structured_line_verify_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.auth.line_provider import LineIdentityProvider, LineTokenVerifyError
+
+    settings = make_settings(tmp_path / "verify-unavailable.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+
+    def fake_verify(_self: LineIdentityProvider, *, line_id_token: str) -> None:
+        raise LineTokenVerifyError("LINE_VERIFY_UNAVAILABLE", "無法連上 LINE，請稍後再試。")
+
+    monkeypatch.setattr(LineIdentityProvider, "verify_id_token", fake_verify)
+
+    with TestClient(app) as client:
+        response = client.post("/v1/identity/bind/status", json={"line_id_token": "stub:U_LINE_X"})
+        assert response.status_code == 400
+        payload = response.json()
+        assert payload["detail"]["code"] == "LINE_VERIFY_UNAVAILABLE"
+        assert payload["detail"]["message"] == "無法連上 LINE，請稍後再試。"
