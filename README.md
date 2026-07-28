@@ -265,6 +265,7 @@ cd apps/backend
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
+python3 -m pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cpu
 python3 -m pip install -r requirements-dev.txt
 cp .env.example .env
 set -a
