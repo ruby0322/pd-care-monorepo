@@ -45,7 +45,7 @@ function getLoginErrorMessage(error: unknown): string {
       return "登入服務目前不可用，請稍後再試或聯絡系統管理員。";
     }
     if (status === 400) {
-      return "LINE 登入憑證驗證失敗，請重新登入 LINE 後再試。";
+      return detail ?? "LINE 登入失敗，請重新開啟。";
     }
   }
   return detail ?? "登入失敗，請稍後再試。";

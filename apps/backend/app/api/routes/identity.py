@@ -11,6 +11,8 @@ from app.schemas.admin_user_management import (
 )
 from app.schemas.identity import BindIdentityRequest, IdentityBindResponse, IdentityStatusRequest, IdentityStatusResponse
 from app.services.auth import LineIdentityProvider
+from app.services.auth.line_provider import LineTokenVerifyError
+from app.services.auth.line_verify_http import line_verify_http_error
 from app.services.admin_user_management import (
     create_or_replace_healthcare_permission_request,
     get_latest_healthcare_permission_request_status,
@@ -45,8 +47,8 @@ async def bind_patient_identity(request: Request, payload: BindIdentityRequest) 
         line_provider = _build_line_provider(request)
         try:
             profile = line_provider.verify_id_token(line_id_token=payload.line_id_token)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LineTokenVerifyError as exc:
+            raise line_verify_http_error(exc) from exc
         status, patient_id, can_upload = bind_identity(
             session,
             line_user_id=profile.line_user_id,
@@ -70,8 +72,8 @@ async def patient_identity_status(
         line_provider = _build_line_provider(request)
         try:
             profile = line_provider.verify_id_token(line_id_token=payload.line_id_token)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LineTokenVerifyError as exc:
+            raise line_verify_http_error(exc) from exc
         status, patient_id, can_upload = get_identity_status(session, line_user_id=profile.line_user_id)
         return IdentityStatusResponse(status=status, patient_id=patient_id, can_upload=can_upload)
     finally:
@@ -88,8 +90,8 @@ async def create_healthcare_access_request(
         line_provider = _build_line_provider(request)
         try:
             profile = line_provider.verify_id_token(line_id_token=payload.line_id_token)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LineTokenVerifyError as exc:
+            raise line_verify_http_error(exc) from exc
         access_request = create_or_replace_healthcare_permission_request(
             session,
             line_user_id=profile.line_user_id,
@@ -114,8 +116,8 @@ async def get_healthcare_access_request_status(
         line_provider = _build_line_provider(request)
         try:
             profile = line_provider.verify_id_token(line_id_token=payload.line_id_token)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LineTokenVerifyError as exc:
+            raise line_verify_http_error(exc) from exc
         access_request = get_latest_healthcare_permission_request_status(session, line_user_id=profile.line_user_id)
         if access_request is None:
             return HealthcarePermissionRequestStatusResponse(

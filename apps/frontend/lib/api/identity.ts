@@ -1,4 +1,5 @@
-import { apiClient } from "@/lib/api/client";
+import { apiClient, getApiErrorCode } from "@/lib/api/client";
+import { getLiffLoginProof } from "@/lib/auth/liff";
 
 export type IdentityStatus = "matched" | "pending" | "unbound";
 export type HealthcareAccessStatus = "none" | "pending" | "approved" | "rejected";
@@ -69,6 +70,24 @@ export async function fetchAuthBootstrap(lineIdToken: string): Promise<AuthBoots
 export async function bindIdentity(payload: BindIdentityPayload): Promise<IdentityStatusResponse> {
   const { data } = await apiClient.post<IdentityStatusResponse>("/v1/identity/bind", payload);
   return data;
+}
+
+export async function bindIdentityWithRetry(
+  payload: Omit<BindIdentityPayload, "line_id_token">,
+  getLineIdToken: () => Promise<string> = async () => (await getLiffLoginProof()).idToken,
+  onRetry?: () => void
+): Promise<IdentityStatusResponse> {
+  const lineIdToken = await getLineIdToken();
+  try {
+    return await bindIdentity({ ...payload, line_id_token: lineIdToken });
+  } catch (error) {
+    if (getApiErrorCode(error) !== "LINE_VERIFY_UNAVAILABLE") {
+      throw error;
+    }
+    onRetry?.();
+    const refreshedToken = await getLineIdToken();
+    return bindIdentity({ ...payload, line_id_token: refreshedToken });
+  }
 }
 
 export async function fetchPatientProfile(): Promise<PatientProfileResponse> {

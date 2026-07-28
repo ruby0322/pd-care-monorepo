@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.api.deps.auth import get_session
 from app.schemas.auth import AuthBootstrapResponse, AuthTokenResponse, StaffLineLoginRequest
 from app.services.auth import AuthService, AuthTokenService, LineIdentityProvider
+from app.services.auth.line_provider import LineTokenVerifyError
+from app.services.auth.line_verify_http import line_verify_http_error
 from app.services.auth.service import AuthFlowPermissionError
 
 
@@ -53,6 +55,8 @@ async def login_staff_or_admin(request: Request, payload: StaffLineLoginRequest)
                 session,
                 line_id_token=payload.line_id_token,
             )
+        except LineTokenVerifyError as exc:
+            raise line_verify_http_error(exc) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except AuthFlowPermissionError as exc:
@@ -86,6 +90,8 @@ async def auth_bootstrap(request: Request, payload: StaffLineLoginRequest) -> Au
                 session,
                 line_id_token=payload.line_id_token,
             )
+        except LineTokenVerifyError as exc:
+            raise line_verify_http_error(exc) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
