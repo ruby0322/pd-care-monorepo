@@ -23,4 +23,4 @@ images:
     newTag: dev-sha-47beba9bf977
   - name: pd-care-backend
     newName: ghcr.io/ruby0322/pd-care-backend
-    newTag: sha-47beba9bf977
+    newTag: sha-f68435253f86
