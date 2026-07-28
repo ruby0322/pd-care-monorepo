@@ -2,14 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { getReadableApiError } from "@/lib/api/client";
 import {
   fetchHistoryOverview,
-  fetchHistoryOverviewCalendar,
   fetchHistoryOverviewDays,
   fetchUploadImageAccess,
   StaffAnnotationItem,
@@ -17,10 +17,14 @@ import {
   StaffHistoryOverviewUploadItem,
   upsertUploadAnnotation,
 } from "@/lib/api/staff";
-import { buildTaipeiMonthGrid, getMonthKeyFromDateKey, parseTaipeiDateKey } from "@/lib/utils/upload-calendar";
+import { parseTaipeiDateKey } from "@/lib/utils/upload-calendar";
+
+import { ClinicalPeriodPanel } from "./clinical-period-panel";
+import { UsageTrendsTab } from "./usage-trends-tab";
 
 type SortBy = "timeline" | "risk";
 type GroupSortBy = "uploads" | "age" | "infection_risk";
+type OverviewTab = "clinical" | "usage";
 type DraftVerdict = {
   label: StaffAnnotationItem["label"];
   comment: string;
@@ -93,10 +97,35 @@ function suggestedLabel(upload: StaffHistoryOverviewUploadItem): StaffAnnotation
 }
 
 export default function AdminHistoryOverviewPage() {
+  return (
+    <Suspense fallback={<div className="py-16 text-center text-sm text-zinc-500">載入區間分析中...</div>}>
+      <AdminHistoryOverviewPageInner />
+    </Suspense>
+  );
+}
+
+function AdminHistoryOverviewPageInner() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const initialTab = searchParams.get("tab") === "usage" ? "usage" : "clinical";
+  const initialDateParam = searchParams.get("date");
+  let initialDateFromUrl: string | null = null;
+  if (initialDateParam) {
+    try {
+      parseTaipeiDateKey(initialDateParam);
+      initialDateFromUrl = initialDateParam;
+    } catch {
+      initialDateFromUrl = null;
+    }
+  }
+
+  const [overviewTab, setOverviewTab] = useState<OverviewTab>(initialTab);
   const [daysLoading, setDaysLoading] = useState(true);
   const [daysError, setDaysError] = useState<string | null>(null);
   const [days, setDays] = useState<string[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(initialDateFromUrl);
 
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
@@ -105,11 +134,6 @@ export default function AdminHistoryOverviewPage() {
   const [sortBy, setSortBy] = useState<SortBy>("timeline");
   const [groupByUser, setGroupByUser] = useState(true);
   const [groupSortBy, setGroupSortBy] = useState<GroupSortBy>("infection_risk");
-
-  const [calendarLoading, setCalendarLoading] = useState(false);
-  const [calendarRiskByDate, setCalendarRiskByDate] = useState<
-    Record<string, { risky: number; elevated: number }>
-  >({});
 
   const [ungroupedVisibleCount, setUngroupedVisibleCount] = useState(INITIAL_UNGROUPED_VISIBLE);
   const [groupVisibleCountByPatient, setGroupVisibleCountByPatient] = useState<Record<number, number>>({});
@@ -120,6 +144,27 @@ export default function AdminHistoryOverviewPage() {
   const [imageUrlByUploadId, setImageUrlByUploadId] = useState<Record<number, string>>({});
   const [imageErrorByUploadId, setImageErrorByUploadId] = useState<Record<number, boolean>>({});
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const syncUrl = useCallback(
+    (next: { date?: string | null; tab?: OverviewTab }) => {
+      const params = new URLSearchParams(searchParams.toString());
+      const dateValue = next.date !== undefined ? next.date : selectedDate;
+      const tabValue = next.tab ?? overviewTab;
+      if (dateValue) {
+        params.set("date", dateValue);
+      } else {
+        params.delete("date");
+      }
+      if (tabValue === "clinical") {
+        params.delete("tab");
+      } else {
+        params.set("tab", tabValue);
+      }
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [overviewTab, pathname, router, searchParams, selectedDate]
+  );
 
   const loadDays = useCallback(async () => {
     setDaysLoading(true);
@@ -185,28 +230,10 @@ export default function AdminHistoryOverviewPage() {
     if (!selectedDate) {
       return;
     }
-    const { year, month } = parseTaipeiDateKey(selectedDate);
-    const timer = window.setTimeout(() => {
-      setCalendarLoading(true);
-      void fetchHistoryOverviewCalendar({ year, month })
-        .then((response) => {
-          const riskMap: Record<string, { risky: number; elevated: number }> = {};
-          response.items.forEach((item) => {
-            riskMap[item.local_date] = {
-              risky: item.risky_patient_count,
-              elevated: item.symptom_elevated_patient_count,
-            };
-          });
-          setCalendarRiskByDate(riskMap);
-        })
-        .finally(() => {
-          setCalendarLoading(false);
-        });
-    }, 0);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [selectedDate]);
+    syncUrl({ date: selectedDate, tab: overviewTab });
+    // Intentionally only when date/tab change; syncUrl identity would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, overviewTab]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -353,46 +380,58 @@ export default function AdminHistoryOverviewPage() {
   const canGoPrev = selectedDateIndex >= 0 && selectedDateIndex < days.length - 1;
   const canGoNext = selectedDateIndex > 0;
 
-  const calendarDates = useMemo(() => {
-    if (!selectedDate) {
-      return [] as Array<{ day: number; localDate: string | null }>;
-    }
-    const monthKey = getMonthKeyFromDateKey(selectedDate);
-    const grid = buildTaipeiMonthGrid(monthKey);
-    return grid.cells.map((cell) => ({
-      day: cell.dayOfMonth,
-      localDate: cell.isCurrentMonth ? cell.dateKey : null,
-    }));
-  }, [selectedDate]);
-
-  const monthRiskMax = useMemo(() => {
-    const values = Object.values(calendarRiskByDate).map((entry) => entry.risky);
-    return values.length > 0 ? Math.max(...values) : 0;
-  }, [calendarRiskByDate]);
-
-  if (daysLoading && !selectedDate) {
-    return <div className="py-16 text-center text-sm text-zinc-500">載入歷史總覽中...</div>;
-  }
-
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-900">歷史總覽</h1>
-          <p className="text-xs text-zinc-500">依台灣時區日期檢視上傳紀錄與感染風險分布。</p>
+          <h1 className="text-lg font-semibold text-zinc-900">區間分析</h1>
+          <p className="text-xs text-zinc-500">臨床回顧與使用趨勢（依台灣時區）。</p>
         </div>
+        {overviewTab === "clinical" ? (
+          <button
+            type="button"
+            onClick={() => {
+              void loadDays();
+              void loadOverview();
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+          >
+            <RefreshCw className="h-4 w-4" />
+            重新整理
+          </button>
+        ) : null}
+      </header>
+
+      <div className="flex gap-2 border-b border-zinc-200 pb-2">
         <button
           type="button"
-          onClick={() => {
-            void loadDays();
-            void loadOverview();
-          }}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+          onClick={() => setOverviewTab("clinical")}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+            overviewTab === "clinical" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+          }`}
         >
-          <RefreshCw className="h-4 w-4" />
-          重新整理
+          臨床
         </button>
-      </header>
+        <button
+          type="button"
+          onClick={() => setOverviewTab("usage")}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+            overviewTab === "usage" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+          }`}
+        >
+          使用趨勢
+        </button>
+      </div>
+
+      {overviewTab === "usage" ? <UsageTrendsTab /> : null}
+
+      {overviewTab === "clinical" && daysLoading && !selectedDate ? (
+        <div className="py-16 text-center text-sm text-zinc-500">載入區間分析中...</div>
+      ) : null}
+
+      {overviewTab === "clinical" && !(daysLoading && !selectedDate) ? (
+        <>
+      <ClinicalPeriodPanel />
 
       {daysError ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{daysError}</div> : null}
       {overviewError ? (
@@ -400,24 +439,37 @@ export default function AdminHistoryOverviewPage() {
       ) : null}
 
       <section className="grid gap-3 rounded-2xl border border-zinc-200 bg-white p-4 md:grid-cols-[1fr_auto] md:items-center">
-        <div className="inline-flex items-center gap-2">
-          <button
-            type="button"
-            disabled={!canGoPrev}
-            onClick={() => canGoPrev && setSelectedDate(days[selectedDateIndex + 1])}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <div className="rounded-lg bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-800">{selectedDate ?? "—"}</div>
-          <button
-            type="button"
-            disabled={!canGoNext}
-            onClick={() => canGoNext && setSelectedDate(days[selectedDateIndex - 1])}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="inline-flex items-center gap-2">
+            <span className="text-xs text-zinc-500">檢視日期</span>
+            <button
+              type="button"
+              disabled={!canGoPrev}
+              onClick={() => canGoPrev && setSelectedDate(days[selectedDateIndex + 1])}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="rounded-lg bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-800">
+              {selectedDate ?? "—"}
+            </div>
+            <button
+              type="button"
+              disabled={!canGoNext}
+              onClick={() => canGoNext && setSelectedDate(days[selectedDateIndex - 1])}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          {selectedDate ? (
+            <Link
+              href={`/admin?date=${encodeURIComponent(selectedDate)}`}
+              className="text-xs text-zinc-500 hover:text-zinc-800"
+            >
+              在儀表板變更日期 →
+            </Link>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-2 md:flex md:items-center md:gap-2">
@@ -470,68 +522,6 @@ export default function AdminHistoryOverviewPage() {
         <div className="rounded-xl border border-zinc-200 bg-white p-3">
           <p className="text-xs text-zinc-500">infection rate</p>
           <p className="mt-1 text-lg font-semibold text-zinc-900">{((overviewData?.kpi.infection_rate ?? 0) * 100).toFixed(1)}%</p>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-zinc-200 bg-white p-4">
-        <div className="mb-3 flex items-center gap-2 text-sm text-zinc-700">
-          <CalendarDays className="h-4 w-4" />
-          月曆風險分布
-          {calendarLoading ? <span className="text-xs text-zinc-400">載入中...</span> : null}
-        </div>
-        <div className="grid grid-cols-7 gap-1 text-xs text-zinc-500">
-          {["日", "一", "二", "三", "四", "五", "六"].map((label) => (
-            <div key={label} className="py-1 text-center">
-              {label}
-            </div>
-          ))}
-        </div>
-        <div className="mt-1 grid grid-cols-7 gap-1">
-          {calendarDates.map((entry, index) => {
-            if (!entry.localDate) {
-              return <div key={`blank-${index}`} className="h-10 rounded-md bg-zinc-50" />;
-            }
-            const isAvailable = days.includes(entry.localDate);
-            const dayRisk = calendarRiskByDate[entry.localDate];
-            const riskyCount = dayRisk?.risky ?? 0;
-            const elevatedCount = dayRisk?.elevated ?? 0;
-            const ratio = monthRiskMax > 0 ? riskyCount / monthRiskMax : 0;
-            let toneClass = "bg-zinc-100 text-zinc-500";
-            if (isAvailable && riskyCount <= 0 && elevatedCount <= 0) {
-              toneClass = "bg-emerald-100 text-emerald-700";
-            } else if (isAvailable && riskyCount > 0) {
-              if (ratio <= 0.25) {
-                toneClass = "bg-red-100 text-red-700";
-              } else if (ratio <= 0.5) {
-                toneClass = "bg-red-200 text-red-800";
-              } else if (ratio <= 0.75) {
-                toneClass = "bg-red-300 text-red-900";
-              } else {
-                toneClass = "bg-red-500 text-white";
-              }
-            } else if (isAvailable && elevatedCount > 0) {
-              toneClass = "bg-orange-200 text-orange-800";
-            }
-            const selectedClass = selectedDate === entry.localDate ? "ring-2 ring-zinc-900" : "";
-            const titleRisk =
-              riskyCount > 0
-                ? `疑似 ${riskyCount}`
-                : elevatedCount > 0
-                  ? `症狀高風險 ${elevatedCount}`
-                  : "無風險";
-            return (
-              <button
-                key={entry.localDate}
-                type="button"
-                disabled={!isAvailable}
-                onClick={() => setSelectedDate(entry.localDate)}
-                className={`h-10 rounded-md text-center text-xs font-medium ${toneClass} ${selectedClass} disabled:cursor-not-allowed disabled:opacity-50`}
-                title={isAvailable ? `${entry.localDate} ${titleRisk}` : `${entry.localDate} 無資料`}
-              >
-                {entry.day}
-              </button>
-            );
-          })}
         </div>
       </section>
 
@@ -763,6 +753,8 @@ export default function AdminHistoryOverviewPage() {
             </div>
           </div>
         </div>
+      ) : null}
+        </>
       ) : null}
     </div>
   );

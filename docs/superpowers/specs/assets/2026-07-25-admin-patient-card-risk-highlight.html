@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin patient card — risk highlight row</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-100 p-8 text-zinc-900">
+  <div class="mx-auto max-w-4xl space-y-8">
+    <header>
+      <h1 class="text-xl font-semibold">儀表板病患卡片 v2 — 風險 highlight 列</h1>
+      <p class="mt-1 text-sm text-zinc-500">tier=suspected / elevated 時，上傳預覽列下方加「最高風險上傳」列</p>
+    </header>
+
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <!-- Suspected + AI -->
+      <a href="#" class="block rounded-xl border border-zinc-200 bg-white p-3 transition hover:border-zinc-400">
+        <div class="flex items-start gap-2.5">
+          <div class="h-11 w-11 shrink-0 rounded-full bg-emerald-100 ring-1 ring-zinc-200"></div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="truncate text-sm font-semibold">王小明</span>
+              <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">疑似</span>
+            </div>
+            <p class="mt-0.5 text-[11px] text-zinc-500">未處理 · 自 09:12 等待</p>
+          </div>
+        </div>
+        <div class="mt-2.5 grid grid-cols-4 gap-1">
+          <div class="aspect-square rounded-md bg-zinc-200"></div>
+          <div class="aspect-square rounded-md bg-zinc-200"></div>
+          <div class="aspect-square rounded-md bg-zinc-200"></div>
+          <div class="flex aspect-square items-center justify-center rounded-md bg-zinc-100 text-xs font-semibold text-zinc-500">+2</div>
+        </div>
+        <div class="mt-2 flex items-start gap-2 rounded-lg border border-rose-100 bg-rose-50/40 p-2">
+          <div class="relative h-14 w-14 shrink-0 overflow-hidden rounded-md bg-zinc-300 ring-1 ring-rose-200">
+            <span class="absolute left-0.5 top-0.5 rounded bg-rose-600 px-1 py-px text-[8px] font-medium text-white">最高</span>
+          </div>
+          <div class="min-w-0 flex-1 space-y-1">
+            <p class="text-[10px] font-medium text-zinc-500">最高風險上傳 · 10:48</p>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700">suspected</span>
+              <span class="text-[11px] font-semibold text-zinc-800">AI 82.3%</span>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">疼痛</span>
+              <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">膿</span>
+            </div>
+          </div>
+        </div>
+      </a>
+
+      <!-- Elevated only -->
+      <a href="#" class="block rounded-xl border border-zinc-200 bg-white p-3 transition hover:border-zinc-400">
+        <div class="flex items-start gap-2.5">
+          <div class="h-11 w-11 shrink-0 rounded-full bg-sky-100 ring-1 ring-zinc-200"></div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="truncate text-sm font-semibold">陳美玲</span>
+              <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">高風險</span>
+            </div>
+            <p class="mt-0.5 text-[11px] text-zinc-500">未處理 · 自 08:05 等待</p>
+          </div>
+        </div>
+        <div class="mt-2.5 grid grid-cols-4 gap-1">
+          <div class="aspect-square rounded-md bg-zinc-200"></div>
+          <div class="aspect-square rounded-md bg-zinc-200"></div>
+          <div class="aspect-square rounded-md bg-zinc-100"></div>
+          <div class="aspect-square rounded-md bg-zinc-100"></div>
+        </div>
+        <div class="mt-2 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/40 p-2">
+          <div class="relative h-14 w-14 shrink-0 overflow-hidden rounded-md bg-zinc-300 ring-1 ring-amber-200">
+            <span class="absolute left-0.5 top-0.5 rounded bg-amber-600 px-1 py-px text-[8px] font-medium text-white">最高</span>
+          </div>
+          <div class="min-w-0 flex-1 space-y-1">
+            <p class="text-[10px] font-medium text-zinc-500">最高風險上傳 · 08:05</p>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">normal</span>
+              <span class="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">症狀高風險</span>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">透析液混濁</span>
+            </div>
+          </div>
+        </div>
+      </a>
+
+      <!-- Other tier — no highlight row -->
+      <a href="#" class="block rounded-xl border border-zinc-200 bg-white p-3 transition hover:border-zinc-400">
+        <div class="flex items-start gap-2.5">
+          <div class="h-11 w-11 shrink-0 rounded-full bg-violet-100 ring-1 ring-zinc-200"></div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="truncate text-sm font-semibold">林志豪</span>
+              <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600">今日上傳</span>
+            </div>
+            <p class="mt-0.5 text-[11px] text-zinc-500">今日已上傳</p>
+          </div>
+        </div>
+        <div class="mt-2.5 grid grid-cols-4 gap-1">
+          <div class="aspect-square rounded-md bg-zinc-200"></div>
+          <div class="aspect-square rounded-md bg-zinc-100"></div>
+          <div class="aspect-square rounded-md bg-zinc-100"></div>
+          <div class="aspect-square rounded-md bg-zinc-100"></div>
+        </div>
+        <!-- no risk highlight -->
+      </a>
+
+      <!-- Annotated suspected — dimmed -->
+      <a href="#" class="block rounded-xl border border-zinc-200 bg-white p-3 opacity-55 transition hover:border-zinc-400">
+        <div class="flex items-start gap-2.5">
+          <div class="h-11 w-11 shrink-0 rounded-full bg-pink-100 ring-1 ring-zinc-200"></div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="truncate text-sm font-semibold">張雅婷</span>
+              <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">疑似</span>
+            </div>
+            <p class="mt-0.5 text-[11px] text-green-600">已註解 · 11:20</p>
+          </div>
+        </div>
+        <div class="mt-2.5 grid grid-cols-4 gap-1">
+          <div class="aspect-square rounded-md bg-zinc-200"></div>
+        </div>
+        <div class="mt-2 flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-2">
+          <div class="h-14 w-14 shrink-0 rounded-md bg-zinc-300"></div>
+          <div class="min-w-0 flex-1 space-y-1">
+            <p class="text-[10px] font-medium text-zinc-500">最高風險上傳 · 11:20</p>
+            <span class="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700">suspected</span>
+            <span class="text-[11px] font-semibold text-zinc-700">AI 91.0%</span>
+          </div>
+        </div>
+      </a>
+    </div>
+  </div>
+</body>
+</html>

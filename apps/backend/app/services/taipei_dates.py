@@ -15,9 +15,13 @@ def to_taipei_date(raw_dt: datetime) -> date:
     return normalize_datetime(raw_dt).astimezone(TAIPEI_TIMEZONE).date()
 
 
-def resolve_taipei_day_bounds(reference_dt: datetime | None = None) -> tuple[date, datetime, datetime]:
-    resolved_reference = reference_dt if reference_dt is not None else datetime.now(tz=timezone.utc)
-    local_day = normalize_datetime(resolved_reference).astimezone(TAIPEI_TIMEZONE).date()
+def resolve_taipei_day_bounds_for_date(local_day: date) -> tuple[date, datetime, datetime]:
     local_start = datetime.combine(local_day, time.min, tzinfo=TAIPEI_TIMEZONE)
     local_end = local_start + timedelta(days=1)
     return local_day, local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
+
+
+def resolve_taipei_day_bounds(reference_dt: datetime | None = None) -> tuple[date, datetime, datetime]:
+    resolved_reference = reference_dt if reference_dt is not None else datetime.now(tz=timezone.utc)
+    local_day = normalize_datetime(resolved_reference).astimezone(TAIPEI_TIMEZONE).date()
+    return resolve_taipei_day_bounds_for_date(local_day)

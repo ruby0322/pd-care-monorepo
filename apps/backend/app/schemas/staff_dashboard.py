@@ -101,6 +101,43 @@ class StaffUploadQueueResponse(BaseModel):
     items: list[StaffUploadQueueItem]
 
 
+class StaffTodayAttentionRiskHighlight(BaseModel):
+    upload_id: int
+    screening_result: str
+    probability: float | None
+    threshold: float | None
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
+    created_at: datetime
+
+
+class StaffTodayAttentionPatientItem(BaseModel):
+    patient_id: int
+    case_number: str
+    full_name: str | None
+    tier: Literal["suspected", "elevated", "other"]
+    representative_upload_id: int
+    sort_upload_at: datetime
+    has_annotation: bool
+    picture_url: str | None = None
+    day_upload_count: int = 0
+    preview_upload_ids: list[int] = Field(default_factory=list)
+    risk_highlight: StaffTodayAttentionRiskHighlight | None = None
+
+
+class StaffTodayAttentionResponse(BaseModel):
+    date: str
+    total_uploads: int
+    suspected_patients: int
+    elevated_patients: int
+    other_patients: int
+    items: list[StaffTodayAttentionPatientItem]
+
+
 class StaffHistoryOverviewDayItem(BaseModel):
     local_date: str
     upload_count: int
@@ -182,10 +219,13 @@ class StaffHistoryOverviewResponse(BaseModel):
 
 class StaffHistoryOverviewCalendarItem(BaseModel):
     local_date: str
+    upload_count: int = 0
+    uploaded_users: int = 0
     risky_patient_count: int
     has_infection_risk: bool
     symptom_elevated_patient_count: int
     has_symptom_elevated_risk: bool
+    unhandled_patient_count: int = 0
 
 
 class StaffHistoryOverviewCalendarResponse(BaseModel):

@@ -115,14 +115,19 @@ Response shape:
   "items": [
     {
       "local_date": "2026-05-29",
+      "upload_count": 12,
+      "uploaded_users": 7,
       "risky_patient_count": 3,
       "has_infection_risk": true,
       "symptom_elevated_patient_count": 2,
-      "has_symptom_elevated_risk": true
+      "has_symptom_elevated_risk": true,
+      "unhandled_patient_count": 1
     }
   ]
 }
 ```
+
+`unhandled_patient_count`: patients whose attention tier that day is `suspected` or `elevated` and whose representative upload has no staff annotation.
 
 ## Semantic Rules
 

@@ -50,6 +50,9 @@ from app.schemas.staff_dashboard import (
     StaffPatientUploadsResponse,
     StaffUploadQueueItem,
     StaffUploadQueueResponse,
+    StaffTodayAttentionPatientItem,
+    StaffTodayAttentionResponse,
+    StaffTodayAttentionRiskHighlight,
     StaffUploadRecord,
     StaffHistoryOverviewCalendarItem,
     StaffHistoryOverviewCalendarResponse,
@@ -76,6 +79,7 @@ from app.services.staff_dashboard import (
     list_patient_upload_records_page,
     list_pending_bindings,
     list_staff_patients,
+    list_today_attention_patients,
     list_upload_queue,
     preview_delete_inactive_patients,
     update_pending_binding_status,
@@ -495,6 +499,71 @@ async def get_staff_upload_queue(
         session.close()
 
 
+@router.get("/v1/staff/uploads/today-attention", response_model=StaffTodayAttentionResponse)
+async def get_staff_today_attention(
+    request: Request,
+    local_date: date | None = Query(default=None),
+    credentials=Depends(bearer_scheme),
+) -> StaffTodayAttentionResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        today, total_uploads, rows = list_today_attention_patients(
+            session,
+            accessible_patient_ids=accessible_patient_ids,
+            local_date=local_date,
+        )
+        suspected_patients = sum(1 for row in rows if row.tier == "suspected")
+        elevated_patients = sum(1 for row in rows if row.tier == "elevated")
+        other_patients = sum(1 for row in rows if row.tier == "other")
+        return StaffTodayAttentionResponse(
+            date=today.isoformat(),
+            total_uploads=total_uploads,
+            suspected_patients=suspected_patients,
+            elevated_patients=elevated_patients,
+            other_patients=other_patients,
+            items=[
+                StaffTodayAttentionPatientItem(
+                    patient_id=row.patient.id,
+                    case_number=row.patient.case_number,
+                    full_name=row.patient.full_name,
+                    tier=row.tier,
+                    representative_upload_id=row.representative_upload_id,
+                    sort_upload_at=row.sort_upload_at,
+                    has_annotation=row.has_annotation,
+                    picture_url=row.picture_url,
+                    day_upload_count=row.day_upload_count,
+                    preview_upload_ids=row.preview_upload_ids,
+                    risk_highlight=(
+                        StaffTodayAttentionRiskHighlight(
+                            upload_id=row.risk_highlight.upload_id,
+                            screening_result=row.risk_highlight.screening_result,
+                            probability=row.risk_highlight.probability,
+                            threshold=row.risk_highlight.threshold,
+                            symptom_pain=row.risk_highlight.symptom_pain,
+                            symptom_discharge=row.risk_highlight.symptom_discharge,
+                            symptom_pus=row.risk_highlight.symptom_pus,
+                            symptom_cloudy_dialysate=row.risk_highlight.symptom_cloudy_dialysate,
+                            has_high_risk_symptoms=row.risk_highlight.has_high_risk_symptoms,
+                            symptom_aware_priority=row.risk_highlight.symptom_aware_priority,
+                            created_at=row.risk_highlight.created_at,
+                        )
+                        if row.risk_highlight is not None
+                        else None
+                    ),
+                )
+                for row in rows
+            ],
+        )
+    finally:
+        session.close()
+
+
 @router.get("/v1/staff/uploads/history-overview/days", response_model=StaffHistoryOverviewDaysResponse)
 async def get_staff_history_overview_days(
     request: Request,
@@ -680,10 +749,13 @@ async def get_staff_history_overview_calendar(
             items=[
                 StaffHistoryOverviewCalendarItem(
                     local_date=item.local_date.isoformat(),
+                    upload_count=item.upload_count,
+                    uploaded_users=item.uploaded_users,
                     risky_patient_count=item.risky_patient_count,
                     has_infection_risk=item.has_infection_risk,
                     symptom_elevated_patient_count=item.symptom_elevated_patient_count,
                     has_symptom_elevated_risk=item.has_symptom_elevated_risk,
+                    unhandled_patient_count=item.unhandled_patient_count,
                 )
                 for item in rows
             ],

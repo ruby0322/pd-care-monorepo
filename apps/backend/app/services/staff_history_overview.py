@@ -25,6 +25,7 @@ class HistoryOverviewDaySummary:
     has_infection_risk: bool
     symptom_elevated_patient_count: int
     has_symptom_elevated_risk: bool
+    unhandled_patient_count: int
 
 
 @dataclass(frozen=True)
@@ -89,10 +90,13 @@ class HistoryOverviewData:
 @dataclass(frozen=True)
 class HistoryOverviewCalendarItem:
     local_date: date
+    upload_count: int
+    uploaded_users: int
     risky_patient_count: int
     has_infection_risk: bool
     symptom_elevated_patient_count: int
     has_symptom_elevated_risk: bool
+    unhandled_patient_count: int
 
 
 @dataclass(frozen=True)
@@ -217,6 +221,31 @@ def _day_patient_risk_sets(day_rows: list[_RawUploadRow]) -> tuple[set[int], set
     return suspected_patient_ids, elevated_patient_ids, rate_patient_ids
 
 
+def _count_unhandled_for_day(day_rows: list[_RawUploadRow]) -> int:
+    """Count patients whose attention tier is suspected/elevated and representative upload is unannotated.
+
+    Matches list_today_attention_patients representative selection + has_annotation semantics.
+    """
+    by_patient: dict[int, list[_RawUploadRow]] = defaultdict(list)
+    for row in day_rows:
+        if row.screening_result == "rejected":
+            continue
+        by_patient[row.patient_id].append(row)
+
+    unhandled = 0
+    for patient_rows in by_patient.values():
+        has_suspected = any(_tier_for_row(row) == "suspected" for row in patient_rows)
+        has_elevated = any(_tier_for_row(row) == "elevated" for row in patient_rows)
+        if not has_suspected and not has_elevated:
+            continue
+        target_tier = "suspected" if has_suspected else "elevated"
+        candidates = [row for row in patient_rows if _tier_for_row(row) == target_tier]
+        representative = min(candidates, key=lambda row: (normalize_datetime(row.created_at), row.upload_id))
+        if representative.annotation_label is None:
+            unhandled += 1
+    return unhandled
+
+
 def _raw_rows(session: Session, *, accessible_patient_ids: set[int] | None = None) -> list[_RawUploadRow]:
     base_query: Select = (
         select(Upload, AIResult, Patient)
@@ -297,6 +326,7 @@ def list_history_overview_days(
                 has_infection_risk=suspected_infected_users > 0,
                 symptom_elevated_patient_count=symptom_elevated_users,
                 has_symptom_elevated_risk=symptom_elevated_users > 0,
+                unhandled_patient_count=_count_unhandled_for_day(day_rows),
             )
         )
     return result
@@ -452,10 +482,13 @@ def get_history_overview_calendar_month(
     return [
         HistoryOverviewCalendarItem(
             local_date=item.local_date,
+            upload_count=item.upload_count,
+            uploaded_users=item.uploaded_users,
             risky_patient_count=item.risky_patient_count,
             has_infection_risk=item.has_infection_risk,
             symptom_elevated_patient_count=item.symptom_elevated_patient_count,
             has_symptom_elevated_risk=item.has_symptom_elevated_risk,
+            unhandled_patient_count=item.unhandled_patient_count,
         )
         for item in days
         if item.local_date.year == year and item.local_date.month == month

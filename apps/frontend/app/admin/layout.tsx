@@ -190,7 +190,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               }`}
             >
               <CalendarDays className="w-4 h-4" strokeWidth={1.5} />
-              歷史總覽
+              區間分析
             </Link>
             <Link
               href="/admin/registration-review"
@@ -343,11 +343,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   ? "bg-zinc-900 text-white"
                   : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
               }`}
-              aria-label="歷史總覽"
-              title={isSidebarCollapsed ? "歷史總覽" : undefined}
+              aria-label="區間分析"
+              title={isSidebarCollapsed ? "區間分析" : undefined}
             >
               <CalendarDays className="w-4 h-4" strokeWidth={1.5} />
-              {!isSidebarCollapsed ? "歷史總覽" : null}
+              {!isSidebarCollapsed ? "區間分析" : null}
             </Link>
             <Link
               href="/admin/registration-review"
