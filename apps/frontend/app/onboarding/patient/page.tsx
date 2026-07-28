@@ -87,7 +87,6 @@ function PatientOnboardingPageInner() {
     try {
       setSubmitting(true);
       setError(null);
-      const proof = await getLiffLoginProof();
       const bindResult = await bindIdentityWithRetry(
         {
           case_number: caseNumber.trim(),
@@ -98,7 +97,8 @@ function PatientOnboardingPageInner() {
       );
       setStatus(bindResult.status);
       if (bindResult.status === "matched") {
-        const bootstrap = await fetchAuthBootstrap(proof.idToken);
+        const freshProof = await getLiffLoginProof();
+        const bootstrap = await fetchAuthBootstrap(freshProof.idToken);
         if (bootstrap.next_step === "patient_app") {
           router.replace(buildLoginPath("/patient"));
         }

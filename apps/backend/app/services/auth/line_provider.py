@@ -21,6 +21,7 @@ MSG_VERIFY_MISCONFIGURED = "系統異常，請聯絡護理師。"
 
 LINE_VERIFY_MAX_ATTEMPTS = 3
 LINE_VERIFY_RETRY_BACKOFF_SECONDS = (0.3, 0.6)
+LINE_VERIFY_RETRYABLE_STATUS_CODES = frozenset({408, 429})
 
 
 class LineTokenVerifyError(ValueError):
@@ -97,7 +98,7 @@ class LineIdentityProvider:
                     continue
                 raise LineTokenVerifyError(LINE_VERIFY_UNAVAILABLE, MSG_VERIFY_UNAVAILABLE) from exc
 
-            if response.status_code >= 500:
+            if response.status_code >= 500 or response.status_code in LINE_VERIFY_RETRYABLE_STATUS_CODES:
                 logger.warning(
                     "LINE verify returned %s (attempt %s/%s)",
                     response.status_code,

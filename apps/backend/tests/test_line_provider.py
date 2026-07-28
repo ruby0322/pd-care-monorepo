@@ -107,3 +107,19 @@ def test_line_verify_expired_token_does_not_retry(mock_post: MagicMock) -> None:
     assert exc_info.value.code == LINE_TOKEN_EXPIRED
     assert exc_info.value.message == MSG_TOKEN_EXPIRED
     assert mock_post.call_count == 1
+
+
+@patch("app.services.auth.line_provider.time.sleep")
+@patch("app.services.auth.line_provider.requests.post")
+def test_line_verify_retries_on_429_then_raises_unavailable(mock_post: MagicMock, _mock_sleep: MagicMock) -> None:
+    response = MagicMock()
+    response.status_code = 429
+    response.json.return_value = {"error": "too_many_requests"}
+    mock_post.return_value = response
+    provider = _line_provider()
+
+    with pytest.raises(LineTokenVerifyError) as exc_info:
+        provider.verify_id_token(line_id_token="real-token")
+
+    assert exc_info.value.code == LINE_VERIFY_UNAVAILABLE
+    assert mock_post.call_count == 3
