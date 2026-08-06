@@ -19,7 +19,7 @@ import os
 import random
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -43,6 +43,7 @@ TZ = ZoneInfo("Asia/Taipei")
 CASE_PREFIX = "P-DEV-DASH-"
 LINE_PREFIX = "U_DEV_DASH_"
 LOOKBACK_DAYS = 30
+SHOWCASE_MIN_UPLOADERS = 11  # e.g. 8/6 UI review: calendar "uploaded users" > 10
 RNG = random.Random(20260806)
 
 
@@ -76,7 +77,8 @@ def _taipei_today() -> date:
 
 
 def _parse_local_dt(day: date, hour: int, minute: int) -> datetime:
-    return datetime.combine(day, datetime.min.time().replace(hour=hour, minute=minute), tzinfo=TZ)
+    local = datetime.combine(day, datetime.min.time().replace(hour=hour, minute=minute), tzinfo=TZ)
+    return local.astimezone(timezone.utc)
 
 
 def _resolve_staff_identity_id(session: Session) -> int | None:
@@ -184,6 +186,13 @@ def _upload_profile(day_offset: int, patient_index: int, upload_index: int) -> t
     return ("normal", {}, 0.05 + RNG.random() * 0.25, False)
 
 
+def _is_showcase_day(local_day: date, today: date) -> bool:
+    """Days that should show a busy patient pool (today + Aug 6 when in window)."""
+    if local_day == today:
+        return True
+    return local_day.month == 8 and local_day.day == 6
+
+
 def _seed_demo(session: Session, *, staff_identity_id: int | None) -> list[str]:
     patients_by_suffix: dict[str, Patient] = {}
     for spec in _PATIENTS:
@@ -221,22 +230,69 @@ def _seed_demo(session: Session, *, staff_identity_id: int | None) -> list[str]:
     for day_offset in range(-LOOKBACK_DAYS, 1):
         local_day = today + timedelta(days=day_offset)
         weekday = local_day.weekday()
-        # Skip some days; weekends slightly quieter.
+        showcase = _is_showcase_day(local_day, today)
+        # Skip some days; weekends slightly quieter. Never skip showcase days.
         skip_chance = 0.35 if weekday >= 5 else 0.22
-        if day_offset not in (0, -1, -3, -7, -14, -21) and RNG.random() < skip_chance:
+        if not showcase and day_offset not in (-1, -3, -7, -14, -21) and RNG.random() < skip_chance:
             continue
 
         active_days.append(local_day.isoformat())
-        upload_target = RNG.randint(5, 14) if day_offset >= -7 else RNG.randint(3, 10)
-        if weekday >= 5:
-            upload_target = max(2, upload_target - 2)
 
-        chosen_suffixes = RNG.sample(
-            [spec.suffix for spec in _PATIENTS],
-            k=min(len(_PATIENTS), RNG.randint(3, min(9, upload_target))),
-        )
+        if showcase:
+            chosen_suffixes = [spec.suffix for spec in _PATIENTS]
+            upload_target = max(SHOWCASE_MIN_UPLOADERS + 2, RNG.randint(14, 20))
+        else:
+            upload_target = RNG.randint(5, 14) if day_offset >= -7 else RNG.randint(3, 10)
+            if weekday >= 5:
+                upload_target = max(2, upload_target - 2)
+            chosen_suffixes = RNG.sample(
+                [spec.suffix for spec in _PATIENTS],
+                k=min(len(_PATIENTS), RNG.randint(3, min(9, upload_target))),
+            )
+
         upload_count = 0
         patient_cycle = 0
+        # Showcase: every patient uploads at least once before extras.
+        if showcase:
+            for suffix in chosen_suffixes:
+                patient = patients_by_suffix[suffix]
+                patient_index = int(suffix)
+                screening, symptoms, probability, annotate = _upload_profile(day_offset, patient_index, upload_count)
+                hour = 7 + (upload_count * 2 + patient_index) % 14
+                minute = (upload_count * 11 + patient_index * 7) % 60
+                upload = Upload(
+                    patient_id=patient.id,
+                    object_key=f"patients/dashboard-demo/{patient.id}/{local_day.isoformat()}-{upload_count}.jpg",
+                    content_type="image/jpeg",
+                    created_at=_parse_local_dt(local_day, hour, minute),
+                    symptom_pain=bool(symptoms.get("symptom_pain")),
+                    symptom_discharge=bool(symptoms.get("symptom_discharge")),
+                    symptom_pus=bool(symptoms.get("symptom_pus")),
+                    symptom_cloudy_dialysate=bool(symptoms.get("symptom_cloudy_dialysate")),
+                )
+                session.add(upload)
+                session.flush()
+                session.add(
+                    AIResult(
+                        upload_id=upload.id,
+                        screening_result=screening,
+                        probability=probability,
+                        threshold=0.5,
+                        predicted_class="class_4" if screening == "suspected" else "class_1",
+                        model_version="dashboard-demo-v1",
+                    )
+                )
+                if annotate and staff_identity_id is not None and screening in ("suspected", "normal"):
+                    label = "suspected" if screening == "suspected" else "normal"
+                    _add_annotation(
+                        session,
+                        patient_id=patient.id,
+                        upload_id=upload.id,
+                        reviewer_identity_id=staff_identity_id,
+                        label=label,
+                    )
+                upload_count += 1
+
         while upload_count < upload_target:
             suffix = chosen_suffixes[patient_cycle % len(chosen_suffixes)]
             patient_cycle += 1

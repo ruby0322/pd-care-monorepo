@@ -18,6 +18,8 @@ type TodayPatientDetailPanelProps = {
   isTodaySelected: boolean;
   className?: string;
   onReviewSaved?: () => void;
+  imageUrlByUploadId?: Record<number, string>;
+  imageErrorByUploadId?: Record<number, boolean>;
 };
 
 function tierLabel(tier: StaffTodayAttentionPatientItem["tier"]): { text: string; className: string } {
@@ -84,6 +86,8 @@ export function TodayPatientDetailPanel({
   isTodaySelected,
   className,
   onReviewSaved,
+  imageUrlByUploadId = {},
+  imageErrorByUploadId = {},
 }: TodayPatientDetailPanelProps) {
   const [reviewOpen, setReviewOpen] = useState(false);
 
@@ -161,7 +165,11 @@ export function TodayPatientDetailPanel({
         <div className="grid grid-cols-2 gap-2">
           {uploadIds.map((uploadId) => (
             <div key={uploadId} className="aspect-square">
-              <UploadThumb uploadId={uploadId} />
+              <UploadThumb
+                uploadId={uploadId}
+                imageUrl={imageUrlByUploadId[uploadId] ?? null}
+                imageError={imageErrorByUploadId[uploadId]}
+              />
             </div>
           ))}
           {overflow > 0 ? (

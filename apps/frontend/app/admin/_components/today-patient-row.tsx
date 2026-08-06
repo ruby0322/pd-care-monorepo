@@ -45,9 +45,18 @@ type TodayPatientRowProps = {
   isTodaySelected: boolean;
   selected: boolean;
   onSelect: (patientId: number) => void;
+  imageUrlByUploadId: Record<number, string>;
+  imageErrorByUploadId: Record<number, boolean>;
 };
 
-export function TodayPatientRow({ item, isTodaySelected, selected, onSelect }: TodayPatientRowProps) {
+export function TodayPatientRow({
+  item,
+  isTodaySelected,
+  selected,
+  onSelect,
+  imageUrlByUploadId,
+  imageErrorByUploadId,
+}: TodayPatientRowProps) {
   const name = item.full_name || item.case_number;
   const status = statusLabel(item, isTodaySelected);
   const highlight = item.risk_highlight;
@@ -91,7 +100,11 @@ export function TodayPatientRow({ item, isTodaySelected, selected, onSelect }: T
       {isRiskTier && highlight ? (
         <div className="flex h-14 overflow-hidden rounded-lg bg-zinc-50 ring-1 ring-zinc-200">
           <div className="relative h-14 w-14 shrink-0">
-            <UploadThumb uploadId={highlight.upload_id} />
+            <UploadThumb
+              uploadId={highlight.upload_id}
+              imageUrl={imageUrlByUploadId[highlight.upload_id] ?? null}
+              imageError={imageErrorByUploadId[highlight.upload_id]}
+            />
           </div>
           <div className="min-w-0 flex-1 px-2.5 py-1.5">
             <p className="text-[10px] text-zinc-400">最高風險 · {formatTime(highlight.created_at)}</p>
@@ -105,7 +118,11 @@ export function TodayPatientRow({ item, isTodaySelected, selected, onSelect }: T
         <div className="flex h-14 gap-1.5">
           {previewIds.slice(0, overflow > 0 ? 3 : 4).map((uploadId) => (
             <div key={uploadId} className="h-14 w-14 shrink-0">
-              <UploadThumb uploadId={uploadId} />
+              <UploadThumb
+                uploadId={uploadId}
+                imageUrl={imageUrlByUploadId[uploadId] ?? null}
+                imageError={imageErrorByUploadId[uploadId]}
+              />
             </div>
           ))}
           {overflow > 0 ? (

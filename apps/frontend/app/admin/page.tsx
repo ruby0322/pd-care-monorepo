@@ -33,50 +33,41 @@ function AdminDashboardInner() {
   const [metricsByDate, setMetricsByDate] = useState<Record<string, DayCalendarMetrics>>({});
   const [calendarLoading, setCalendarLoading] = useState(true);
 
-  const refreshAttention = useCallback(() => {
+  const loadAttention = useCallback(async (isCancelled?: () => boolean) => {
+    const cancelled = isCancelled ?? (() => false);
     setAttentionLoading(true);
-    return fetchTodayAttention({ localDate: selectedDate })
-      .then((data) => {
-        setAttention(data);
-        setAttentionError(null);
-      })
-      .catch(() => {
-        setAttentionError(`無法載入${dayScopeLabel}上傳病患`);
-        setAttention(null);
-      })
-      .finally(() => {
+    try {
+      const data = await fetchTodayAttention({ localDate: selectedDate });
+      if (cancelled()) {
+        return;
+      }
+      setAttention(data);
+      setAttentionError(null);
+    } catch {
+      if (cancelled()) {
+        return;
+      }
+      setAttentionError(`無法載入${dayScopeLabel}上傳病患`);
+      setAttention(null);
+    } finally {
+      if (!cancelled()) {
         setAttentionLoading(false);
-      });
+      }
+    }
   }, [dayScopeLabel, selectedDate]);
+
+  const refreshAttention = useCallback(() => loadAttention(), [loadAttention]);
 
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      setAttentionLoading(true);
-      void fetchTodayAttention({ localDate: selectedDate })
-        .then((data) => {
-          if (!cancelled) {
-            setAttention(data);
-            setAttentionError(null);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setAttentionError(`無法載入${dayScopeLabel}上傳病患`);
-            setAttention(null);
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setAttentionLoading(false);
-          }
-        });
+      void loadAttention(() => cancelled);
     }, 0);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [selectedDate, dayScopeLabel]);
+  }, [loadAttention]);
 
   useEffect(() => {
     let cancelled = false;

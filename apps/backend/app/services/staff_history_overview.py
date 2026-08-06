@@ -8,6 +8,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, Upload
+from app.services.attention_triage import TriageUploadRef, count_unhandled_patients
 from app.services.staff_dashboard import calculate_age
 from app.services.symptoms import CalendarRiskTier, calendar_risk_tier, counts_toward_suspected_rate
 from app.services.taipei_dates import normalize_datetime, to_taipei_date
@@ -222,28 +223,21 @@ def _day_patient_risk_sets(day_rows: list[_RawUploadRow]) -> tuple[set[int], set
 
 
 def _count_unhandled_for_day(day_rows: list[_RawUploadRow]) -> int:
-    """Count patients whose attention tier is suspected/elevated and representative upload is unannotated.
-
-    Matches list_today_attention_patients representative selection + has_annotation semantics.
-    """
-    by_patient: dict[int, list[_RawUploadRow]] = defaultdict(list)
+    """Count patients whose attention tier is suspected/elevated and representative upload is unannotated."""
+    by_patient: dict[int, list[TriageUploadRef]] = defaultdict(list)
     for row in day_rows:
         if row.screening_result == "rejected":
             continue
-        by_patient[row.patient_id].append(row)
-
-    unhandled = 0
-    for patient_rows in by_patient.values():
-        has_suspected = any(_tier_for_row(row) == "suspected" for row in patient_rows)
-        has_elevated = any(_tier_for_row(row) == "elevated" for row in patient_rows)
-        if not has_suspected and not has_elevated:
-            continue
-        target_tier = "suspected" if has_suspected else "elevated"
-        candidates = [row for row in patient_rows if _tier_for_row(row) == target_tier]
-        representative = min(candidates, key=lambda row: (normalize_datetime(row.created_at), row.upload_id))
-        if representative.annotation_label is None:
-            unhandled += 1
-    return unhandled
+        raw_tier = _tier_for_row(row)
+        by_patient[row.patient_id].append(
+            TriageUploadRef(
+                upload_id=row.upload_id,
+                created_at=row.created_at,
+                tier="other" if raw_tier == "none" else raw_tier,  # type: ignore[arg-type]
+                has_annotation=row.annotation_label is not None,
+            )
+        )
+    return count_unhandled_patients(by_patient)
 
 
 def _raw_rows(session: Session, *, accessible_patient_ids: set[int] | None = None) -> list[_RawUploadRow]:

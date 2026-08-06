@@ -10,6 +10,7 @@ from sqlalchemy import Select, and_, case, delete, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
+from app.services.attention_triage import TriageUploadRef, select_risk_representative
 from app.services.symptoms import calendar_risk_tier, has_high_risk_symptoms, symptom_aware_priority
 from app.services.taipei_dates import TAIPEI_TIMEZONE, resolve_taipei_day_bounds, resolve_taipei_day_bounds_for_date, to_taipei_date
 from app.services.upload_history import summarize_patient_upload_history
@@ -1168,30 +1169,32 @@ def list_today_attention_patients(
 
     attention_rows: list[TodayAttentionPatientRow] = []
     for patient_id, patient_uploads in uploads_by_patient.items():
-        has_suspected = any(tier == "suspected" for _, _, tier in patient_uploads)
-        has_elevated = any(tier == "elevated" for _, _, tier in patient_uploads)
         day_upload_count = len(patient_uploads)
         preview_upload_ids: list[int] = []
         risk_highlight: TodayAttentionRiskHighlight | None = None
 
-        if has_suspected:
-            patient_tier: Literal["suspected", "elevated", "other"] = "suspected"
-            candidates = [(upload, tier) for upload, _, tier in patient_uploads if tier == "suspected"]
-            representative = min(candidates, key=lambda item: (item[0].created_at, item[0].id))[0]
+        triage_refs = [
+            TriageUploadRef(
+                upload_id=upload.id,
+                created_at=upload.created_at,
+                tier="other" if tier not in {"suspected", "elevated"} else tier,  # type: ignore[arg-type]
+                has_annotation=upload.id in latest_annotation_by_upload,
+            )
+            for upload, _, tier in patient_uploads
+        ]
+        risk_representative = select_risk_representative(triage_refs)
+
+        if risk_representative is not None:
+            patient_tier: Literal["suspected", "elevated", "other"] = risk_representative.tier  # type: ignore[assignment]
+            representative = next(
+                upload for upload, _, _ in patient_uploads if upload.id == risk_representative.upload_id
+            )
             sort_upload_at = representative.created_at
             risk_highlight = _pick_risk_highlight(
                 patient_uploads,
                 latest_annotation_by_upload=latest_annotation_by_upload,
             )
-        elif has_elevated:
-            patient_tier = "elevated"
-            candidates = [(upload, tier) for upload, _, tier in patient_uploads if tier == "elevated"]
-            representative = min(candidates, key=lambda item: (item[0].created_at, item[0].id))[0]
-            sort_upload_at = representative.created_at
-            risk_highlight = _pick_risk_highlight(
-                patient_uploads,
-                latest_annotation_by_upload=latest_annotation_by_upload,
-            )
+            has_annotation = risk_representative.has_annotation
         else:
             patient_tier = "other"
             representative = max(
@@ -1207,6 +1210,7 @@ def list_today_attention_patients(
             # ≤4: return all; >4: first 3 for FE "3 + n" display.
             limit = day_upload_count if day_upload_count <= 4 else 3
             preview_upload_ids = [upload.id for upload in ordered[:limit]]
+            has_annotation = representative.id in latest_annotation_by_upload
 
         attention_rows.append(
             TodayAttentionPatientRow(
@@ -1214,7 +1218,7 @@ def list_today_attention_patients(
                 tier=patient_tier,
                 representative_upload_id=representative.id,
                 sort_upload_at=sort_upload_at,
-                has_annotation=representative.id in latest_annotation_by_upload,
+                has_annotation=has_annotation,
                 picture_url=picture_by_patient.get(patient_id),
                 day_upload_count=day_upload_count,
                 preview_upload_ids=preview_upload_ids,
