@@ -126,3 +126,49 @@ export function buildTaipeiMonthGrid(monthKey: string): TaipeiMonthGrid {
     cells,
   };
 }
+
+export function shiftTaipeiDateKey(dateKey: string, offsetDays: number): string {
+  const { year, month, day } = parseTaipeiDateKey(dateKey);
+  const shiftedUtc = Date.UTC(year, month - 1, day + offsetDays);
+  return formatDateKeyFromUtc(new Date(shiftedUtc));
+}
+
+/** Sunday-start week containing `dateKey` (Taipei calendar dates). */
+export function getWeekStartDateKey(dateKey: string): string {
+  const { year, month, day } = parseTaipeiDateKey(dateKey);
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return shiftTaipeiDateKey(dateKey, -weekday);
+}
+
+export function buildTaipeiWeekRow(weekStartDateKey: string): TaipeiMonthGridCell[] {
+  parseTaipeiDateKey(weekStartDateKey);
+  return Array.from({ length: 7 }, (_, index) => {
+    const dateKey = shiftTaipeiDateKey(weekStartDateKey, index);
+    const { day } = parseTaipeiDateKey(dateKey);
+    return {
+      dateKey,
+      dayOfMonth: day,
+      isCurrentMonth: true,
+    };
+  });
+}
+
+export function getMonthKeysForWeek(weekStartDateKey: string): string[] {
+  const monthKeys = buildTaipeiWeekRow(weekStartDateKey).map((cell) =>
+    getMonthKeyFromDateKey(cell.dateKey)
+  );
+  return [...new Set(monthKeys)];
+}
+
+export function formatTaipeiWeekRangeLabel(weekStartDateKey: string): string {
+  const cells = buildTaipeiWeekRow(weekStartDateKey);
+  const start = parseTaipeiDateKey(cells[0].dateKey);
+  const end = parseTaipeiDateKey(cells[6].dateKey);
+  if (start.year === end.year && start.month === end.month) {
+    return `${start.year} 年 ${start.month} 月 ${start.day}–${end.day} 日`;
+  }
+  if (start.year === end.year) {
+    return `${start.year} 年 ${start.month}/${start.day} – ${end.month}/${end.day}`;
+  }
+  return `${start.year}/${start.month}/${start.day} – ${end.year}/${end.month}/${end.day}`;
+}

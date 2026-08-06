@@ -10,8 +10,9 @@ from sqlalchemy import Select, and_, case, delete, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
-from app.services.symptoms import calendar_risk_tier
-from app.services.taipei_dates import TAIPEI_TIMEZONE, resolve_taipei_day_bounds, to_taipei_date
+from app.services.attention_triage import TriageUploadRef, select_risk_representative
+from app.services.symptoms import calendar_risk_tier, has_high_risk_symptoms, symptom_aware_priority
+from app.services.taipei_dates import TAIPEI_TIMEZONE, resolve_taipei_day_bounds, resolve_taipei_day_bounds_for_date, to_taipei_date
 from app.services.upload_history import summarize_patient_upload_history
 
 
@@ -991,6 +992,248 @@ def _summarize_tiered_uploads(
         len(suspected_patient_ids),
         len(elevated_patient_ids),
     )
+
+
+@dataclass
+class TodayAttentionRiskHighlight:
+    upload_id: int
+    screening_result: str
+    probability: float | None
+    threshold: float | None
+    symptom_pain: bool
+    symptom_discharge: bool
+    symptom_pus: bool
+    symptom_cloudy_dialysate: bool
+    has_high_risk_symptoms: bool
+    symptom_aware_priority: Literal["normal", "suspected"]
+    created_at: datetime
+
+
+@dataclass
+class TodayAttentionPatientRow:
+    patient: Patient
+    tier: Literal["suspected", "elevated", "other"]
+    representative_upload_id: int
+    sort_upload_at: datetime
+    has_annotation: bool
+    picture_url: str | None
+    day_upload_count: int
+    preview_upload_ids: list[int]
+    risk_highlight: TodayAttentionRiskHighlight | None
+
+
+_TIER_SORT_RANK: dict[str, int] = {"suspected": 0, "elevated": 1, "other": 2}
+
+
+def _attention_risk_rank(
+    *,
+    screening_result: str,
+    annotation_label: str | None,
+    symptom_pain: bool,
+    symptom_pus: bool,
+    symptom_cloudy_dialysate: bool,
+) -> int:
+    """Lower rank = higher priority. Matches history-overview risk sort."""
+    if annotation_label == "confirmed_infection":
+        return 0
+    if annotation_label == "suspected":
+        return 1
+    if annotation_label == "rejected":
+        return 4
+    if annotation_label == "normal":
+        return 3
+    if screening_result == "suspected":
+        return 1
+    tier = calendar_risk_tier(
+        screening_result=screening_result,
+        annotation_label=annotation_label,
+        symptom_pain=symptom_pain,
+        symptom_pus=symptom_pus,
+        symptom_cloudy_dialysate=symptom_cloudy_dialysate,
+    )
+    if tier == "elevated":
+        return 2
+    if screening_result == "normal":
+        return 3
+    return 4
+
+
+def _load_patient_picture_urls(session: Session, *, patient_ids: set[int]) -> dict[int, str | None]:
+    if not patient_ids:
+        return {}
+    rows = session.execute(
+        select(LiffIdentity)
+        .where(LiffIdentity.patient_id.in_(patient_ids))
+        .order_by(LiffIdentity.patient_id.asc(), LiffIdentity.id.asc())
+    ).scalars()
+    result: dict[int, str | None] = {}
+    for row in rows:
+        if row.patient_id is None or row.patient_id in result:
+            continue
+        result[row.patient_id] = row.picture_url
+    return result
+
+
+def _pick_risk_highlight(
+    patient_uploads: list[tuple[Upload, AIResult, str]],
+    *,
+    latest_annotation_by_upload: dict[int, Annotation],
+) -> TodayAttentionRiskHighlight:
+    def sort_key(item: tuple[Upload, AIResult, str]) -> tuple[int, float, float, int]:
+        upload, ai_result, _ = item
+        annotation = latest_annotation_by_upload.get(upload.id)
+        rank = _attention_risk_rank(
+            screening_result=ai_result.screening_result,
+            annotation_label=annotation.label if annotation else None,
+            symptom_pain=upload.symptom_pain,
+            symptom_pus=upload.symptom_pus,
+            symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
+        )
+        # Lowest rank first; higher probability first; earlier created_at first.
+        prob = ai_result.probability if ai_result.probability is not None else -1.0
+        return (rank, -prob, upload.created_at.timestamp(), upload.id)
+
+    upload, ai_result, _ = min(patient_uploads, key=sort_key)
+    return TodayAttentionRiskHighlight(
+        upload_id=upload.id,
+        screening_result=ai_result.screening_result,
+        probability=ai_result.probability,
+        threshold=ai_result.threshold,
+        symptom_pain=upload.symptom_pain,
+        symptom_discharge=upload.symptom_discharge,
+        symptom_pus=upload.symptom_pus,
+        symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
+        has_high_risk_symptoms=has_high_risk_symptoms(
+            symptom_pain=upload.symptom_pain,
+            symptom_pus=upload.symptom_pus,
+            symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
+        ),
+        symptom_aware_priority=symptom_aware_priority(
+            ai_result.screening_result,
+            symptom_pain=upload.symptom_pain,
+            symptom_pus=upload.symptom_pus,
+            symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
+        ),
+        created_at=upload.created_at,
+    )
+
+
+def list_today_attention_patients(
+    session: Session,
+    *,
+    accessible_patient_ids: set[int] | None = None,
+    local_date: date | None = None,
+) -> tuple[date, int, list[TodayAttentionPatientRow]]:
+    """Uploaders for a Taipei day, partitioned into suspected / elevated / other with triage sort."""
+    if local_date is None:
+        today, today_start, tomorrow_start = resolve_taipei_day_bounds()
+    else:
+        today, today_start, tomorrow_start = resolve_taipei_day_bounds_for_date(local_date)
+    if accessible_patient_ids is not None and not accessible_patient_ids:
+        return today, 0, []
+
+    base_query: Select = (
+        select(Upload, AIResult, Patient)
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .join(Patient, Patient.id == Upload.patient_id)
+        .where(
+            Upload.created_at >= today_start,
+            Upload.created_at < tomorrow_start,
+            AIResult.screening_result != "rejected",
+            Patient.is_active.is_(True),
+        )
+    )
+    if accessible_patient_ids is not None:
+        base_query = base_query.where(Patient.id.in_(accessible_patient_ids))
+    rows = session.execute(base_query).all()
+    if not rows:
+        return today, 0, []
+
+    upload_ids = {upload.id for upload, _, _ in rows}
+    latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
+    picture_by_patient = _load_patient_picture_urls(
+        session,
+        patient_ids={patient.id for _, _, patient in rows},
+    )
+
+    uploads_by_patient: dict[int, list[tuple[Upload, AIResult, str]]] = defaultdict(list)
+    patients_by_id: dict[int, Patient] = {}
+    for upload, ai_result, patient in rows:
+        tier = _tier_for_upload(
+            upload=upload,
+            screening_result=ai_result.screening_result,
+            annotation=latest_annotation_by_upload.get(upload.id),
+        )
+        uploads_by_patient[patient.id].append((upload, ai_result, tier))
+        patients_by_id[patient.id] = patient
+
+    attention_rows: list[TodayAttentionPatientRow] = []
+    for patient_id, patient_uploads in uploads_by_patient.items():
+        day_upload_count = len(patient_uploads)
+        preview_upload_ids: list[int] = []
+        risk_highlight: TodayAttentionRiskHighlight | None = None
+
+        triage_refs = [
+            TriageUploadRef(
+                upload_id=upload.id,
+                created_at=upload.created_at,
+                tier="other" if tier not in {"suspected", "elevated"} else tier,  # type: ignore[arg-type]
+                has_annotation=upload.id in latest_annotation_by_upload,
+            )
+            for upload, _, tier in patient_uploads
+        ]
+        risk_representative = select_risk_representative(triage_refs)
+
+        if risk_representative is not None:
+            patient_tier: Literal["suspected", "elevated", "other"] = risk_representative.tier  # type: ignore[assignment]
+            representative = next(
+                upload for upload, _, _ in patient_uploads if upload.id == risk_representative.upload_id
+            )
+            sort_upload_at = representative.created_at
+            risk_highlight = _pick_risk_highlight(
+                patient_uploads,
+                latest_annotation_by_upload=latest_annotation_by_upload,
+            )
+            has_annotation = risk_representative.has_annotation
+        else:
+            patient_tier = "other"
+            representative = max(
+                (upload for upload, _, _ in patient_uploads),
+                key=lambda upload: (upload.created_at, upload.id),
+            )
+            # Other tier still sorts by earliest today upload (longer wait first within tier).
+            sort_upload_at = min(upload.created_at for upload, _, _ in patient_uploads)
+            ordered = sorted(
+                (upload for upload, _, _ in patient_uploads),
+                key=lambda upload: (upload.created_at, upload.id),
+            )
+            # ≤4: return all; >4: first 3 for FE "3 + n" display.
+            limit = day_upload_count if day_upload_count <= 4 else 3
+            preview_upload_ids = [upload.id for upload in ordered[:limit]]
+            has_annotation = representative.id in latest_annotation_by_upload
+
+        attention_rows.append(
+            TodayAttentionPatientRow(
+                patient=patients_by_id[patient_id],
+                tier=patient_tier,
+                representative_upload_id=representative.id,
+                sort_upload_at=sort_upload_at,
+                has_annotation=has_annotation,
+                picture_url=picture_by_patient.get(patient_id),
+                day_upload_count=day_upload_count,
+                preview_upload_ids=preview_upload_ids,
+                risk_highlight=risk_highlight,
+            )
+        )
+
+    attention_rows.sort(
+        key=lambda row: (
+            _TIER_SORT_RANK[row.tier],
+            row.sort_upload_at,
+            row.patient.id,
+        )
+    )
+    return today, len(rows), attention_rows
 
 
 def get_today_suspected_summary(

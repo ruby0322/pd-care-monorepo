@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import AdminHistoryOverviewPage from "@/app/admin/history-overview/page";
 import {
   fetchHistoryOverview,
-  fetchHistoryOverviewCalendar,
   fetchHistoryOverviewDays,
   fetchUploadImageAccess,
   StaffHistoryOverviewResponse,
@@ -20,6 +19,15 @@ jest.mock("next/image", () => ({
   },
 }));
 
+const mockReplace = jest.fn();
+const mockSearchParams = new URLSearchParams();
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mockReplace }),
+  usePathname: () => "/admin/history-overview",
+  useSearchParams: () => mockSearchParams,
+}));
+
 jest.mock("sonner", () => ({
   toast: {
     success: jest.fn(),
@@ -30,9 +38,16 @@ jest.mock("sonner", () => ({
 jest.mock("@/lib/api/staff", () => ({
   fetchHistoryOverviewDays: jest.fn(),
   fetchHistoryOverview: jest.fn(),
-  fetchHistoryOverviewCalendar: jest.fn(),
   fetchUploadImageAccess: jest.fn(),
   upsertUploadAnnotation: jest.fn(),
+}));
+
+jest.mock("@/app/admin/history-overview/clinical-period-panel", () => ({
+  ClinicalPeriodPanel: () => <div data-testid="clinical-period-panel">period</div>,
+}));
+
+jest.mock("@/app/admin/history-overview/usage-trends-tab", () => ({
+  UsageTrendsTab: () => <div data-testid="usage-trends-tab">usage</div>,
 }));
 
 class MockIntersectionObserver {
@@ -136,20 +151,29 @@ describe("AdminHistoryOverviewPage grouped patient navigation", () => {
       ],
     });
     (fetchHistoryOverview as jest.Mock).mockResolvedValue(makeOverviewResponse());
-    (fetchHistoryOverviewCalendar as jest.Mock).mockResolvedValue({
-      year: 2026,
-      month: 7,
-      items: [
-        {
-          local_date: "2026-07-10",
-          risky_patient_count: 1,
-          has_infection_risk: true,
-          symptom_elevated_patient_count: 0,
-          has_symptom_elevated_risk: false,
-        },
-      ],
-    });
     (fetchUploadImageAccess as jest.Mock).mockResolvedValue({ image_url: "/mock-upload.jpg" });
+  });
+
+  test("shows clinical period panel on the clinical-period tab", async () => {
+    render(<AdminHistoryOverviewPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "臨床區間" }));
+
+    expect(await screen.findByTestId("clinical-period-panel")).toBeInTheDocument();
+    expect(screen.queryByText("檢視日期")).not.toBeInTheDocument();
+    expect(screen.queryByText("月曆風險分布")).not.toBeInTheDocument();
+  });
+
+  test("shows dashboard date link on the clinical-day tab without month calendar", async () => {
+    render(<AdminHistoryOverviewPage />);
+
+    expect(await screen.findByText("檢視日期")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "在儀表板變更日期 →" })).toHaveAttribute(
+      "href",
+      "/admin?date=2026-07-10"
+    );
+    expect(screen.queryByTestId("clinical-period-panel")).not.toBeInTheDocument();
+    expect(screen.queryByText("月曆風險分布")).not.toBeInTheDocument();
   });
 
   test("links grouped avatar and patient name to the staff patient detail page", async () => {
@@ -318,23 +342,10 @@ describe("AdminHistoryOverviewPage symptom elevated risk", () => {
         ],
       })
     );
-    (fetchHistoryOverviewCalendar as jest.Mock).mockResolvedValue({
-      year: 2026,
-      month: 7,
-      items: [
-        {
-          local_date: "2026-07-10",
-          risky_patient_count: 0,
-          has_infection_risk: false,
-          symptom_elevated_patient_count: 1,
-          has_symptom_elevated_risk: true,
-        },
-      ],
-    });
     (fetchUploadImageAccess as jest.Mock).mockResolvedValue({ image_url: "/mock-upload.jpg" });
   });
 
-  test("shows elevated KPI and orange calendar tone when only symptom elevated risk is present", async () => {
+  test("shows elevated KPI when only symptom elevated risk is present", async () => {
     render(<AdminHistoryOverviewPage />);
 
     expect(await screen.findByText("症狀高風險人數")).toBeInTheDocument();
@@ -342,8 +353,6 @@ describe("AdminHistoryOverviewPage symptom elevated risk", () => {
       const card = screen.getByText("症狀高風險人數").closest("div");
       expect(card).toHaveTextContent("1");
     });
-
-    const elevatedDay = await screen.findByTitle("2026-07-10 症狀高風險 1");
-    expect(elevatedDay.className).toContain("bg-orange-200");
+    expect(screen.queryByText("月曆風險分布")).not.toBeInTheDocument();
   });
 });

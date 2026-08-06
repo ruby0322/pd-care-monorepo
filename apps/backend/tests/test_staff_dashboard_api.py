@@ -1401,6 +1401,10 @@ def test_staff_history_overview_endpoints_return_expected_shape(tmp_path: Path) 
         assert day_0529_calendar["has_infection_risk"] is True
         assert day_0529_calendar["symptom_elevated_patient_count"] == 0
         assert day_0529_calendar["has_symptom_elevated_risk"] is False
+        assert day_0529_calendar["upload_count"] >= 1
+        assert day_0529_calendar["uploaded_users"] >= 1
+        assert "unhandled_patient_count" in day_0529_calendar
+        assert isinstance(day_0529_calendar["unhandled_patient_count"], int)
 
 
 def test_staff_history_overview_uses_linked_admin_identity_profile(tmp_path: Path) -> None:
@@ -1642,4 +1646,8 @@ def test_staff_history_overview_counts_symptom_elevated_separately(tmp_path: Pat
         assert calendar_day["has_infection_risk"] is True
         assert calendar_day["symptom_elevated_patient_count"] == 1
         assert calendar_day["has_symptom_elevated_risk"] is True
+        assert calendar_day["upload_count"] == 6
+        assert calendar_day["uploaded_users"] == 5
+        # elevated + suspected + both are risk-tier without annotation on representative.
+        assert calendar_day["unhandled_patient_count"] == 3
 

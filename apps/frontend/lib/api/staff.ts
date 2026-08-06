@@ -114,6 +114,45 @@ export type StaffUploadQueueItem = {
 
 export type StaffUploadQueueResponse = { items: StaffUploadQueueItem[] };
 
+export type StaffTodayAttentionTier = "suspected" | "elevated" | "other";
+
+export type StaffTodayAttentionRiskHighlight = {
+  upload_id: number;
+  screening_result: string;
+  probability: number | null;
+  threshold: number | null;
+  symptom_pain: boolean;
+  symptom_discharge: boolean;
+  symptom_pus: boolean;
+  symptom_cloudy_dialysate: boolean;
+  has_high_risk_symptoms: boolean;
+  symptom_aware_priority: "normal" | "suspected";
+  created_at: string;
+};
+
+export type StaffTodayAttentionPatientItem = {
+  patient_id: number;
+  case_number: string;
+  full_name: string | null;
+  tier: StaffTodayAttentionTier;
+  representative_upload_id: number;
+  sort_upload_at: string;
+  has_annotation: boolean;
+  picture_url: string | null;
+  day_upload_count: number;
+  preview_upload_ids: number[];
+  risk_highlight: StaffTodayAttentionRiskHighlight | null;
+};
+
+export type StaffTodayAttentionResponse = {
+  date: string;
+  total_uploads: number;
+  suspected_patients: number;
+  elevated_patients: number;
+  other_patients: number;
+  items: StaffTodayAttentionPatientItem[];
+};
+
 export type StaffRapidReviewQueueItem = StaffUploadQueueItem & {
   risk_rank: number;
 };
@@ -199,10 +238,13 @@ export type StaffHistoryOverviewResponse = {
 
 export type StaffHistoryOverviewCalendarItem = {
   local_date: string;
+  upload_count: number;
+  uploaded_users: number;
   risky_patient_count: number;
   has_infection_risk: boolean;
   symptom_elevated_patient_count: number;
   has_symptom_elevated_risk: boolean;
+  unhandled_patient_count: number;
 };
 
 export type StaffHistoryOverviewCalendarResponse = {
@@ -550,6 +592,15 @@ export async function fetchUploadQueue(params?: {
   } catch (error) {
     throw error;
   }
+}
+
+export async function fetchTodayAttention(params?: {
+  localDate?: string;
+}): Promise<StaffTodayAttentionResponse> {
+  const { data } = await apiClient.get<StaffTodayAttentionResponse>("/v1/staff/uploads/today-attention", {
+    params: params?.localDate ? { local_date: params.localDate } : undefined,
+  });
+  return data;
 }
 
 export async function fetchHistoryOverviewDays(): Promise<StaffHistoryOverviewDaysResponse> {

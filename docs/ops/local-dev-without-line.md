@@ -80,6 +80,14 @@ For richer staff grids, also run
 `cd apps/backend && python sql/manual/seed_dev_fake_patients.py` after infra is up
 (the root `npm run seed:dev-fake-patients` script targets K8s by default).
 
+For **儀表板 UI review** (week calendar + 30-day activity), after personas:
+
+```bash
+npm run seed:dashboard-demo
+```
+
+Then open `/admin` as `U_DEV_ADMIN` or `U_DEV_STAFF` (patients are assigned to staff).
+
 ## Flow diagram
 
 ```mermaid

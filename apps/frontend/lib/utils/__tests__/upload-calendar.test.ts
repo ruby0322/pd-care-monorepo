@@ -1,8 +1,12 @@
 import {
   buildTaipeiMonthGrid,
+  buildTaipeiWeekRow,
   getMonthKeyFromDateKey,
+  getMonthKeysForWeek,
+  getWeekStartDateKey,
   parseTaipeiDateKey,
   getRelativeMonthKey,
+  shiftTaipeiDateKey,
 } from "@/lib/utils/upload-calendar";
 
 describe("upload-calendar month helpers", () => {
@@ -38,5 +42,20 @@ describe("upload-calendar month helpers", () => {
       dayOfMonth: 2,
       isCurrentMonth: true,
     });
+  });
+
+  test("week helpers align Sunday-start rows and cross-month weeks", () => {
+    expect(getWeekStartDateKey("2026-07-30")).toBe("2026-07-26");
+    expect(buildTaipeiWeekRow("2026-07-26").map((cell) => cell.dateKey)).toEqual([
+      "2026-07-26",
+      "2026-07-27",
+      "2026-07-28",
+      "2026-07-29",
+      "2026-07-30",
+      "2026-07-31",
+      "2026-08-01",
+    ]);
+    expect(getMonthKeysForWeek("2026-07-26")).toEqual(["2026-07", "2026-08"]);
+    expect(shiftTaipeiDateKey("2026-07-30", 3)).toBe("2026-08-02");
   });
 });

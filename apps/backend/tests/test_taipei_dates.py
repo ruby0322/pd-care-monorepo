@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from app.services.taipei_dates import resolve_taipei_day_bounds, to_taipei_date
+from app.services.taipei_dates import resolve_taipei_day_bounds, resolve_taipei_day_bounds_for_date, to_taipei_date
 
 
 def test_to_taipei_date_maps_utc_boundary_to_next_local_day() -> None:
@@ -17,3 +17,10 @@ def test_resolve_taipei_day_bounds_uses_reference_datetime() -> None:
     assert local_day == date(2026, 7, 1)
     assert local_start == datetime(2026, 6, 30, 16, 0, tzinfo=timezone.utc)
     assert local_end == datetime(2026, 7, 1, 16, 0, tzinfo=timezone.utc)
+
+
+def test_resolve_taipei_day_bounds_for_date() -> None:
+    local_day, local_start, local_end = resolve_taipei_day_bounds_for_date(date(2026, 7, 20))
+    assert local_day == date(2026, 7, 20)
+    assert local_start == datetime(2026, 7, 19, 16, 0, tzinfo=timezone.utc)
+    assert local_end == datetime(2026, 7, 20, 16, 0, tzinfo=timezone.utc)
