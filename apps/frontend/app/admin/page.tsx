@@ -1,52 +1,53 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
-import { ActiveUploadersSummary } from "@/app/admin/_components/active-uploaders-summary";
 import {
   DashboardDayCalendar,
   type DayCalendarMetrics,
 } from "@/app/admin/_components/dashboard-day-calendar";
-import { PendingBindingsSummary } from "@/app/admin/_components/pending-bindings-summary";
 import { TodayPatientPool } from "@/app/admin/_components/today-patient-pool";
-import { TodayUploadCount } from "@/app/admin/_components/today-upload-count";
 import { TodayWorkbenchHeader } from "@/app/admin/_components/today-workbench-header";
 import { useAdminSelectedDate } from "@/lib/admin/use-admin-selected-date";
-import { getStaffRole } from "@/lib/auth/staff-session";
 import {
-  fetchAdminActiveUsersSeries,
   fetchHistoryOverviewCalendar,
   fetchHistoryOverviewDays,
-  fetchPendingBindings,
   fetchTodayAttention,
-  type StaffPendingBindingItem,
   type StaffTodayAttentionResponse,
 } from "@/lib/api/staff";
-import { getMonthKeyFromDateKey } from "@/lib/utils/upload-calendar";
+import { getMonthKeysForWeek, getWeekStartDateKey } from "@/lib/utils/upload-calendar";
 
 function AdminDashboardInner() {
-  const { selectedDate, setSelectedDate, isTodaySelected, dayScopeLabel, monthKey } =
-    useAdminSelectedDate();
+  const { selectedDate, setSelectedDate, isTodaySelected, dayScopeLabel } = useAdminSelectedDate();
 
   const [attention, setAttention] = useState<StaffTodayAttentionResponse | null>(null);
   const [attentionLoading, setAttentionLoading] = useState(true);
   const [attentionError, setAttentionError] = useState<string | null>(null);
+  const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
 
-  const [pendingItems, setPendingItems] = useState<StaffPendingBindingItem[]>([]);
-  const [pendingLoading, setPendingLoading] = useState(true);
-  const [pendingError, setPendingError] = useState<string | null>(null);
+  const [browseWeekStart, setBrowseWeekStart] = useState<string | null>(null);
+  const weekStartDateKey = browseWeekStart ?? getWeekStartDateKey(selectedDate);
+  const weekMonthKeys = useMemo(() => getMonthKeysForWeek(weekStartDateKey), [weekStartDateKey]);
 
-  const isAdmin = getStaffRole() === "admin";
-  const [activeUsers, setActiveUsers] = useState<number | null>(null);
-  const [activeLoading, setActiveLoading] = useState(isAdmin);
-  const [activeError, setActiveError] = useState<string | null>(null);
-
-  const [browseMonthKey, setBrowseMonthKey] = useState<string | null>(null);
-  const calendarMonthKey = browseMonthKey ?? monthKey;
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [metricsByDate, setMetricsByDate] = useState<Record<string, DayCalendarMetrics>>({});
   const [calendarLoading, setCalendarLoading] = useState(true);
+
+  const refreshAttention = useCallback(() => {
+    setAttentionLoading(true);
+    return fetchTodayAttention({ localDate: selectedDate })
+      .then((data) => {
+        setAttention(data);
+        setAttentionError(null);
+      })
+      .catch(() => {
+        setAttentionError(`無法載入${dayScopeLabel}上傳病患`);
+        setAttention(null);
+      })
+      .finally(() => {
+        setAttentionLoading(false);
+      });
+  }, [dayScopeLabel, selectedDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,22 +98,28 @@ function AdminDashboardInner() {
 
   useEffect(() => {
     let cancelled = false;
-    const [year, month] = calendarMonthKey.split("-").map(Number);
     const timer = window.setTimeout(() => {
       setCalendarLoading(true);
-      void fetchHistoryOverviewCalendar({ year, month })
-        .then((data) => {
+      void Promise.all(
+        weekMonthKeys.map((monthKey) => {
+          const [year, month] = monthKey.split("-").map(Number);
+          return fetchHistoryOverviewCalendar({ year, month });
+        })
+      )
+        .then((responses) => {
           if (cancelled) {
             return;
           }
           const next: Record<string, DayCalendarMetrics> = {};
-          for (const item of data.items) {
-            next[item.local_date] = {
-              uploadCount: item.upload_count ?? 0,
-              uploadedUsers: item.uploaded_users ?? 0,
-              riskyPatients: item.risky_patient_count ?? 0,
-              unhandledPatients: item.unhandled_patient_count ?? 0,
-            };
+          for (const response of responses) {
+            for (const item of response.items) {
+              next[item.local_date] = {
+                uploadCount: item.upload_count ?? 0,
+                uploadedUsers: item.uploaded_users ?? 0,
+                riskyPatients: item.risky_patient_count ?? 0,
+                unhandledPatients: item.unhandled_patient_count ?? 0,
+              };
+            }
           }
           setMetricsByDate(next);
         })
@@ -131,63 +138,22 @@ function AdminDashboardInner() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [calendarMonthKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchPendingBindings()
-      .then((items) => {
-        if (!cancelled) {
-          setPendingItems(items);
-          setPendingError(null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPendingError("無法載入待審綁定");
-          setPendingItems([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setPendingLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isAdmin) {
-      return;
-    }
-    let cancelled = false;
-    void fetchAdminActiveUsersSeries({ activeWindowDays: 7, lookbackDays: 7, interval: "day" })
-      .then((data) => {
-        if (!cancelled) {
-          const last = data.items[data.items.length - 1];
-          setActiveUsers(last?.active_users ?? 0);
-          setActiveError(null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setActiveError("failed");
-          setActiveUsers(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setActiveLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isAdmin]);
+  }, [weekMonthKeys]);
 
   const availableSet = useMemo(() => new Set(availableDates), [availableDates]);
+  const resolvedPatientId = useMemo(() => {
+    const items = attention?.items ?? [];
+    if (items.length === 0) {
+      return null;
+    }
+    if (
+      selectedPatientId != null &&
+      items.some((item) => item.patient_id === selectedPatientId)
+    ) {
+      return selectedPatientId;
+    }
+    return items[0].patient_id;
+  }, [attention?.items, selectedPatientId]);
 
   return (
     <main className="space-y-4 p-4 md:p-6">
@@ -195,58 +161,35 @@ function AdminDashboardInner() {
 
       <DashboardDayCalendar
         selectedDate={selectedDate}
-        monthKey={calendarMonthKey}
+        weekStartDateKey={weekStartDateKey}
         metricsByDate={metricsByDate}
         availableDates={availableSet}
         loading={calendarLoading}
         onSelectDate={(dateKey) => {
-          setBrowseMonthKey(null);
+          setBrowseWeekStart(null);
           setSelectedDate(dateKey);
         }}
-        onMonthChange={(nextMonth) => {
-          const first = availableDates.find((d) => getMonthKeyFromDateKey(d) === nextMonth);
-          if (first) {
-            setBrowseMonthKey(null);
-            setSelectedDate(first);
-          } else {
-            setBrowseMonthKey(nextMonth);
-          }
+        onWeekChange={(nextWeekStart) => {
+          setBrowseWeekStart(nextWeekStart);
         }}
       />
 
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-[1.5]">
-          <TodayPatientPool
-            loading={attentionLoading}
-            error={attentionError}
-            suspectedPatients={attention?.suspected_patients ?? 0}
-            elevatedPatients={attention?.elevated_patients ?? 0}
-            otherPatients={attention?.other_patients ?? 0}
-            items={attention?.items ?? []}
-            dayScopeLabel={dayScopeLabel}
-            isTodaySelected={isTodaySelected}
-          />
-        </div>
-
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <TodayUploadCount
-            totalUploads={attention?.total_uploads ?? null}
-            loading={attentionLoading}
-            dayScopeLabel={dayScopeLabel}
-            selectedDate={selectedDate}
-          />
-          <PendingBindingsSummary items={pendingItems} loading={pendingLoading} error={pendingError} />
-          {isAdmin ? (
-            <ActiveUploadersSummary activeUsers={activeUsers} loading={activeLoading} error={activeError} />
-          ) : (
-            <p className="text-xs text-zinc-400">
-              <Link href="/admin/history-overview" className="hover:text-zinc-700">
-                查看區間分析 →
-              </Link>
-            </p>
-          )}
-        </div>
-      </div>
+      <TodayPatientPool
+        loading={attentionLoading}
+        error={attentionError}
+        suspectedPatients={attention?.suspected_patients ?? 0}
+        elevatedPatients={attention?.elevated_patients ?? 0}
+        otherPatients={attention?.other_patients ?? 0}
+        items={attention?.items ?? []}
+        dayScopeLabel={dayScopeLabel}
+        isTodaySelected={isTodaySelected}
+        selectedDate={selectedDate}
+        selectedPatientId={resolvedPatientId}
+        onSelectPatient={setSelectedPatientId}
+        onReviewSaved={() => {
+          void refreshAttention();
+        }}
+      />
     </main>
   );
 }

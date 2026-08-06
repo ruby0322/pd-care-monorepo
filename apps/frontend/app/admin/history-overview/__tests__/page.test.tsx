@@ -154,15 +154,25 @@ describe("AdminHistoryOverviewPage grouped patient navigation", () => {
     (fetchUploadImageAccess as jest.Mock).mockResolvedValue({ image_url: "/mock-upload.jpg" });
   });
 
-  test("shows clinical period panel and dashboard date link without month calendar", async () => {
+  test("shows clinical period panel on the clinical-period tab", async () => {
     render(<AdminHistoryOverviewPage />);
 
+    fireEvent.click(screen.getByRole("button", { name: "臨床區間" }));
+
     expect(await screen.findByTestId("clinical-period-panel")).toBeInTheDocument();
-    expect(screen.getByText("檢視日期")).toBeInTheDocument();
+    expect(screen.queryByText("檢視日期")).not.toBeInTheDocument();
+    expect(screen.queryByText("月曆風險分布")).not.toBeInTheDocument();
+  });
+
+  test("shows dashboard date link on the clinical-day tab without month calendar", async () => {
+    render(<AdminHistoryOverviewPage />);
+
+    expect(await screen.findByText("檢視日期")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "在儀表板變更日期 →" })).toHaveAttribute(
       "href",
       "/admin?date=2026-07-10"
     );
+    expect(screen.queryByTestId("clinical-period-panel")).not.toBeInTheDocument();
     expect(screen.queryByText("月曆風險分布")).not.toBeInTheDocument();
   });
 

@@ -1,12 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Image from "next/image";
-import Link from "next/link";
-
 import { PersonAvatar } from "@/app/admin/patient-assignment/person-avatar";
+import { UploadThumb } from "@/app/admin/_components/upload-thumb";
 import type { StaffTodayAttentionPatientItem, StaffTodayAttentionRiskHighlight } from "@/lib/api/staff";
-import { fetchUploadImageAccess } from "@/lib/api/staff";
 import { activeSymptomLabels } from "@/lib/symptoms";
 import { cn } from "@/lib/utils";
 
@@ -44,47 +40,14 @@ function riskMainLine(highlight: StaffTodayAttentionRiskHighlight): string {
   return "症狀高風險";
 }
 
-function UploadThumb({ uploadId }: { uploadId: number }) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [imageError, setImageError] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchUploadImageAccess(uploadId)
-      .then((result) => {
-        if (!cancelled) {
-          setImageUrl(result.image_url);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setImageError(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [uploadId]);
-
-  return (
-    <div className="relative h-full w-full overflow-hidden rounded-md bg-zinc-100 ring-1 ring-zinc-200">
-      {imageUrl ? (
-        <Image src={imageUrl} alt="" fill unoptimized className="object-cover" />
-      ) : (
-        <div className="flex h-full items-center justify-center text-[10px] text-zinc-400">
-          {imageError ? "失敗" : "…"}
-        </div>
-      )}
-    </div>
-  );
-}
-
 type TodayPatientRowProps = {
   item: StaffTodayAttentionPatientItem;
   isTodaySelected: boolean;
+  selected: boolean;
+  onSelect: (patientId: number) => void;
 };
 
-export function TodayPatientRow({ item, isTodaySelected }: TodayPatientRowProps) {
+export function TodayPatientRow({ item, isTodaySelected, selected, onSelect }: TodayPatientRowProps) {
   const name = item.full_name || item.case_number;
   const status = statusLabel(item, isTodaySelected);
   const highlight = item.risk_highlight;
@@ -105,9 +68,13 @@ export function TodayPatientRow({ item, isTodaySelected }: TodayPatientRowProps)
     !isRiskTier && item.day_upload_count > 4 ? item.day_upload_count - Math.min(previewIds.length, 3) : 0;
 
   return (
-    <Link
-      href={`/admin/patients/${item.patient_id}`}
-      className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 transition hover:border-zinc-400"
+    <button
+      type="button"
+      onClick={() => onSelect(item.patient_id)}
+      className={cn(
+        "flex w-full flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 text-left transition hover:border-zinc-400",
+        selected && "ring-2 ring-zinc-900"
+      )}
     >
       <div className="flex items-start gap-2.5">
         <PersonAvatar name={name} pictureUrl={item.picture_url} size="lg" />
@@ -148,6 +115,6 @@ export function TodayPatientRow({ item, isTodaySelected }: TodayPatientRowProps)
           ) : null}
         </div>
       ) : null}
-    </Link>
+    </button>
   );
 }

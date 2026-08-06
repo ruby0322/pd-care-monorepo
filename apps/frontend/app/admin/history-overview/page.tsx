@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -11,94 +11,47 @@ import { getReadableApiError } from "@/lib/api/client";
 import {
   fetchHistoryOverview,
   fetchHistoryOverviewDays,
-  fetchUploadImageAccess,
-  StaffAnnotationItem,
   StaffHistoryOverviewResponse,
   StaffHistoryOverviewUploadItem,
   upsertUploadAnnotation,
 } from "@/lib/api/staff";
 import { parseTaipeiDateKey } from "@/lib/utils/upload-calendar";
 
+import { HistoryUploadAnnotationModal } from "@/app/admin/_components/history-upload-annotation-modal";
+import {
+  suggestedHistoryUploadLabel,
+  type HistoryUploadDraftVerdict,
+} from "@/app/admin/_components/history-upload-review-helpers";
+import { HistoryUploadThumbnailGrid } from "@/app/admin/_components/history-upload-thumbnail-grid";
+import { useUploadImageUrls } from "@/app/admin/_components/use-upload-image-urls";
 import { ClinicalPeriodPanel } from "./clinical-period-panel";
 import { UsageTrendsTab } from "./usage-trends-tab";
 
 type SortBy = "timeline" | "risk";
 type GroupSortBy = "uploads" | "age" | "infection_risk";
-type OverviewTab = "clinical" | "usage";
-type DraftVerdict = {
-  label: StaffAnnotationItem["label"];
-  comment: string;
-};
+type OverviewTab = "clinical-day" | "clinical-period" | "usage";
+
+function parseOverviewTab(raw: string | null): OverviewTab {
+  if (raw === "usage") {
+    return "usage";
+  }
+  if (raw === "clinical-period") {
+    return "clinical-period";
+  }
+  if (raw === "clinical" || raw === "clinical-day" || raw == null) {
+    return "clinical-day";
+  }
+  return "clinical-day";
+}
 
 const INITIAL_UNGROUPED_VISIBLE = 16;
 const UNGROUPED_STEP = 16;
 const INITIAL_GROUP_VISIBLE = 7;
 const GROUP_STEP = 8;
 
-function formatLocalTime(raw: string): string {
-  return new Intl.DateTimeFormat("zh-TW", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-    timeZone: "Asia/Taipei",
-  }).format(new Date(raw));
-}
-
-function riskBadgeClass(upload: StaffHistoryOverviewUploadItem): string {
-  if (upload.risk_rank === 0) {
-    return "bg-rose-100 text-rose-700";
-  }
-  if (upload.risk_rank === 1) {
-    return "bg-red-100 text-red-700";
-  }
-  if (upload.risk_rank === 2) {
-    return "bg-orange-100 text-orange-700";
-  }
-  if (upload.risk_rank === 3) {
-    return "bg-emerald-100 text-emerald-700";
-  }
-  return "bg-zinc-200 text-zinc-700";
-}
-
-function riskLabel(upload: StaffHistoryOverviewUploadItem): string {
-  if (upload.annotation_label === "confirmed_infection") {
-    return "confirmed_infection";
-  }
-  if (upload.annotation_label === "suspected") {
-    return "suspected";
-  }
-  if (upload.annotation_label === "normal") {
-    return "normal";
-  }
-  if (upload.annotation_label === "rejected") {
-    return "rejected";
-  }
-  if (upload.risk_rank === 2) {
-    return "症狀高風險";
-  }
-  return upload.screening_result;
-}
-
-function suggestedLabel(upload: StaffHistoryOverviewUploadItem): StaffAnnotationItem["label"] {
-  if (upload.annotation_label) {
-    return upload.annotation_label;
-  }
-  if (upload.screening_result === "rejected" || upload.screening_result === "technical_error") {
-    return "rejected";
-  }
-  if (upload.symptom_aware_priority === "suspected" || upload.screening_result === "suspected") {
-    return "suspected";
-  }
-  if (upload.screening_result === "normal") {
-    return "normal";
-  }
-  return "rejected";
-}
-
 export default function AdminHistoryOverviewPage() {
   return (
-    <Suspense fallback={<div className="py-16 text-center text-sm text-zinc-500">載入區間分析中...</div>}>
+    <Suspense fallback={<div className="py-16 text-center text-sm text-zinc-500">載入歷史總覽中...</div>}>
       <AdminHistoryOverviewPageInner />
     </Suspense>
   );
@@ -109,7 +62,7 @@ function AdminHistoryOverviewPageInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const initialTab = searchParams.get("tab") === "usage" ? "usage" : "clinical";
+  const initialTab = parseOverviewTab(searchParams.get("tab"));
   const initialDateParam = searchParams.get("date");
   let initialDateFromUrl: string | null = null;
   if (initialDateParam) {
@@ -138,11 +91,9 @@ function AdminHistoryOverviewPageInner() {
   const [ungroupedVisibleCount, setUngroupedVisibleCount] = useState(INITIAL_UNGROUPED_VISIBLE);
   const [groupVisibleCountByPatient, setGroupVisibleCountByPatient] = useState<Record<number, number>>({});
   const [selectedUploadId, setSelectedUploadId] = useState<number | null>(null);
-  const [draft, setDraft] = useState<DraftVerdict>({ label: "suspected", comment: "" });
+  const [draft, setDraft] = useState<HistoryUploadDraftVerdict>({ label: "suspected", comment: "" });
   const [saving, setSaving] = useState(false);
 
-  const [imageUrlByUploadId, setImageUrlByUploadId] = useState<Record<number, string>>({});
-  const [imageErrorByUploadId, setImageErrorByUploadId] = useState<Record<number, boolean>>({});
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const syncUrl = useCallback(
@@ -155,7 +106,7 @@ function AdminHistoryOverviewPageInner() {
       } else {
         params.delete("date");
       }
-      if (tabValue === "clinical") {
+      if (tabValue === "clinical-day") {
         params.delete("tab");
       } else {
         params.set("tab", tabValue);
@@ -209,22 +160,28 @@ function AdminHistoryOverviewPageInner() {
   }, [groupByUser, groupSortBy, selectedDate, sortBy]);
 
   useEffect(() => {
+    if (overviewTab !== "clinical-day") {
+      return;
+    }
     const timer = window.setTimeout(() => {
       void loadDays();
     }, 0);
     return () => {
       window.clearTimeout(timer);
     };
-  }, [loadDays]);
+  }, [loadDays, overviewTab]);
 
   useEffect(() => {
+    if (overviewTab !== "clinical-day") {
+      return;
+    }
     const timer = window.setTimeout(() => {
       void loadOverview();
     }, 0);
     return () => {
       window.clearTimeout(timer);
     };
-  }, [loadOverview]);
+  }, [loadOverview, overviewTab]);
 
   useEffect(() => {
     if (!selectedDate) {
@@ -267,7 +224,7 @@ function AdminHistoryOverviewPageInner() {
     }
     const timer = window.setTimeout(() => {
       setDraft({
-        label: suggestedLabel(selectedUpload),
+        label: suggestedHistoryUploadLabel(selectedUpload),
         comment: selectedUpload.annotation_comment ?? "",
       });
     }, 0);
@@ -296,40 +253,15 @@ function AdminHistoryOverviewPageInner() {
     });
   }, [groupByUser, groupVisibleCountByPatient, overviewData, ungroupedVisibleItems]);
 
-  useEffect(() => {
-    if (visibleUploadsForImageLoading.length === 0) {
-      return;
+  const uploadIdsForImages = useMemo(() => {
+    const ids = visibleUploadsForImageLoading.map((item) => item.upload_id);
+    if (selectedUpload && !ids.includes(selectedUpload.upload_id)) {
+      ids.push(selectedUpload.upload_id);
     }
-    const missing = visibleUploadsForImageLoading.filter((item) => !imageUrlByUploadId[item.upload_id]);
-    if (missing.length === 0) {
-      return;
-    }
-    let cancelled = false;
-    void Promise.allSettled(missing.map((item) => fetchUploadImageAccess(item.upload_id))).then((results) => {
-      if (cancelled) {
-        return;
-      }
-      setImageUrlByUploadId((current) => {
-        const next = { ...current };
-        results.forEach((result, index) => {
-          if (result.status === "fulfilled") {
-            next[missing[index].upload_id] = result.value.image_url;
-          }
-        });
-        return next;
-      });
-      setImageErrorByUploadId((current) => {
-        const next = { ...current };
-        results.forEach((result, index) => {
-          next[missing[index].upload_id] = result.status === "rejected";
-        });
-        return next;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [imageUrlByUploadId, visibleUploadsForImageLoading]);
+    return ids;
+  }, [selectedUpload, visibleUploadsForImageLoading]);
+
+  const { imageUrlByUploadId, imageErrorByUploadId } = useUploadImageUrls(uploadIdsForImages);
 
   useEffect(() => {
     if (groupByUser || !overviewData) {
@@ -384,10 +316,10 @@ function AdminHistoryOverviewPageInner() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-900">區間分析</h1>
+          <h1 className="text-lg font-semibold text-zinc-900">歷史總覽</h1>
           <p className="text-xs text-zinc-500">臨床回顧與使用趨勢（依台灣時區）。</p>
         </div>
-        {overviewTab === "clinical" ? (
+        {overviewTab === "clinical-day" ? (
           <button
             type="button"
             onClick={() => {
@@ -402,15 +334,24 @@ function AdminHistoryOverviewPageInner() {
         ) : null}
       </header>
 
-      <div className="flex gap-2 border-b border-zinc-200 pb-2">
+      <div className="flex flex-wrap gap-2 border-b border-zinc-200 pb-2">
         <button
           type="button"
-          onClick={() => setOverviewTab("clinical")}
+          onClick={() => setOverviewTab("clinical-day")}
           className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-            overviewTab === "clinical" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+            overviewTab === "clinical-day" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
           }`}
         >
-          臨床
+          臨床單日
+        </button>
+        <button
+          type="button"
+          onClick={() => setOverviewTab("clinical-period")}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+            overviewTab === "clinical-period" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+          }`}
+        >
+          臨床區間
         </button>
         <button
           type="button"
@@ -425,14 +366,14 @@ function AdminHistoryOverviewPageInner() {
 
       {overviewTab === "usage" ? <UsageTrendsTab /> : null}
 
-      {overviewTab === "clinical" && daysLoading && !selectedDate ? (
-        <div className="py-16 text-center text-sm text-zinc-500">載入區間分析中...</div>
+      {overviewTab === "clinical-period" ? <ClinicalPeriodPanel /> : null}
+
+      {overviewTab === "clinical-day" && daysLoading && !selectedDate ? (
+        <div className="py-16 text-center text-sm text-zinc-500">載入歷史總覽中...</div>
       ) : null}
 
-      {overviewTab === "clinical" && !(daysLoading && !selectedDate) ? (
+      {overviewTab === "clinical-day" && !(daysLoading && !selectedDate) ? (
         <>
-      <ClinicalPeriodPanel />
-
       {daysError ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{daysError}</div> : null}
       {overviewError ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{overviewError}</div>
@@ -528,32 +469,14 @@ function AdminHistoryOverviewPageInner() {
       {overviewLoading ? <div className="py-8 text-center text-sm text-zinc-500">載入當日資料中...</div> : null}
 
       {!groupByUser ? (
-        <section className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          {ungroupedVisibleItems.map((item) => {
-            const imageUrl = imageUrlByUploadId[item.upload_id];
-            const imageError = imageErrorByUploadId[item.upload_id] ?? false;
-            return (
-              <button
-                key={item.upload_id}
-                type="button"
-                onClick={() => setSelectedUploadId(item.upload_id)}
-                className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-100 text-left ring-1 ring-zinc-200 transition hover:ring-zinc-400"
-              >
-                {imageUrl ? (
-                  <Image src={imageUrl} alt={`history-upload-${item.upload_id}`} fill unoptimized className="object-cover" />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-zinc-400">{imageError ? "載入失敗" : "載入中"}</div>
-                )}
-                <span className={`absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${riskBadgeClass(item)}`}>
-                  {riskLabel(item)}
-                </span>
-                <span className="absolute bottom-1 right-1 rounded bg-zinc-900/75 px-1.5 py-0.5 text-[10px] text-white">
-                  {formatLocalTime(item.created_at)}
-                </span>
-              </button>
-            );
-          })}
-          <div ref={sentinelRef} className="h-1 w-full col-span-full" />
+        <section>
+          <HistoryUploadThumbnailGrid
+            uploads={ungroupedVisibleItems}
+            imageUrlByUploadId={imageUrlByUploadId}
+            imageErrorByUploadId={imageErrorByUploadId}
+            onSelectUpload={setSelectedUploadId}
+          />
+          <div ref={sentinelRef} className="h-1 w-full" />
         </section>
       ) : (
         <section className="flex flex-col gap-4">
@@ -590,47 +513,20 @@ function AdminHistoryOverviewPageInner() {
                   </div>
                   <p className="text-xs text-zinc-500">當日上傳 {group.upload_count} 張</p>
                 </header>
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                  {visibleUploads.map((item) => {
-                    const imageUrl = imageUrlByUploadId[item.upload_id];
-                    const imageError = imageErrorByUploadId[item.upload_id] ?? false;
-                    return (
-                      <button
-                        key={item.upload_id}
-                        type="button"
-                        onClick={() => setSelectedUploadId(item.upload_id)}
-                        className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-100 text-left ring-1 ring-zinc-200 transition hover:ring-zinc-400"
-                      >
-                        {imageUrl ? (
-                          <Image src={imageUrl} alt={`history-upload-${item.upload_id}`} fill unoptimized className="object-cover" />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-xs text-zinc-400">
-                            {imageError ? "載入失敗" : "載入中"}
-                          </div>
-                        )}
-                        <span className={`absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${riskBadgeClass(item)}`}>
-                          {riskLabel(item)}
-                        </span>
-                        <span className="absolute bottom-1 right-1 rounded bg-zinc-900/75 px-1.5 py-0.5 text-[10px] text-white">
-                          {formatLocalTime(item.created_at)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {hasMore ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setGroupVisibleCountByPatient((current) => ({
-                          ...current,
-                          [group.patient_id]: (current[group.patient_id] ?? INITIAL_GROUP_VISIBLE) + GROUP_STEP,
-                        }))
-                      }
-                      className="flex aspect-square items-center justify-center rounded-xl border border-dashed border-zinc-300 text-sm font-medium text-zinc-600 hover:bg-zinc-50"
-                    >
-                      Load more
-                    </button>
-                  ) : null}
+                <div>
+                  <HistoryUploadThumbnailGrid
+                    uploads={visibleUploads}
+                    imageUrlByUploadId={imageUrlByUploadId}
+                    imageErrorByUploadId={imageErrorByUploadId}
+                    onSelectUpload={setSelectedUploadId}
+                    hasMore={hasMore}
+                    onLoadMore={() =>
+                      setGroupVisibleCountByPatient((current) => ({
+                        ...current,
+                        [group.patient_id]: (current[group.patient_id] ?? INITIAL_GROUP_VISIBLE) + GROUP_STEP,
+                      }))
+                    }
+                  />
                 </div>
               </article>
             );
@@ -639,120 +535,15 @@ function AdminHistoryOverviewPageInner() {
       )}
 
       {selectedUpload ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-900/60 p-0 sm:items-center sm:p-4">
-          <div className="h-[90vh] w-full overflow-auto rounded-t-2xl bg-white shadow-xl sm:h-auto sm:max-w-3xl sm:rounded-2xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-100 bg-white px-4 py-3">
-              <div>
-                <p className="text-sm font-medium text-zinc-900">{selectedUpload.patient_full_name ?? "未命名病患"}</p>
-                <p className="font-mono text-xs text-zinc-500">{selectedUpload.case_number}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedUploadId(null)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
-                aria-label="關閉"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_22rem]">
-              <div className="relative h-80 overflow-hidden rounded-xl bg-zinc-100">
-                {imageUrlByUploadId[selectedUpload.upload_id] ? (
-                  <Image
-                    src={imageUrlByUploadId[selectedUpload.upload_id]}
-                    alt={`history-preview-${selectedUpload.upload_id}`}
-                    fill
-                    unoptimized
-                    className="object-contain"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-zinc-400">載入影像中...</div>
-                )}
-              </div>
-              <div className="flex flex-col gap-3">
-                <dl className="space-y-2 text-sm">
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">年齡</dt>
-                    <dd className="text-right text-zinc-900">{selectedUpload.age ?? "-"}</dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">上傳時間</dt>
-                    <dd className="text-right text-zinc-900">{new Date(selectedUpload.created_at).toLocaleString("zh-TW")}</dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">臨床風險</dt>
-                    <dd className="text-right text-zinc-900">{riskLabel(selectedUpload)}</dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">影像判讀</dt>
-                    <dd className="text-right text-zinc-900">{selectedUpload.screening_result}</dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">症狀綜合</dt>
-                    <dd className="text-right text-zinc-900">{selectedUpload.symptom_aware_priority}</dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">機率</dt>
-                    <dd className="text-right text-zinc-900">
-                      {selectedUpload.probability !== null ? `${(selectedUpload.probability * 100).toFixed(1)}%` : "-"}
-                    </dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">Threshold</dt>
-                    <dd className="text-right text-zinc-900">
-                      {selectedUpload.threshold !== null ? selectedUpload.threshold.toFixed(2) : "-"}
-                    </dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-zinc-400">Model</dt>
-                    <dd className="text-right text-zinc-900">{selectedUpload.model_version ?? "-"}</dd>
-                  </div>
-                </dl>
-                <div>
-                  <Link
-                    href={`/admin/patients/${selectedUpload.patient_id}`}
-                    className="text-xs text-zinc-500 hover:text-zinc-800"
-                  >
-                    開啟病患完整頁
-                  </Link>
-                </div>
-                <label className="flex flex-col gap-1 text-xs text-zinc-500">
-                  標註標籤
-                  <select
-                    value={draft.label}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, label: event.target.value as StaffAnnotationItem["label"] }))
-                    }
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900"
-                  >
-                    <option value="normal">normal</option>
-                    <option value="suspected">suspected</option>
-                    <option value="confirmed_infection">confirmed_infection</option>
-                    <option value="rejected">rejected</option>
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-zinc-500">
-                  備註
-                  <textarea
-                    value={draft.comment}
-                    onChange={(event) => setDraft((current) => ({ ...current, comment: event.target.value }))}
-                    rows={6}
-                    className="resize-none rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                    placeholder="comment..."
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => void onSaveSelected()}
-                  disabled={saving}
-                  className="mt-auto rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                >
-                  {saving ? "儲存中..." : "儲存"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <HistoryUploadAnnotationModal
+          upload={selectedUpload}
+          imageUrl={imageUrlByUploadId[selectedUpload.upload_id] ?? null}
+          draft={draft}
+          saving={saving}
+          onDraftChange={setDraft}
+          onSave={() => void onSaveSelected()}
+          onClose={() => setSelectedUploadId(null)}
+        />
       ) : null}
         </>
       ) : null}

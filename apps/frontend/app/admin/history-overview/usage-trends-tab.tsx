@@ -13,13 +13,20 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { getReadableApiError } from "@/lib/api/client";
+import type { AdminDailySuspectedSeriesPoint } from "@/lib/api/staff";
 import { fetchAdminActiveUsersSeries, fetchAdminDailySuspectedSeries } from "@/lib/api/staff";
+
+import { buildUploadChartData, type UploadChartMode } from "./usage-upload-chart-data";
 
 const ACTIVE_WINDOW_OPTIONS = [3, 7, 14, 30] as const;
 const LOOKBACK_OPTIONS = [30, 60, 90] as const;
 
 const activeChartConfig = {
   active_users: { label: "活躍用戶", color: "#2563eb" },
+} satisfies ChartConfig;
+
+const uploadChartConfig = {
+  upload_count: { label: "上傳數", color: "#0891b2" },
 } satisfies ChartConfig;
 
 const dailyChartConfig = {
@@ -33,18 +40,13 @@ export function UsageTrendsTab() {
   const [activeWindowDays, setActiveWindowDays] = useState<(typeof ACTIVE_WINDOW_OPTIONS)[number]>(7);
   const [activeLookbackDays, setActiveLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
   const [activeInterval, setActiveInterval] = useState<"day" | "week">("day");
+  const [uploadLookbackDays, setUploadLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
+  const [uploadChartMode, setUploadChartMode] = useState<UploadChartMode>("daily");
   const [dailyLookbackDays, setDailyLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(30);
   const [riskChartMode, setRiskChartMode] = useState<"split" | "aggregate">("split");
   const [activeUsersSeries, setActiveUsersSeries] = useState<{ date: string; active_users: number }[]>([]);
-  const [dailySuspectedSeries, setDailySuspectedSeries] = useState<
-    {
-      date: string;
-      total_uploads: number;
-      suspected_uploads: number;
-      symptom_elevated_uploads: number;
-      suspected_ratio: number;
-    }[]
-  >([]);
+  const [uploadSeries, setUploadSeries] = useState<AdminDailySuspectedSeriesPoint[]>([]);
+  const [dailySuspectedSeries, setDailySuspectedSeries] = useState<AdminDailySuspectedSeriesPoint[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -54,23 +56,26 @@ export function UsageTrendsTab() {
       setLoading(true);
       setError(null);
       try {
-        const [activeData, dailyData] = await Promise.all([
+        const [activeData, uploadData, dailyData] = await Promise.all([
           fetchAdminActiveUsersSeries({
             activeWindowDays,
             lookbackDays: activeLookbackDays,
             interval: activeInterval,
           }),
+          fetchAdminDailySuspectedSeries({ lookbackDays: uploadLookbackDays }),
           fetchAdminDailySuspectedSeries({ lookbackDays: dailyLookbackDays }),
         ]);
         if (cancelled) {
           return;
         }
         setActiveUsersSeries(activeData.items);
+        setUploadSeries(uploadData.items);
         setDailySuspectedSeries(dailyData.items);
       } catch (err) {
         if (!cancelled) {
           setError(getReadableApiError(err));
           setActiveUsersSeries([]);
+          setUploadSeries([]);
           setDailySuspectedSeries([]);
         }
       } finally {
@@ -83,7 +88,7 @@ export function UsageTrendsTab() {
     return () => {
       cancelled = true;
     };
-  }, [activeInterval, activeLookbackDays, activeWindowDays, dailyLookbackDays]);
+  }, [activeInterval, activeLookbackDays, activeWindowDays, dailyLookbackDays, uploadLookbackDays]);
 
   const activeUserChartData = useMemo(
     () =>
@@ -92,6 +97,11 @@ export function UsageTrendsTab() {
         shortDate: new Date(point.date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }),
       })),
     [activeUsersSeries]
+  );
+
+  const uploadChartData = useMemo(
+    () => buildUploadChartData(uploadSeries, uploadChartMode),
+    [uploadChartMode, uploadSeries]
   );
 
   const dailySuspectedChartData = useMemo(
@@ -163,6 +173,56 @@ export function UsageTrendsTab() {
             <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
             <ChartTooltip content={<ChartTooltipContent />} />
             <Line dataKey="active_users" stroke="var(--color-active_users)" strokeWidth={2} dot={false} />
+          </LineChart>
+        </ChartContainer>
+      </section>
+
+      <section className="rounded-xl border border-zinc-200 bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-zinc-900">上傳數趨勢</h3>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1">
+              <button
+                type="button"
+                className={clsx(
+                  "rounded px-2 py-1",
+                  uploadChartMode === "daily" ? "bg-zinc-900 text-white" : "text-zinc-600"
+                )}
+                onClick={() => setUploadChartMode("daily")}
+              >
+                單日
+              </button>
+              <button
+                type="button"
+                className={clsx(
+                  "rounded px-2 py-1",
+                  uploadChartMode === "cumulative" ? "bg-zinc-900 text-white" : "text-zinc-600"
+                )}
+                onClick={() => setUploadChartMode("cumulative")}
+              >
+                累進
+              </button>
+            </div>
+            <select
+              className="rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+              value={uploadLookbackDays}
+              onChange={(event) => setUploadLookbackDays(Number(event.target.value) as (typeof LOOKBACK_OPTIONS)[number])}
+            >
+              {LOOKBACK_OPTIONS.map((value) => (
+                <option key={value} value={value}>
+                  最近{value}天
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <ChartContainer className="h-64 w-full" config={uploadChartConfig}>
+          <LineChart data={uploadChartData}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Line dataKey="upload_count" stroke="var(--color-upload_count)" strokeWidth={2} dot={false} />
           </LineChart>
         </ChartContainer>
       </section>
