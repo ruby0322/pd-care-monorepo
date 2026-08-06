@@ -56,8 +56,6 @@ function AdminDashboardInner() {
     }
   }, [dayScopeLabel, selectedDate]);
 
-  const refreshAttention = useCallback(() => loadAttention(), [loadAttention]);
-
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -178,7 +176,7 @@ function AdminDashboardInner() {
         selectedPatientId={resolvedPatientId}
         onSelectPatient={setSelectedPatientId}
         onReviewSaved={() => {
-          void refreshAttention();
+          void loadAttention();
         }}
       />
     </main>
