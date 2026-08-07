@@ -1,8 +1,8 @@
 {
   "skill": "stage-commit-push",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "last_audited_commit": "8724a73",
-  "last_audited_at": "2026-07-02",
+  "last_audited_at": "2026-08-07",
   "sources": [
     {
       "path": "AGENTS.md",

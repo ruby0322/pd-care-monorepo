@@ -2,8 +2,9 @@
 name: stage-commit-push
 description: >-
   Stage, commit, and push PD Care changes on ruby0322's behalf
-  (ruby0322 <ruby0322@ntu.im>). Use when the user asks to stage, commit, push,
-  ship code without deploy, or push on their behalf. Does not redeploy services.
+  (ruby0322 <ruby0322@ntu.im>). Commits atomically by default (one logical
+  change per commit). Use when the user asks to stage, commit, push, ship code
+  without deploy, or push on their behalf. Does not redeploy services.
 ---
 
 # Stage, Commit, Push (PD Care)
@@ -47,19 +48,49 @@ See [reference.md](reference.md) for hooks, commit style, and safety rules.
 ## Workflow
 
 ```text
-Inspect → Stage → Commit → Push → Report
+Inspect → Plan units → (Stage → Commit)* → Push → Report
 ```
+
+**Default: atomic commits** — one logical, reviewable change per commit. Push once after all commits unless the user asked to stop after commit.
 
 ```text
 Progress:
 - [ ] Inspect git state (status, diff, log, branch/upstream)
-- [ ] Stage intended files only
+- [ ] Plan commit units (see Atomic commits below)
 - [ ] Verify author identity
-- [ ] Commit with HEREDOC message
+- [ ] For each unit: stage only its paths → commit with HEREDOC message
+- [ ] Confirm working tree clean (or report intentional leftovers)
 - [ ] Push to remote
-- [ ] Report hash, branch, author, push result
+- [ ] Report all commit hashes, branch, author, push result
 - [ ] If branch is not `main`/`master`, include pre-filled PR creation URL
 ```
+
+### Atomic commits (default)
+
+Unless the user asks for a **single commit** (see overrides below), split the working tree into **commit units** — each unit is one concern that could stand alone in review history.
+
+| One unit | Examples |
+| --- | --- |
+| Feature slice | backend endpoint + schema for that endpoint |
+| Bug fix | isolated fix + its regression test |
+| Test-only follow-up | CI mock/fix when tests were broken separately from the feature |
+| Refactor / perf | typing cleanup, query optimization without behavior change |
+| Docs / skill | documentation or agent skill updates only |
+
+**Plan before staging.** After inspect, list the intended units (paths + summary) in the agent response, then commit them **in dependency order** (e.g. shared backend helper → API route → frontend consumer → test fix).
+
+**Per unit:**
+
+1. `git add <only this unit's paths>`
+2. Commit with a focused HEREDOC message (`type(scope): …`, **why** in body)
+3. If `pre-commit` modifies files, include hook fixes in **that same unit** before moving on
+4. Repeat until all intended changes are committed
+
+**Do not** leave unrelated hunks unstaged across cycles unless the user asked to commit only part of the work.
+
+**Single-commit overrides** — use one commit for everything when the user says e.g. "single commit", "one commit", "don't split", or "squash into one commit". Then stage all intended paths once and commit once.
+
+See [reference.md](reference.md) for unit-splitting examples.
 
 ## Step 1 — Inspect (parallel)
 
@@ -72,15 +103,17 @@ git status -sb
 
 Analyze all changes. Match recent commit style (`feat(scope):`, `fix(scope):`, `refactor(scope):`).
 
-## Step 2 — Stage
+If not using a single-commit override, write out the planned commit units before staging.
+
+## Step 2 — Stage and commit (repeat per unit)
 
 ```bash
-git add <paths>
+git add <paths-for-this-unit>
 ```
 
-Stage only files for the requested change. Exclude secret files; warn if the user asked to commit sensitive paths.
+Stage only files for **the current unit**. Exclude secret files; warn if the user asked to commit sensitive paths.
 
-## Step 3 — Commit
+## Step 3 — Commit (each unit)
 
 Use a HEREDOC message focused on **why**:
 
@@ -107,17 +140,13 @@ git push
 
 - `pre-push` also runs `npm run lint`.
 - New branch: `git push -u origin HEAD`
-- Confirm author on the new commit:
-
-  ```bash
-  git log -1 --format='%h %an <%ae> %s'
-  ```
+- Confirm author on new commits (e.g. `git log -n <count> --format='%h %an <%ae> %s'` since push baseline)
 
 ## Step 5 — Report
 
 Return:
 
-- commit hash and message
+- all commit hashes and messages (numbered, in order)
 - author (`ruby0322 <ruby0322@ntu.im>`)
 - branch and remote push result
 - any hook warnings
@@ -129,8 +158,8 @@ Return:
 
 1. Derive `owner/repo` from `git remote get-url origin` (SSH or HTTPS).
 2. Use default base branch `main` (or `origin/HEAD` if it points elsewhere).
-3. **Title:** latest commit subject (`git log -1 --format='%s'`).
-4. **Body:** `## Summary` bullets from the change + `## Test plan` checklist.
+3. **Title:** latest commit subject when one commit; otherwise a branch-level title covering the series (`git log -1 --format='%s'` or a synthesized summary).
+4. **Body:** `## Summary` bullets from **all commits in the push** + `## Test plan` checklist.
 5. Build the compare URL (URL-encode `title` and `body`):
 
    ```text
@@ -160,9 +189,10 @@ Return the URL as a clickable markdown link plus the plain title and body so the
 
 | User request | Steps |
 | --- | --- |
-| "stage and commit" | Inspect → stage → commit → report (no push) |
-| "commit and push" / "push on my behalf" | Full workflow |
-| "stage, commit, push" | Full workflow |
+| "stage and commit" | Inspect → plan units → atomic commits → report (no push) |
+| "commit and push" / "push on my behalf" | Full workflow (atomic by default) |
+| "stage, commit, push" | Full workflow (atomic by default) |
+| "single commit" / "one commit" / "don't split" | Inspect → stage all → one commit → push → report |
 | "ship / deploy / redeploy" | Use [ship-and-deploy](../ship-and-deploy/SKILL.md) instead |
 
 ## Additional resources

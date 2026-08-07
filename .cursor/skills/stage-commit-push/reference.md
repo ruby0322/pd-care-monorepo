@@ -28,6 +28,24 @@ Recent examples from this repo:
 
 Format: `type(scope): imperative summary` with optional body explaining **why**.
 
+## Atomic commit units (default)
+
+When `/stage-commit-push` applies and the user did **not** ask for a single commit, split changes into units like these:
+
+| Unit | Typical paths | Example message |
+| --- | --- | --- |
+| Backend feature | `apps/backend/app/services/…`, routes, schemas | `feat(admin): add workbench dashboard API` |
+| Frontend wiring | `apps/frontend/app/…`, `lib/api/…` | same feature commit **or** separate if backend already landed |
+| Test fix (CI) | `**/__tests__/…`, mocks | `test(frontend): mock batch image-access in history overview` |
+| Refactor / perf | narrow diff, no behavior change | `perf(backend): SQL distinct Taipei dates for workbench calendar` |
+| Agent skill / docs | `.cursor/skills/…`, `docs/…` | `docs(skills): default to atomic commits in stage-commit-push` |
+
+**Keep together** when splitting would leave a broken intermediate state (e.g. route + schema + handler for one endpoint).
+
+**Split apart** when concerns are independent (feature vs later test mock fix vs perf follow-up).
+
+**Single-commit override phrases:** "single commit", "one commit", "don't split", "squash into one commit".
+
 ## Files to never commit
 
 - `.env`, `apps/backend/.env`
@@ -66,8 +84,8 @@ When the pushed branch is not `main` or `master`, always return a pre-filled Git
 | `owner/repo` | `git remote get-url origin` |
 | Base branch | `main` (default) or `origin/HEAD` |
 | Head branch | current branch name |
-| Title | `git log -1 --format='%s'` |
-| Body | `## Summary` + `## Test plan` derived from the diff |
+| Title | `git log -1 --format='%s'` for one commit; branch-level summary when several |
+| Body | `## Summary` + `## Test plan` from **all commits** being pushed |
 
 Template:
 
