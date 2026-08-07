@@ -5,10 +5,12 @@ import {
   fetchHistoryOverview,
   fetchHistoryOverviewDays,
   fetchUploadImageAccess,
+  fetchUploadImageAccessBatch,
   StaffHistoryOverviewResponse,
   StaffHistoryOverviewUploadItem,
   StaffHistoryOverviewUserGroupItem,
 } from "@/lib/api/staff";
+import { makeUploadImageAccessBatchResponse } from "@/lib/testing/staff-image-access-mock";
 
 jest.mock("next/image", () => ({
   __esModule: true,
@@ -39,6 +41,7 @@ jest.mock("@/lib/api/staff", () => ({
   fetchHistoryOverviewDays: jest.fn(),
   fetchHistoryOverview: jest.fn(),
   fetchUploadImageAccess: jest.fn(),
+  fetchUploadImageAccessBatch: jest.fn(),
   upsertUploadAnnotation: jest.fn(),
 }));
 
@@ -152,6 +155,9 @@ describe("AdminHistoryOverviewPage grouped patient navigation", () => {
     });
     (fetchHistoryOverview as jest.Mock).mockResolvedValue(makeOverviewResponse());
     (fetchUploadImageAccess as jest.Mock).mockResolvedValue({ image_url: "/mock-upload.jpg" });
+    (fetchUploadImageAccessBatch as jest.Mock).mockImplementation(async (uploadIds: number[]) =>
+      makeUploadImageAccessBatchResponse(uploadIds)
+    );
   });
 
   test("shows clinical period panel on the clinical-period tab", async () => {
@@ -343,6 +349,9 @@ describe("AdminHistoryOverviewPage symptom elevated risk", () => {
       })
     );
     (fetchUploadImageAccess as jest.Mock).mockResolvedValue({ image_url: "/mock-upload.jpg" });
+    (fetchUploadImageAccessBatch as jest.Mock).mockImplementation(async (uploadIds: number[]) =>
+      makeUploadImageAccessBatchResponse(uploadIds)
+    );
   });
 
   test("shows elevated KPI when only symptom elevated risk is present", async () => {
