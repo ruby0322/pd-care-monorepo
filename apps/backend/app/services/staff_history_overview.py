@@ -8,7 +8,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, Upload
-from app.services.attention_triage import TriageUploadRef, count_unhandled_patients
+from app.services.attention_triage import TriageUploadRef, calendar_tier_to_attention_tier, count_unhandled_patients
 from app.services.staff_dashboard import calculate_age
 from app.services.symptoms import CalendarRiskTier, calendar_risk_tier, counts_toward_suspected_rate
 from app.services.taipei_dates import normalize_datetime, to_taipei_date
@@ -233,7 +233,7 @@ def _count_unhandled_for_day(day_rows: list[_RawUploadRow]) -> int:
             TriageUploadRef(
                 upload_id=row.upload_id,
                 created_at=row.created_at,
-                tier="other" if raw_tier == "none" else raw_tier,  # type: ignore[arg-type]
+                tier=calendar_tier_to_attention_tier(raw_tier),
                 has_annotation=row.annotation_label is not None,
             )
         )

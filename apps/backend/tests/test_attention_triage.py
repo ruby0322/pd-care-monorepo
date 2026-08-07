@@ -1,6 +1,11 @@
 from datetime import datetime, timezone
 
-from app.services.attention_triage import TriageUploadRef, count_unhandled_patients, select_risk_representative
+from app.services.attention_triage import (
+    TriageUploadRef,
+    calendar_tier_to_attention_tier,
+    count_unhandled_patients,
+    select_risk_representative,
+)
 
 
 def _ref(
@@ -16,6 +21,12 @@ def _ref(
         tier=tier,  # type: ignore[arg-type]
         has_annotation=has_annotation,
     )
+
+
+def test_calendar_tier_to_attention_tier_maps_none_to_other() -> None:
+    assert calendar_tier_to_attention_tier("none") == "other"
+    assert calendar_tier_to_attention_tier("elevated") == "elevated"
+    assert calendar_tier_to_attention_tier("suspected") == "suspected"
 
 
 def test_select_risk_representative_prefers_suspected_over_elevated() -> None:

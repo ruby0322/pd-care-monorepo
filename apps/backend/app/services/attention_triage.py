@@ -9,9 +9,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Mapping, NamedTuple, Sequence
 
+from app.services.symptoms import CalendarRiskTier
 from app.services.taipei_dates import normalize_datetime
 
 AttentionTier = Literal["suspected", "elevated", "other"]
+
+
+def calendar_tier_to_attention_tier(tier: CalendarRiskTier) -> AttentionTier:
+    if tier == "none":
+        return "other"
+    return tier
 
 
 class TriageUploadRef(NamedTuple):

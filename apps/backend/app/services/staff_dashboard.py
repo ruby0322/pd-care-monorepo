@@ -10,7 +10,7 @@ from sqlalchemy import Select, and_, case, delete, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
-from app.services.attention_triage import TriageUploadRef, select_risk_representative
+from app.services.attention_triage import TriageUploadRef, calendar_tier_to_attention_tier, select_risk_representative
 from app.services.symptoms import calendar_risk_tier, has_high_risk_symptoms, symptom_aware_priority
 from app.services.taipei_dates import TAIPEI_TIMEZONE, resolve_taipei_day_bounds, resolve_taipei_day_bounds_for_date, to_taipei_date
 from app.services.upload_history import summarize_patient_upload_history
@@ -1177,7 +1177,7 @@ def list_today_attention_patients(
             TriageUploadRef(
                 upload_id=upload.id,
                 created_at=upload.created_at,
-                tier="other" if tier not in {"suspected", "elevated"} else tier,  # type: ignore[arg-type]
+                tier=calendar_tier_to_attention_tier(tier),
                 has_annotation=upload.id in latest_annotation_by_upload,
             )
             for upload, _, tier in patient_uploads
