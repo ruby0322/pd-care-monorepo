@@ -261,6 +261,40 @@ def test_workbench_aligns_week_metrics_with_attention(tmp_path: Path) -> None:
         assert "2026-05-01" in payload["available_dates"]
 
 
+def test_workbench_available_dates_sql_distinct_and_utc_boundary(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "workbench-sql-dates.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        patient_id, _ = _seed_patient_uploads(
+            client,
+            case_number="P-DATES",
+            line_user_id="U_DATES",
+            uploads=[
+                # Same Taipei day (2026-07-16): two uploads should dedupe to one available date.
+                (datetime(2026, 7, 16, 1, 0, tzinfo=timezone.utc), "normal"),
+                (datetime(2026, 7, 16, 10, 0, tzinfo=timezone.utc), "normal"),
+                # 17:00 UTC is 2026-07-17 in Taipei.
+                (datetime(2026, 7, 16, 17, 0, tzinfo=timezone.utc), "normal"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workbench = client.get(
+            "/v1/staff/dashboard/workbench",
+            headers=headers,
+            params={"local_date": "2026-07-16", "week_start": "2026-07-12"},
+        )
+        assert workbench.status_code == 200
+        available_dates = workbench.json()["available_dates"]
+        assert available_dates.count("2026-07-16") == 1
+        assert "2026-07-17" in available_dates
+        assert "2026-07-15" not in available_dates
+        assert available_dates.index("2026-07-17") < available_dates.index("2026-07-16")
+
+
 def test_image_access_batch_partial_errors(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "image-batch.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

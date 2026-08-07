@@ -12,7 +12,11 @@ from app.db.models import AIResult, Patient, Upload
 from app.services.attention_triage import workbench_upload_where_clauses
 from app.services.staff_dashboard import TodayAttentionPatientRow, list_today_attention_patients
 from app.services.staff_history_overview import HistoryOverviewDaySummary, list_history_overview_days
-from app.services.taipei_dates import resolve_taipei_day_bounds_for_date, to_taipei_date
+from app.services.taipei_dates import (
+    coerce_sql_local_date,
+    resolve_taipei_day_bounds_for_date,
+    upload_taipei_local_date_expr,
+)
 
 
 @dataclass(frozen=True)
@@ -42,17 +46,21 @@ def list_workbench_dates(
     """Distinct Taipei local dates with at least one workbench-eligible upload."""
     if accessible_patient_ids is not None and not accessible_patient_ids:
         return []
-    base_query: Select = (
-        select(Upload.created_at)
+    bind = session.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else "postgresql"
+    local_day = upload_taipei_local_date_expr(Upload.created_at, dialect_name=dialect_name)
+    stmt: Select = (
+        select(local_day)
+        .select_from(Upload)
         .join(AIResult, AIResult.upload_id == Upload.id)
         .join(Patient, Patient.id == Upload.patient_id)
         .where(*workbench_upload_where_clauses())
     )
     if accessible_patient_ids is not None:
-        base_query = base_query.where(Patient.id.in_(accessible_patient_ids))
-    created_ats = session.execute(base_query).scalars().all()
-    dates = {to_taipei_date(created_at) for created_at in created_ats}
-    return sorted(dates, reverse=True)
+        stmt = stmt.where(Patient.id.in_(accessible_patient_ids))
+    stmt = stmt.distinct().order_by(local_day.desc())
+    rows = session.execute(stmt).scalars().all()
+    return [coerce_sql_local_date(row) for row in rows]
 
 
 def aggregate_workbench_week(
