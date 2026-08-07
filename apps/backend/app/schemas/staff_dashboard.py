@@ -138,6 +138,37 @@ class StaffTodayAttentionResponse(BaseModel):
     items: list[StaffTodayAttentionPatientItem]
 
 
+class StaffWorkbenchWeekDayItem(BaseModel):
+    local_date: str
+    upload_count: int = 0
+    uploaded_users: int = 0
+    risky_patient_count: int = 0
+    unhandled_patient_count: int = 0
+
+
+class StaffWorkbenchDashboardResponse(BaseModel):
+    local_date: str
+    week_start: str
+    available_dates: list[str]
+    week_days: list[StaffWorkbenchWeekDayItem]
+    attention: StaffTodayAttentionResponse
+
+
+class StaffUploadImageAccessBatchRequest(BaseModel):
+    upload_ids: list[int] = Field(..., min_length=1, max_length=50)
+
+
+class StaffUploadImageAccessBatchItem(BaseModel):
+    upload_id: int
+    image_url: str | None = None
+    expires_in: int | None = None
+    error: Literal["not_found", "forbidden"] | None = None
+
+
+class StaffUploadImageAccessBatchResponse(BaseModel):
+    items: list[StaffUploadImageAccessBatchItem]
+
+
 class StaffHistoryOverviewDayItem(BaseModel):
     local_date: str
     upload_count: int

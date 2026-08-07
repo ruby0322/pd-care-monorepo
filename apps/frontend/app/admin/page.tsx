@@ -10,124 +10,75 @@ import { TodayPatientPool } from "@/app/admin/_components/today-patient-pool";
 import { TodayWorkbenchHeader } from "@/app/admin/_components/today-workbench-header";
 import { useAdminSelectedDate } from "@/lib/admin/use-admin-selected-date";
 import {
-  fetchHistoryOverviewCalendar,
-  fetchHistoryOverviewDays,
-  fetchTodayAttention,
+  fetchWorkbenchDashboard,
   type StaffTodayAttentionResponse,
 } from "@/lib/api/staff";
-import { getMonthKeysForWeek, getWeekStartDateKey } from "@/lib/utils/upload-calendar";
+import { getWeekStartDateKey } from "@/lib/utils/upload-calendar";
 
 function AdminDashboardInner() {
   const { selectedDate, setSelectedDate, isTodaySelected, dayScopeLabel } = useAdminSelectedDate();
 
   const [attention, setAttention] = useState<StaffTodayAttentionResponse | null>(null);
-  const [attentionLoading, setAttentionLoading] = useState(true);
-  const [attentionError, setAttentionError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
 
   const [browseWeekStart, setBrowseWeekStart] = useState<string | null>(null);
   const weekStartDateKey = browseWeekStart ?? getWeekStartDateKey(selectedDate);
-  const weekMonthKeys = useMemo(() => getMonthKeysForWeek(weekStartDateKey), [weekStartDateKey]);
 
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [metricsByDate, setMetricsByDate] = useState<Record<string, DayCalendarMetrics>>({});
-  const [calendarLoading, setCalendarLoading] = useState(true);
 
-  const loadAttention = useCallback(async (isCancelled?: () => boolean) => {
-    const cancelled = isCancelled ?? (() => false);
-    setAttentionLoading(true);
-    try {
-      const data = await fetchTodayAttention({ localDate: selectedDate });
-      if (cancelled()) {
-        return;
-      }
-      setAttention(data);
-      setAttentionError(null);
-    } catch {
-      if (cancelled()) {
-        return;
-      }
-      setAttentionError(`無法載入${dayScopeLabel}上傳病患`);
-      setAttention(null);
-    } finally {
-      if (!cancelled()) {
-        setAttentionLoading(false);
-      }
-    }
-  }, [dayScopeLabel, selectedDate]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void loadAttention(() => cancelled);
-    }, 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [loadAttention]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchHistoryOverviewDays()
-      .then((data) => {
-        if (!cancelled) {
-          setAvailableDates(data.items.map((item) => item.local_date));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAvailableDates([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      setCalendarLoading(true);
-      void Promise.all(
-        weekMonthKeys.map((monthKey) => {
-          const [year, month] = monthKey.split("-").map(Number);
-          return fetchHistoryOverviewCalendar({ year, month });
-        })
-      )
-        .then((responses) => {
-          if (cancelled) {
-            return;
-          }
-          const next: Record<string, DayCalendarMetrics> = {};
-          for (const response of responses) {
-            for (const item of response.items) {
-              next[item.local_date] = {
-                uploadCount: item.upload_count ?? 0,
-                uploadedUsers: item.uploaded_users ?? 0,
-                riskyPatients: item.risky_patient_count ?? 0,
-                unhandledPatients: item.unhandled_patient_count ?? 0,
-              };
-            }
-          }
-          setMetricsByDate(next);
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setMetricsByDate({});
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setCalendarLoading(false);
-          }
+  const loadWorkbench = useCallback(
+    async (isCancelled?: () => boolean) => {
+      const cancelled = isCancelled ?? (() => false);
+      setLoading(true);
+      try {
+        const data = await fetchWorkbenchDashboard({
+          localDate: selectedDate,
+          weekStart: weekStartDateKey,
         });
+        if (cancelled()) {
+          return;
+        }
+        setAvailableDates(data.available_dates);
+        const nextMetrics: Record<string, DayCalendarMetrics> = {};
+        for (const day of data.week_days) {
+          nextMetrics[day.local_date] = {
+            uploadCount: day.upload_count ?? 0,
+            uploadedUsers: day.uploaded_users ?? 0,
+            riskyPatients: day.risky_patient_count ?? 0,
+            unhandledPatients: day.unhandled_patient_count ?? 0,
+          };
+        }
+        setMetricsByDate(nextMetrics);
+        setAttention(data.attention);
+        setError(null);
+      } catch {
+        if (cancelled()) {
+          return;
+        }
+        setError(`無法載入${dayScopeLabel}上傳病患`);
+        setAttention(null);
+      } finally {
+        if (!cancelled()) {
+          setLoading(false);
+        }
+      }
+    },
+    [dayScopeLabel, selectedDate, weekStartDateKey]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void loadWorkbench(() => cancelled);
     }, 0);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [weekMonthKeys]);
+  }, [loadWorkbench]);
 
   const availableSet = useMemo(() => new Set(availableDates), [availableDates]);
   const resolvedPatientId = useMemo(() => {
@@ -153,7 +104,7 @@ function AdminDashboardInner() {
         weekStartDateKey={weekStartDateKey}
         metricsByDate={metricsByDate}
         availableDates={availableSet}
-        loading={calendarLoading}
+        loading={loading}
         onSelectDate={(dateKey) => {
           setBrowseWeekStart(null);
           setSelectedDate(dateKey);
@@ -164,8 +115,8 @@ function AdminDashboardInner() {
       />
 
       <TodayPatientPool
-        loading={attentionLoading}
-        error={attentionError}
+        loading={loading}
+        error={error}
         suspectedPatients={attention?.suspected_patients ?? 0}
         elevatedPatients={attention?.elevated_patients ?? 0}
         otherPatients={attention?.other_patients ?? 0}
@@ -176,7 +127,7 @@ function AdminDashboardInner() {
         selectedPatientId={resolvedPatientId}
         onSelectPatient={setSelectedPatientId}
         onReviewSaved={() => {
-          void loadAttention();
+          void loadWorkbench();
         }}
       />
     </main>

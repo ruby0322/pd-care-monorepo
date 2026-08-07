@@ -29,6 +29,16 @@ def test_calendar_tier_to_attention_tier_maps_none_to_other() -> None:
     assert calendar_tier_to_attention_tier("suspected") == "suspected"
 
 
+def test_workbench_upload_where_clauses_returns_two_filters() -> None:
+    from app.services.attention_triage import workbench_upload_where_clauses
+
+    clauses = workbench_upload_where_clauses()
+    assert len(clauses) == 2
+    joined = " ".join(str(clause) for clause in clauses)
+    assert "screening_result" in joined
+    assert "is_active" in joined
+
+
 def test_select_risk_representative_prefers_suspected_over_elevated() -> None:
     refs = [
         _ref(1, tier="elevated", minute=1),

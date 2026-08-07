@@ -62,6 +62,11 @@ from app.schemas.staff_dashboard import (
     StaffHistoryOverviewResponse,
     StaffHistoryOverviewUploadItem,
     StaffHistoryOverviewUserGroupItem,
+    StaffUploadImageAccessBatchItem,
+    StaffUploadImageAccessBatchRequest,
+    StaffUploadImageAccessBatchResponse,
+    StaffWorkbenchDashboardResponse,
+    StaffWorkbenchWeekDayItem,
 )
 from app.db.models import LiffIdentity, Patient, PendingBinding, Upload
 from app.services.staff_dashboard import (
@@ -91,7 +96,9 @@ from app.services.staff_history_overview import (
     get_history_overview_calendar_month,
     list_history_overview_days,
 )
+from app.services.staff_workbench import get_workbench_dashboard
 from app.services.symptoms import derived_symptom_fields
+from app.services.attention_triage import HistoryOverviewScope
 
 router = APIRouter(tags=["Staff"])
 
@@ -99,6 +106,56 @@ router = APIRouter(tags=["Staff"])
 router.include_router(admin_users_access_router)
 router.include_router(admin_assignments_analytics_router)
 router.include_router(notifications_router)
+
+
+def _serialize_today_attention(
+    *,
+    today: date,
+    total_uploads: int,
+    rows,
+) -> StaffTodayAttentionResponse:
+    suspected_patients = sum(1 for row in rows if row.tier == "suspected")
+    elevated_patients = sum(1 for row in rows if row.tier == "elevated")
+    other_patients = sum(1 for row in rows if row.tier == "other")
+    return StaffTodayAttentionResponse(
+        date=today.isoformat(),
+        total_uploads=total_uploads,
+        suspected_patients=suspected_patients,
+        elevated_patients=elevated_patients,
+        other_patients=other_patients,
+        items=[
+            StaffTodayAttentionPatientItem(
+                patient_id=row.patient.id,
+                case_number=row.patient.case_number,
+                full_name=row.patient.full_name,
+                tier=row.tier,
+                representative_upload_id=row.representative_upload_id,
+                sort_upload_at=row.sort_upload_at,
+                has_annotation=row.has_annotation,
+                picture_url=row.picture_url,
+                day_upload_count=row.day_upload_count,
+                preview_upload_ids=row.preview_upload_ids,
+                risk_highlight=(
+                    StaffTodayAttentionRiskHighlight(
+                        upload_id=row.risk_highlight.upload_id,
+                        screening_result=row.risk_highlight.screening_result,
+                        probability=row.risk_highlight.probability,
+                        threshold=row.risk_highlight.threshold,
+                        symptom_pain=row.risk_highlight.symptom_pain,
+                        symptom_discharge=row.risk_highlight.symptom_discharge,
+                        symptom_pus=row.risk_highlight.symptom_pus,
+                        symptom_cloudy_dialysate=row.risk_highlight.symptom_cloudy_dialysate,
+                        has_high_risk_symptoms=row.risk_highlight.has_high_risk_symptoms,
+                        symptom_aware_priority=row.risk_highlight.symptom_aware_priority,
+                        created_at=row.risk_highlight.created_at,
+                    )
+                    if row.risk_highlight is not None
+                    else None
+                ),
+            )
+            for row in rows
+        ],
+    )
 
 
 @router.get("/v1/staff/me")
@@ -518,47 +575,51 @@ async def get_staff_today_attention(
             accessible_patient_ids=accessible_patient_ids,
             local_date=local_date,
         )
-        suspected_patients = sum(1 for row in rows if row.tier == "suspected")
-        elevated_patients = sum(1 for row in rows if row.tier == "elevated")
-        other_patients = sum(1 for row in rows if row.tier == "other")
-        return StaffTodayAttentionResponse(
-            date=today.isoformat(),
-            total_uploads=total_uploads,
-            suspected_patients=suspected_patients,
-            elevated_patients=elevated_patients,
-            other_patients=other_patients,
-            items=[
-                StaffTodayAttentionPatientItem(
-                    patient_id=row.patient.id,
-                    case_number=row.patient.case_number,
-                    full_name=row.patient.full_name,
-                    tier=row.tier,
-                    representative_upload_id=row.representative_upload_id,
-                    sort_upload_at=row.sort_upload_at,
-                    has_annotation=row.has_annotation,
-                    picture_url=row.picture_url,
-                    day_upload_count=row.day_upload_count,
-                    preview_upload_ids=row.preview_upload_ids,
-                    risk_highlight=(
-                        StaffTodayAttentionRiskHighlight(
-                            upload_id=row.risk_highlight.upload_id,
-                            screening_result=row.risk_highlight.screening_result,
-                            probability=row.risk_highlight.probability,
-                            threshold=row.risk_highlight.threshold,
-                            symptom_pain=row.risk_highlight.symptom_pain,
-                            symptom_discharge=row.risk_highlight.symptom_discharge,
-                            symptom_pus=row.risk_highlight.symptom_pus,
-                            symptom_cloudy_dialysate=row.risk_highlight.symptom_cloudy_dialysate,
-                            has_high_risk_symptoms=row.risk_highlight.has_high_risk_symptoms,
-                            symptom_aware_priority=row.risk_highlight.symptom_aware_priority,
-                            created_at=row.risk_highlight.created_at,
-                        )
-                        if row.risk_highlight is not None
-                        else None
-                    ),
+        return _serialize_today_attention(today=today, total_uploads=total_uploads, rows=rows)
+    finally:
+        session.close()
+
+
+@router.get("/v1/staff/dashboard/workbench", response_model=StaffWorkbenchDashboardResponse)
+async def get_staff_dashboard_workbench(
+    request: Request,
+    local_date: date = Query(...),
+    week_start: date = Query(...),
+    credentials=Depends(bearer_scheme),
+) -> StaffWorkbenchDashboardResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        data = get_workbench_dashboard(
+            session,
+            local_date=local_date,
+            week_start=week_start,
+            accessible_patient_ids=accessible_patient_ids,
+        )
+        return StaffWorkbenchDashboardResponse(
+            local_date=data.local_date.isoformat(),
+            week_start=data.week_start.isoformat(),
+            available_dates=[day.isoformat() for day in data.available_dates],
+            week_days=[
+                StaffWorkbenchWeekDayItem(
+                    local_date=day.local_date.isoformat(),
+                    upload_count=day.upload_count,
+                    uploaded_users=day.uploaded_users,
+                    risky_patient_count=day.risky_patient_count,
+                    unhandled_patient_count=day.unhandled_patient_count,
                 )
-                for row in rows
+                for day in data.week_days
             ],
+            attention=_serialize_today_attention(
+                today=data.local_date,
+                total_uploads=data.attention_total_uploads,
+                rows=data.attention_rows,
+            ),
         )
     finally:
         session.close()
@@ -567,6 +628,7 @@ async def get_staff_today_attention(
 @router.get("/v1/staff/uploads/history-overview/days", response_model=StaffHistoryOverviewDaysResponse)
 async def get_staff_history_overview_days(
     request: Request,
+    scope: HistoryOverviewScope = Query(default="all"),
     credentials=Depends(bearer_scheme),
 ) -> StaffHistoryOverviewDaysResponse:
     principal = require_staff_or_admin(get_current_principal(request, credentials))
@@ -580,6 +642,7 @@ async def get_staff_history_overview_days(
         rows = list_history_overview_days(
             session,
             accessible_patient_ids=accessible_patient_ids,
+            scope=scope,
         )
         return StaffHistoryOverviewDaysResponse(
             items=[
@@ -1061,6 +1124,61 @@ async def get_staff_upload_image_access(
             "image_url": f"/api/v1/staff/uploads/{upload_id}/image-public?token={token}",
             "expires_in": ttl_seconds,
         }
+    finally:
+        session.close()
+
+
+@router.post("/v1/staff/uploads/image-access/batch", response_model=StaffUploadImageAccessBatchResponse)
+async def post_staff_upload_image_access_batch(
+    request: Request,
+    payload: StaffUploadImageAccessBatchRequest,
+    credentials=Depends(bearer_scheme),
+) -> StaffUploadImageAccessBatchResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        storage_service = getattr(request.app.state, "storage_service", None)
+        if storage_service is None:
+            raise HTTPException(status_code=503, detail="Storage is not initialized")
+        ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
+        accessible_patient_ids = _get_accessible_patient_ids(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+        )
+        # Preserve request order; dedupe while resolving.
+        seen: set[int] = set()
+        ordered_ids: list[int] = []
+        for upload_id in payload.upload_ids:
+            if upload_id in seen:
+                continue
+            seen.add(upload_id)
+            ordered_ids.append(upload_id)
+
+        uploads = {
+            upload.id: upload
+            for upload in session.execute(select(Upload).where(Upload.id.in_(ordered_ids))).scalars().all()
+        }
+        items: list[StaffUploadImageAccessBatchItem] = []
+        for upload_id in ordered_ids:
+            upload = uploads.get(upload_id)
+            if upload is None:
+                items.append(StaffUploadImageAccessBatchItem(upload_id=upload_id, error="not_found"))
+                continue
+            if accessible_patient_ids is not None and upload.patient_id not in accessible_patient_ids:
+                items.append(StaffUploadImageAccessBatchItem(upload_id=upload_id, error="forbidden"))
+                continue
+            token = storage_service.generate_access_token(
+                upload.object_key, subject="staff", ttl_seconds=ttl_seconds
+            )
+            items.append(
+                StaffUploadImageAccessBatchItem(
+                    upload_id=upload_id,
+                    image_url=f"/api/v1/staff/uploads/{upload_id}/image-public?token={token}",
+                    expires_in=ttl_seconds,
+                )
+            )
+        return StaffUploadImageAccessBatchResponse(items=items)
     finally:
         session.close()
 
