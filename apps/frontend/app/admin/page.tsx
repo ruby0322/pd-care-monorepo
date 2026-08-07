@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   DashboardDayCalendar,
@@ -10,10 +10,25 @@ import { TodayPatientPool } from "@/app/admin/_components/today-patient-pool";
 import { TodayWorkbenchHeader } from "@/app/admin/_components/today-workbench-header";
 import { useAdminSelectedDate } from "@/lib/admin/use-admin-selected-date";
 import {
+  fetchTodayAttention,
   fetchWorkbenchDashboard,
   type StaffTodayAttentionResponse,
+  type StaffWorkbenchWeekDayItem,
 } from "@/lib/api/staff";
 import { getWeekStartDateKey } from "@/lib/utils/upload-calendar";
+
+function metricsFromWeekDays(weekDays: StaffWorkbenchWeekDayItem[]): Record<string, DayCalendarMetrics> {
+  const next: Record<string, DayCalendarMetrics> = {};
+  for (const day of weekDays) {
+    next[day.local_date] = {
+      uploadCount: day.upload_count ?? 0,
+      uploadedUsers: day.uploaded_users ?? 0,
+      riskyPatients: day.risky_patient_count ?? 0,
+      unhandledPatients: day.unhandled_patient_count ?? 0,
+    };
+  }
+  return next;
+}
 
 function AdminDashboardInner() {
   const { selectedDate, setSelectedDate, isTodaySelected, dayScopeLabel } = useAdminSelectedDate();
@@ -28,31 +43,35 @@ function AdminDashboardInner() {
 
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [metricsByDate, setMetricsByDate] = useState<Record<string, DayCalendarMetrics>>({});
+  const cachedWeekStartRef = useRef<string | null>(null);
 
   const loadWorkbench = useCallback(
-    async (isCancelled?: () => boolean) => {
-      const cancelled = isCancelled ?? (() => false);
+    async (options?: { forceFull?: boolean; isCancelled?: () => boolean }) => {
+      const cancelled = options?.isCancelled ?? (() => false);
+      const forceFull = options?.forceFull ?? false;
+      const weekChanged = forceFull || cachedWeekStartRef.current !== weekStartDateKey;
+
       setLoading(true);
       try {
-        const data = await fetchWorkbenchDashboard({
-          localDate: selectedDate,
-          weekStart: weekStartDateKey,
-        });
-        if (cancelled()) {
-          return;
+        if (weekChanged) {
+          const data = await fetchWorkbenchDashboard({
+            localDate: selectedDate,
+            weekStart: weekStartDateKey,
+          });
+          if (cancelled()) {
+            return;
+          }
+          setAvailableDates(data.available_dates);
+          setMetricsByDate(metricsFromWeekDays(data.week_days));
+          setAttention(data.attention);
+          cachedWeekStartRef.current = weekStartDateKey;
+        } else {
+          const data = await fetchTodayAttention({ localDate: selectedDate });
+          if (cancelled()) {
+            return;
+          }
+          setAttention(data);
         }
-        setAvailableDates(data.available_dates);
-        const nextMetrics: Record<string, DayCalendarMetrics> = {};
-        for (const day of data.week_days) {
-          nextMetrics[day.local_date] = {
-            uploadCount: day.upload_count ?? 0,
-            uploadedUsers: day.uploaded_users ?? 0,
-            riskyPatients: day.risky_patient_count ?? 0,
-            unhandledPatients: day.unhandled_patient_count ?? 0,
-          };
-        }
-        setMetricsByDate(nextMetrics);
-        setAttention(data.attention);
         setError(null);
       } catch {
         if (cancelled()) {
@@ -72,7 +91,7 @@ function AdminDashboardInner() {
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void loadWorkbench(() => cancelled);
+      void loadWorkbench({ isCancelled: () => cancelled });
     }, 0);
     return () => {
       cancelled = true;
@@ -127,7 +146,7 @@ function AdminDashboardInner() {
         selectedPatientId={resolvedPatientId}
         onSelectPatient={setSelectedPatientId}
         onReviewSaved={() => {
-          void loadWorkbench();
+          void loadWorkbench({ forceFull: true });
         }}
       />
     </main>

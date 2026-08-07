@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -87,6 +87,7 @@ from app.services.staff_dashboard import (
     list_today_attention_patients,
     list_upload_queue,
     preview_delete_inactive_patients,
+    TodayAttentionPatientRow,
     update_pending_binding_status,
     update_patient_active_status,
     upsert_annotation_for_upload,
@@ -112,7 +113,7 @@ def _serialize_today_attention(
     *,
     today: date,
     total_uploads: int,
-    rows,
+    rows: Sequence[TodayAttentionPatientRow],
 ) -> StaffTodayAttentionResponse:
     suspected_patients = sum(1 for row in rows if row.tier == "suspected")
     elevated_patients = sum(1 for row in rows if row.tier == "elevated")
