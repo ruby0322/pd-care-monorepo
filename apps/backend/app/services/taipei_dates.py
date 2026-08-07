@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+from typing import Any
+
+from sqlalchemy.sql.elements import ColumnElement
 
 TAIPEI_TIMEZONE = timezone(timedelta(hours=8))
 
@@ -13,6 +16,22 @@ def normalize_datetime(raw_dt: datetime) -> datetime:
 
 def to_taipei_date(raw_dt: datetime) -> date:
     return normalize_datetime(raw_dt).astimezone(TAIPEI_TIMEZONE).date()
+
+
+def upload_taipei_local_date_expr(created_at_column: ColumnElement[Any], *, dialect_name: str) -> ColumnElement[Any]:
+    """SQL expression for Upload.created_at as a Taipei calendar date."""
+    from sqlalchemy import func
+
+    if dialect_name == "postgresql":
+        return func.date(func.timezone("Asia/Taipei", created_at_column))
+    # SQLite tests: fixed +8h offset matches to_taipei_date() for UTC-stored timestamps.
+    return func.date(func.datetime(created_at_column, "+8 hours"))
+
+
+def coerce_sql_local_date(value: date | str) -> date:
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
 
 
 def resolve_taipei_day_bounds_for_date(local_day: date) -> tuple[date, datetime, datetime]:

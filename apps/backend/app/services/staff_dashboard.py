@@ -10,7 +10,12 @@ from sqlalchemy import Select, and_, case, delete, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Notification, Patient, PendingBinding, StaffPatientAssignment, Upload
-from app.services.attention_triage import TriageUploadRef, calendar_tier_to_attention_tier, select_risk_representative
+from app.services.attention_triage import (
+    TriageUploadRef,
+    calendar_tier_to_attention_tier,
+    select_risk_representative,
+    workbench_upload_where_clauses,
+)
 from app.services.symptoms import calendar_risk_tier, has_high_risk_symptoms, symptom_aware_priority
 from app.services.taipei_dates import TAIPEI_TIMEZONE, resolve_taipei_day_bounds, resolve_taipei_day_bounds_for_date, to_taipei_date
 from app.services.upload_history import summarize_patient_upload_history
@@ -1139,8 +1144,7 @@ def list_today_attention_patients(
         .where(
             Upload.created_at >= today_start,
             Upload.created_at < tomorrow_start,
-            AIResult.screening_result != "rejected",
-            Patient.is_active.is_(True),
+            *workbench_upload_where_clauses(),
         )
     )
     if accessible_patient_ids is not None:

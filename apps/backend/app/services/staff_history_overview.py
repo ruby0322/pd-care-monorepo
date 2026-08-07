@@ -8,10 +8,16 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, Upload
-from app.services.attention_triage import TriageUploadRef, calendar_tier_to_attention_tier, count_unhandled_patients
+from app.services.attention_triage import (
+    HistoryOverviewScope,
+    TriageUploadRef,
+    calendar_tier_to_attention_tier,
+    count_unhandled_patients,
+    workbench_upload_where_clauses,
+)
 from app.services.staff_dashboard import calculate_age
 from app.services.symptoms import CalendarRiskTier, calendar_risk_tier, counts_toward_suspected_rate
-from app.services.taipei_dates import normalize_datetime, to_taipei_date
+from app.services.taipei_dates import normalize_datetime, resolve_taipei_day_bounds_for_date, to_taipei_date
 
 
 @dataclass(frozen=True)
@@ -240,12 +246,25 @@ def _count_unhandled_for_day(day_rows: list[_RawUploadRow]) -> int:
     return count_unhandled_patients(by_patient)
 
 
-def _raw_rows(session: Session, *, accessible_patient_ids: set[int] | None = None) -> list[_RawUploadRow]:
+def _raw_rows(
+    session: Session,
+    *,
+    accessible_patient_ids: set[int] | None = None,
+    scope: HistoryOverviewScope = "all",
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+) -> list[_RawUploadRow]:
     base_query: Select = (
         select(Upload, AIResult, Patient)
         .join(AIResult, AIResult.upload_id == Upload.id)
         .join(Patient, Patient.id == Upload.patient_id)
     )
+    if scope == "workbench":
+        base_query = base_query.where(*workbench_upload_where_clauses())
+    if created_from is not None:
+        base_query = base_query.where(Upload.created_at >= created_from)
+    if created_to is not None:
+        base_query = base_query.where(Upload.created_at < created_to)
     if accessible_patient_ids is not None:
         if not accessible_patient_ids:
             return []
@@ -293,8 +312,17 @@ def list_history_overview_days(
     session: Session,
     *,
     accessible_patient_ids: set[int] | None = None,
+    scope: HistoryOverviewScope = "all",
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
 ) -> list[HistoryOverviewDaySummary]:
-    rows = _raw_rows(session, accessible_patient_ids=accessible_patient_ids)
+    rows = _raw_rows(
+        session,
+        accessible_patient_ids=accessible_patient_ids,
+        scope=scope,
+        created_from=created_from,
+        created_to=created_to,
+    )
     grouped: dict[date, list[_RawUploadRow]] = defaultdict(list)
     for row in rows:
         grouped[row.local_date].append(row)
@@ -471,8 +499,22 @@ def get_history_overview_calendar_month(
     year: int,
     month: int,
     accessible_patient_ids: set[int] | None = None,
+    scope: HistoryOverviewScope = "all",
 ) -> list[HistoryOverviewCalendarItem]:
-    days = list_history_overview_days(session, accessible_patient_ids=accessible_patient_ids)
+    month_start = date(year, month, 1)
+    if month == 12:
+        next_month_start = date(year + 1, 1, 1)
+    else:
+        next_month_start = date(year, month + 1, 1)
+    _, created_from, _ = resolve_taipei_day_bounds_for_date(month_start)
+    _, created_to, _ = resolve_taipei_day_bounds_for_date(next_month_start)
+    days = list_history_overview_days(
+        session,
+        accessible_patient_ids=accessible_patient_ids,
+        scope=scope,
+        created_from=created_from,
+        created_to=created_to,
+    )
     return [
         HistoryOverviewCalendarItem(
             local_date=item.local_date,

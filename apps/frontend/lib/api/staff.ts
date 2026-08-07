@@ -153,6 +153,33 @@ export type StaffTodayAttentionResponse = {
   items: StaffTodayAttentionPatientItem[];
 };
 
+export type StaffWorkbenchWeekDayItem = {
+  local_date: string;
+  upload_count: number;
+  uploaded_users: number;
+  risky_patient_count: number;
+  unhandled_patient_count: number;
+};
+
+export type StaffWorkbenchDashboardResponse = {
+  local_date: string;
+  week_start: string;
+  available_dates: string[];
+  week_days: StaffWorkbenchWeekDayItem[];
+  attention: StaffTodayAttentionResponse;
+};
+
+export type StaffUploadImageAccessBatchItem = {
+  upload_id: number;
+  image_url: string | null;
+  expires_in: number | null;
+  error: "not_found" | "forbidden" | null;
+};
+
+export type StaffUploadImageAccessBatchResponse = {
+  items: StaffUploadImageAccessBatchItem[];
+};
+
 export type StaffRapidReviewQueueItem = StaffUploadQueueItem & {
   risk_rank: number;
 };
@@ -603,8 +630,25 @@ export async function fetchTodayAttention(params?: {
   return data;
 }
 
-export async function fetchHistoryOverviewDays(): Promise<StaffHistoryOverviewDaysResponse> {
-  const { data } = await apiClient.get<StaffHistoryOverviewDaysResponse>("/v1/staff/uploads/history-overview/days");
+export async function fetchWorkbenchDashboard(params: {
+  localDate: string;
+  weekStart: string;
+}): Promise<StaffWorkbenchDashboardResponse> {
+  const { data } = await apiClient.get<StaffWorkbenchDashboardResponse>("/v1/staff/dashboard/workbench", {
+    params: {
+      local_date: params.localDate,
+      week_start: params.weekStart,
+    },
+  });
+  return data;
+}
+
+export async function fetchHistoryOverviewDays(params?: {
+  scope?: "all" | "workbench";
+}): Promise<StaffHistoryOverviewDaysResponse> {
+  const { data } = await apiClient.get<StaffHistoryOverviewDaysResponse>("/v1/staff/uploads/history-overview/days", {
+    params: params?.scope ? { scope: params.scope } : undefined,
+  });
   return data;
 }
 
@@ -730,6 +774,16 @@ export async function updateStaffPatientStatus(
 export async function fetchUploadImageAccess(uploadId: number): Promise<{ image_url: string; expires_in: number }> {
   const { data } = await apiClient.get<{ image_url: string; expires_in: number }>(
     `/v1/staff/uploads/${uploadId}/image-access`
+  );
+  return data;
+}
+
+export async function fetchUploadImageAccessBatch(
+  uploadIds: number[]
+): Promise<StaffUploadImageAccessBatchResponse> {
+  const { data } = await apiClient.post<StaffUploadImageAccessBatchResponse>(
+    "/v1/staff/uploads/image-access/batch",
+    { upload_ids: uploadIds }
   );
   return data;
 }

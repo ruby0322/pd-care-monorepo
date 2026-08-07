@@ -7,12 +7,22 @@ Unhandled = risk patient whose representative has no annotation.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Mapping, NamedTuple, Sequence
+from typing import Any, Literal, Mapping, NamedTuple, Sequence
 
+from app.db.models import AIResult, Patient
 from app.services.symptoms import CalendarRiskTier
 from app.services.taipei_dates import normalize_datetime
 
 AttentionTier = Literal["suspected", "elevated", "other"]
+HistoryOverviewScope = Literal["all", "workbench"]
+
+
+def workbench_upload_where_clauses() -> tuple[Any, ...]:
+    """SQLAlchemy filters for workbench-eligible uploads (active patient, non-rejected)."""
+    return (
+        AIResult.screening_result != "rejected",
+        Patient.is_active.is_(True),
+    )
 
 
 def calendar_tier_to_attention_tier(tier: CalendarRiskTier) -> AttentionTier:
