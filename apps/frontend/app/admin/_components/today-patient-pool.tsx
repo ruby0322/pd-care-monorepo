@@ -85,7 +85,7 @@ export function TodayPatientPool({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-zinc-900">{dayScopeLabel}上傳病患</h2>
           <p className="text-xs text-zinc-500">
-            疑似 {suspectedPatients} · 高風險 {elevatedPatients} · 其餘 {otherPatients}
+            疑似感染 {suspectedPatients} · 高風險 {elevatedPatients} · 其餘 {otherPatients}
           </p>
         </div>
         {loading ? <p className="py-6 text-center text-sm text-zinc-400">載入中…</p> : null}

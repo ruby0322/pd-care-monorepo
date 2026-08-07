@@ -35,7 +35,7 @@ function riskMainLine(highlight: StaffTodayAttentionRiskHighlight): string {
   if (highlight.screening_result === "suspected") {
     const pct =
       highlight.probability != null ? ` · AI ${Math.round(highlight.probability * 100)}%` : "";
-    return `suspected${pct}`;
+    return `疑似感染${pct}`;
   }
   return "症狀高風險";
 }

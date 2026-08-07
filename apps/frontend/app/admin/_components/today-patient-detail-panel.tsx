@@ -149,7 +149,7 @@ export function TodayPatientDetailPanel({
           <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">最高風險上傳</p>
           <p className="mt-1 text-xs text-zinc-700">
             {highlight.screening_result === "suspected"
-              ? `suspected${
+              ? `疑似感染${
                   highlight.probability != null ? ` · AI ${Math.round(highlight.probability * 100)}%` : ""
                 }`
               : "症狀高風險"}
