@@ -29,7 +29,7 @@ export const STAFF_ANNOTATION_LABEL_TEXT: Record<StaffAnnotationItem["label"], s
   normal: "正常",
   suspected: "疑似感染",
   confirmed_infection: "確認感染",
-  rejected: "上傳不採用",
+  rejected: "影像不採用",
 };
 
 export const STAFF_ANNOTATION_BADGE_CLASS: Record<StaffAnnotationItem["label"], string> = {

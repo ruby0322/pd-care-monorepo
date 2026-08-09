@@ -50,21 +50,3 @@ export function historyUploadRiskLabel(upload: StaffHistoryOverviewUploadItem): 
   }
   return screeningResultText(upload.screening_result);
 }
-
-export function suggestedHistoryUploadLabel(
-  upload: StaffHistoryOverviewUploadItem
-): StaffAnnotationItem["label"] {
-  if (upload.annotation_label) {
-    return upload.annotation_label;
-  }
-  if (upload.screening_result === "rejected" || upload.screening_result === "technical_error") {
-    return "rejected";
-  }
-  if (upload.symptom_aware_priority === "suspected" || upload.screening_result === "suspected") {
-    return "suspected";
-  }
-  if (upload.screening_result === "normal") {
-    return "normal";
-  }
-  return "rejected";
-}

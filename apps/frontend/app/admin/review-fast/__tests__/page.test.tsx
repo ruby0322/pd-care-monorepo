@@ -99,12 +99,12 @@ describe("AdminFastReviewPage symptom modal", () => {
     expect(screen.getByText("疼痛")).toBeInTheDocument();
     expect(screen.getByText("膿")).toBeInTheDocument();
     expect(screen.queryByText("分泌物")).not.toBeInTheDocument();
-    expect(screen.queryByText("無症狀")).not.toBeInTheDocument();
+    expect(screen.queryByText("未回報症狀")).not.toBeInTheDocument();
     expect(screen.getByText("AI 判讀結果")).toBeInTheDocument();
     expect(screen.getByText("症狀綜合判定")).toBeInTheDocument();
   });
 
-  test("shows 無症狀 when no symptoms are positive", async () => {
+  test("shows 未回報症狀 when no symptoms are positive", async () => {
     const selectedItem = makeQueueItem({
       screening_result: "normal",
       symptom_pain: false,
@@ -133,7 +133,7 @@ describe("AdminFastReviewPage symptom modal", () => {
     render(<AdminFastReviewPage />);
 
     expect(await screen.findByText("症狀")).toBeInTheDocument();
-    expect(screen.getByText("無症狀")).toBeInTheDocument();
+    expect(screen.getByText("未回報症狀")).toBeInTheDocument();
     expect(screen.queryByText("疼痛")).not.toBeInTheDocument();
     expect(screen.queryByText("分泌物")).not.toBeInTheDocument();
     expect(screen.queryByText("膿")).not.toBeInTheDocument();

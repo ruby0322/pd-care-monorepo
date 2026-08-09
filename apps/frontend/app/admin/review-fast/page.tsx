@@ -274,7 +274,9 @@ export default function AdminFastReviewPage() {
                         </span>
                       ))
                     ) : (
-                      <span className="inline-flex rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">無症狀</span>
+                      <span className="inline-flex rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">
+                        {STAFF_REVIEW_COPY.noSymptomsReported}
+                      </span>
                     )}
                   </div>
                 </div>
