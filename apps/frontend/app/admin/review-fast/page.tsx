@@ -8,6 +8,13 @@ import { toast } from "sonner";
 import { useRapidReviewGridState } from "@/app/admin/_components/rapid-review-grid-state";
 import { StaffAnnotationItem, StaffRapidReviewQueueItem } from "@/lib/api/staff";
 import {
+  STAFF_ANNOTATION_LABEL_OPTIONS,
+  STAFF_REVIEW_COPY,
+  STAFF_REVIEW_FIELD_LABELS,
+  screeningResultText,
+  symptomAwarePriorityText,
+} from "@/lib/i18n/staff-review-label-mapping";
+import {
   activeSymptomLabels,
   symptomAwarePriority,
   symptomsFromApiFields,
@@ -20,16 +27,7 @@ type DraftVerdict = {
 };
 
 function imageVerdictText(item: StaffRapidReviewQueueItem): string {
-  if (item.screening_result === "normal") {
-    return "normal";
-  }
-  if (item.screening_result === "suspected") {
-    return "suspected";
-  }
-  if (item.screening_result === "rejected") {
-    return "rejected";
-  }
-  return "technical_error";
+  return screeningResultText(item.screening_result);
 }
 
 function imageVerdictBadgeClass(item: StaffRapidReviewQueueItem): string {
@@ -191,7 +189,7 @@ export default function AdminFastReviewPage() {
                   <span
                     className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-medium backdrop-blur ${clinicalBadgeClass(priority)}`}
                   >
-                    症狀 {priority}
+                    症狀 {symptomAwarePriorityText(priority)}
                   </span>
                 </div>
               </button>
@@ -240,24 +238,26 @@ export default function AdminFastReviewPage() {
                     className="object-contain"
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-zinc-400">載入影像中...</div>
+                  <div className="flex h-full items-center justify-center text-sm text-zinc-400">
+                    {STAFF_REVIEW_COPY.loadingImage}
+                  </div>
                 )}
               </div>
 
               <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-2 text-xs text-zinc-500">
                   <div className="flex items-center justify-between gap-2">
-                    <span>影像判讀</span>
+                    <span>{STAFF_REVIEW_FIELD_LABELS.aiResult}</span>
                     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${imageVerdictBadgeClass(selectedItem)}`}>
                       {imageVerdictText(selectedItem)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span>症狀綜合</span>
+                    <span>{STAFF_REVIEW_FIELD_LABELS.symptomPriority}</span>
                     <span
                       className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${clinicalBadgeClass(clinicalPriority(selectedItem))}`}
                     >
-                      {clinicalPriority(selectedItem)}
+                      {symptomAwarePriorityText(clinicalPriority(selectedItem))}
                     </span>
                   </div>
                 </div>
@@ -279,7 +279,7 @@ export default function AdminFastReviewPage() {
                   </div>
                 </div>
                 <label className="flex flex-col gap-1 text-xs text-zinc-500">
-                  標註標籤
+                  {STAFF_REVIEW_FIELD_LABELS.annotationLabel}
                   <select
                     value={draft.label}
                     onChange={(event) =>
@@ -287,19 +287,20 @@ export default function AdminFastReviewPage() {
                     }
                     className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900"
                   >
-                    <option value="normal">normal</option>
-                    <option value="suspected">suspected</option>
-                    <option value="confirmed_infection">confirmed_infection</option>
-                    <option value="rejected">rejected</option>
+                    {STAFF_ANNOTATION_LABEL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-xs text-zinc-500">
-                  備註
+                  {STAFF_REVIEW_FIELD_LABELS.annotationComment}
                   <textarea
                     value={draft.comment}
                     onChange={(event) => setDraft((current) => ({ ...current, comment: event.target.value }))}
                     rows={5}
-                    placeholder="comment..."
+                    placeholder={STAFF_REVIEW_COPY.commentPlaceholder}
                     className="resize-none rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                   />
                 </label>

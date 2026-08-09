@@ -15,10 +15,7 @@ import {
 } from "@/lib/api/staff";
 
 import { HistoryUploadAnnotationModal } from "./history-upload-annotation-modal";
-import {
-  suggestedHistoryUploadLabel,
-  type HistoryUploadDraftVerdict,
-} from "./history-upload-review-helpers";
+import { type HistoryUploadDraftVerdict } from "./history-upload-review-helpers";
 import { HistoryUploadThumbnailGrid } from "./history-upload-thumbnail-grid";
 import { useUploadImageUrls } from "./use-upload-image-urls";
 
@@ -51,7 +48,7 @@ export function PatientDayUploadReviewModal({
   const [group, setGroup] = useState<StaffHistoryOverviewUserGroupItem | null>(null);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const [selectedUploadId, setSelectedUploadId] = useState<number | null>(null);
-  const [draft, setDraft] = useState<HistoryUploadDraftVerdict>({ label: "suspected", comment: "" });
+  const [draft, setDraft] = useState<HistoryUploadDraftVerdict>({ label: "", comment: "" });
   const [saving, setSaving] = useState(false);
 
   const loadGroup = useCallback(async () => {
@@ -114,7 +111,7 @@ export function PatientDayUploadReviewModal({
     }
     const timer = window.setTimeout(() => {
       setDraft({
-        label: suggestedHistoryUploadLabel(selectedUpload),
+        label: selectedUpload.annotation_label ?? "",
         comment: selectedUpload.annotation_comment ?? "",
       });
     }, 0);
@@ -125,6 +122,10 @@ export function PatientDayUploadReviewModal({
 
   async function onSaveSelected() {
     if (!selectedUpload) {
+      return;
+    }
+    if (draft.label === "") {
+      toast.error("請先選擇護理審核標籤");
       return;
     }
     setSaving(true);
