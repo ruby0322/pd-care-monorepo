@@ -99,7 +99,6 @@ export function TodayPatientPool({
               <TodayPatientRow
                 key={item.patient_id}
                 item={item}
-                isTodaySelected={isTodaySelected}
                 selected={item.patient_id === selectedPatientId}
                 onSelect={onSelectPatient}
                 imageUrlByUploadId={imageUrlByUploadId}

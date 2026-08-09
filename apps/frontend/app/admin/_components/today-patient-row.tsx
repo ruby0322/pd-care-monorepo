@@ -16,34 +16,29 @@ function formatTime(raw: string): string {
   }).format(new Date(raw));
 }
 
-function statusLabel(item: StaffTodayAttentionPatientItem, isTodaySelected: boolean): {
-  text: string;
-  className: string;
-} {
-  if (item.tier === "other") {
-    return {
-      text: isTodaySelected ? "今日已上傳" : "當日已上傳",
-      className: "text-zinc-500",
-    };
+function riskBadge(highlight: StaffTodayAttentionRiskHighlight): { text: string; className: string } {
+  if (highlight.screening_result === "suspected") {
+    return { text: "疑似感染", className: "bg-red-50 text-red-700" };
   }
-  if (item.has_annotation) {
-    return { text: "已註解", className: "text-green-600" };
-  }
-  return { text: "未處理", className: "text-red-600" };
+  return { text: "症狀高風險", className: "bg-amber-50 text-amber-800" };
 }
 
-function riskMainLine(highlight: StaffTodayAttentionRiskHighlight): string {
-  if (highlight.screening_result === "suspected") {
-    const pct =
-      highlight.probability != null ? ` · AI ${Math.round(highlight.probability * 100)}%` : "";
-    return `疑似感染${pct}`;
+function rowAnnotationBadge(item: StaffTodayAttentionPatientItem): {
+  className: string;
+  showRiskDot: boolean;
+} {
+  if (item.has_annotation) {
+    return { className: annotationBadgeClass(item.annotation_label), showRiskDot: false };
   }
-  return "症狀高風險";
+  const isRiskTier = item.tier === "suspected" || item.tier === "elevated";
+  return {
+    className: "bg-zinc-100 text-zinc-700",
+    showRiskDot: isRiskTier,
+  };
 }
 
 type TodayPatientRowProps = {
   item: StaffTodayAttentionPatientItem;
-  isTodaySelected: boolean;
   selected: boolean;
   onSelect: (patientId: number) => void;
   imageUrlByUploadId: Record<number, string>;
@@ -52,16 +47,15 @@ type TodayPatientRowProps = {
 
 export function TodayPatientRow({
   item,
-  isTodaySelected,
   selected,
   onSelect,
   imageUrlByUploadId,
   imageErrorByUploadId,
 }: TodayPatientRowProps) {
   const name = item.full_name || item.case_number;
-  const status = statusLabel(item, isTodaySelected);
   const highlight = item.risk_highlight;
   const isRiskTier = item.tier === "suspected" || item.tier === "elevated";
+  const annotationBadge = rowAnnotationBadge(item);
 
   const symptomLine =
     highlight != null
@@ -82,28 +76,22 @@ export function TodayPatientRow({
       type="button"
       onClick={() => onSelect(item.patient_id)}
       className={cn(
-        "flex w-full flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 text-left transition hover:border-zinc-400",
+        "relative flex w-full flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 text-left transition hover:border-zinc-400",
         selected && "ring-2 ring-zinc-900"
       )}
     >
+      <span
+        className={`absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${annotationBadge.className}`}
+      >
+        {annotationBadge.showRiskDot ? <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden /> : null}
+        {annotationLabelTextOrUnmarked(item.annotation_label)}
+      </span>
+
       <div className="flex items-start gap-2.5">
         <PersonAvatar name={name} pictureUrl={item.picture_url} size="lg" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-semibold text-zinc-900">{name}</p>
-            {item.has_annotation ? (
-              <span
-                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${annotationBadgeClass(item.annotation_label)}`}
-              >
-                {annotationLabelTextOrUnmarked(item.annotation_label)}
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-0.5 truncate text-xs text-zinc-500">
-            當日 {item.day_upload_count} 張上傳
-            <span className="mx-1 text-zinc-300">·</span>
-            <span className={cn(status.className)}>{status.text}</span>
-          </p>
+          <p className="truncate text-sm font-semibold text-zinc-900">{name}</p>
+          <p className="mt-0.5 truncate text-xs text-zinc-500">上傳 {item.day_upload_count} 張</p>
         </div>
       </div>
 
@@ -116,10 +104,19 @@ export function TodayPatientRow({
               imageError={imageErrorByUploadId[highlight.upload_id]}
             />
           </div>
-          <div className="min-w-0 flex-1 px-2.5 py-1.5">
+          <div className="min-w-0 flex h-full flex-col justify-center px-2.5 py-1.5">
             <p className="text-[10px] text-zinc-400">最高風險 · {formatTime(highlight.created_at)}</p>
-            <p className="truncate text-xs font-medium text-zinc-700">{riskMainLine(highlight)}</p>
-            {symptomLine ? <p className="truncate text-[11px] text-zinc-500">{symptomLine}</p> : null}
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium leading-none ${riskBadge(highlight).className}`}
+              >
+                {riskBadge(highlight).text}
+              </span>
+              {highlight.screening_result === "suspected" && highlight.probability != null ? (
+                <span className="text-xs font-medium text-zinc-700">AI {Math.round(highlight.probability * 100)}%</span>
+              ) : null}
+            </div>
+            {item.tier !== "elevated" && symptomLine ? <p className="truncate text-[11px] text-zinc-500">{symptomLine}</p> : null}
           </div>
         </div>
       ) : null}
