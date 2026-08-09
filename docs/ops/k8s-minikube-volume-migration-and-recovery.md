@@ -52,6 +52,26 @@ Canonical day-to-day deploy flow remains [`../deploy/k8s-minikube.md`](../deploy
 
 If start fails on disk space, free reclaimable Docker build cache / unused images **without** pruning volumes that hold pd-care or `minikube` data, or proceed to section B.
 
+### Optional automation for section A
+
+If host reboot recovery should be automatic, use the systemd unit template in the repo:
+
+```bash
+sudo cp ops/systemd/pd-care-minikube-recover.service.example /etc/systemd/system/pd-care-minikube-recover.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now pd-care-minikube-recover.service
+```
+
+The unit runs [`ops/deploy/recover-minikube-and-bridge.sh`](../../ops/deploy/recover-minikube-and-bridge.sh), which starts Minikube, refreshes ingress bridge NodePorts/IP, recovers workloads in dependency order (`postgres` → SeaweedFS → app deployments), and checks public health endpoints.
+
+For incidents, inspect:
+
+```bash
+journalctl -u pd-care-minikube-recover.service -b --no-pager
+minikube status -p minikube
+docker compose -f docker-compose.ingress-bridge.yml ps
+```
+
 ## B) Move pd-care volumes to a larger filesystem (bind mounts)
 
 Goal: keep the **system** Docker `data-root` unchanged; relocate only pd-care-related named volumes onto a large mount.
