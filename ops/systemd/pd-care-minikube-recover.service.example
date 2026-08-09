@@ -1,0 +1,18 @@
+[Unit]
+Description=PD Care Minikube and ingress bridge recovery
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ruby0322/pd-care
+Environment=MINIKUBE_PROFILE=minikube
+ExecStart=/home/ruby0322/pd-care/ops/deploy/recover-minikube-and-bridge.sh
+TimeoutStartSec=900
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

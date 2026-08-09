@@ -427,7 +427,47 @@ Deferred work: [`backlog/`](../backlog/README.md) (K8s cutover →
 [`k8s-infrastructure.md`](../backlog/k8s-infrastructure.md); platform →
 [`platform-gitops.md`](../backlog/platform-gitops.md)).
 
-## 10) Troubleshooting
+## 10) Optional host reboot auto-recovery (systemd)
+
+Use this if you want Minikube and ingress bridge to recover automatically after host reboot.
+
+1. Install the service unit:
+
+   ```bash
+   sudo cp ops/systemd/pd-care-minikube-recover.service.example /etc/systemd/system/pd-care-minikube-recover.service
+   sudo systemctl daemon-reload
+   ```
+
+2. Enable and start:
+
+   ```bash
+   sudo systemctl enable --now pd-care-minikube-recover.service
+   ```
+
+3. Verify:
+
+   ```bash
+   sudo systemctl status pd-care-minikube-recover.service --no-pager
+   journalctl -u pd-care-minikube-recover.service -b --no-pager
+   minikube status -p minikube
+   kubectl get nodes
+   docker compose -f docker-compose.ingress-bridge.yml ps
+   ```
+
+Service behavior:
+
+- Runs [`ops/deploy/recover-minikube-and-bridge.sh`](../../ops/deploy/recover-minikube-and-bridge.sh)
+- Starts `minikube` profile, waits for API/node readiness, refreshes ingress bridge NodePort/IP mapping
+- Tries to recover `pd-care-dev` and `pd-care-prod` workloads in dependency order (`postgres` → SeaweedFS deployments → `backend`/`frontend`)
+- Fails fast on health probe errors (`/api/healthz`, `/api/readyz`) so systemd logs show a clear incident
+
+Disable if needed:
+
+```bash
+sudo systemctl disable --now pd-care-minikube-recover.service
+```
+
+## 11) Troubleshooting
 
 Host reboot, disk-full `minikube start`, bind-mount moves of the `minikube` volume, or a wiped `/etc/kubernetes` after `docker rm minikube`: see [`../ops/k8s-minikube-volume-migration-and-recovery.md`](../ops/k8s-minikube-volume-migration-and-recovery.md) and the [k8s-minikube-recovery](../../.cursor/skills/k8s-minikube-recovery/SKILL.md) skill.
 

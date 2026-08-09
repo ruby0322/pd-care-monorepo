@@ -138,6 +138,7 @@ export type StaffTodayAttentionPatientItem = {
   representative_upload_id: number;
   sort_upload_at: string;
   has_annotation: boolean;
+  annotation_label: "normal" | "suspected" | "confirmed_infection" | "rejected" | null;
   picture_url: string | null;
   day_upload_count: number;
   preview_upload_ids: number[];

@@ -1,7 +1,8 @@
 import type { StaffAnnotationItem, StaffHistoryOverviewUploadItem } from "@/lib/api/staff";
+import { annotationLabelText, screeningResultText } from "@/lib/i18n/staff-review-label-mapping";
 
 export type HistoryUploadDraftVerdict = {
-  label: StaffAnnotationItem["label"];
+  label: StaffAnnotationItem["label"] | "";
   comment: string;
 };
 
@@ -33,37 +34,19 @@ export function historyUploadRiskBadgeClass(upload: StaffHistoryOverviewUploadIt
 
 export function historyUploadRiskLabel(upload: StaffHistoryOverviewUploadItem): string {
   if (upload.annotation_label === "confirmed_infection") {
-    return "confirmed_infection";
+    return annotationLabelText("confirmed_infection");
   }
   if (upload.annotation_label === "suspected") {
-    return "suspected";
+    return annotationLabelText("suspected");
   }
   if (upload.annotation_label === "normal") {
-    return "normal";
+    return annotationLabelText("normal");
   }
   if (upload.annotation_label === "rejected") {
-    return "rejected";
+    return annotationLabelText("rejected");
   }
   if (upload.risk_rank === 2) {
     return "症狀高風險";
   }
-  return upload.screening_result;
-}
-
-export function suggestedHistoryUploadLabel(
-  upload: StaffHistoryOverviewUploadItem
-): StaffAnnotationItem["label"] {
-  if (upload.annotation_label) {
-    return upload.annotation_label;
-  }
-  if (upload.screening_result === "rejected" || upload.screening_result === "technical_error") {
-    return "rejected";
-  }
-  if (upload.symptom_aware_priority === "suspected" || upload.screening_result === "suspected") {
-    return "suspected";
-  }
-  if (upload.screening_result === "normal") {
-    return "normal";
-  }
-  return "rejected";
+  return screeningResultText(upload.screening_result);
 }

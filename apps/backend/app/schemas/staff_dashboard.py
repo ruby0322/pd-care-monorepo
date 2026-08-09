@@ -123,6 +123,7 @@ class StaffTodayAttentionPatientItem(BaseModel):
     representative_upload_id: int
     sort_upload_at: datetime
     has_annotation: bool
+    annotation_label: Literal["normal", "suspected", "confirmed_infection", "rejected"] | None = None
     picture_url: str | None = None
     day_upload_count: int = 0
     preview_upload_ids: list[int] = Field(default_factory=list)

@@ -18,10 +18,7 @@ import {
 import { parseTaipeiDateKey } from "@/lib/utils/upload-calendar";
 
 import { HistoryUploadAnnotationModal } from "@/app/admin/_components/history-upload-annotation-modal";
-import {
-  suggestedHistoryUploadLabel,
-  type HistoryUploadDraftVerdict,
-} from "@/app/admin/_components/history-upload-review-helpers";
+import { type HistoryUploadDraftVerdict } from "@/app/admin/_components/history-upload-review-helpers";
 import { HistoryUploadThumbnailGrid } from "@/app/admin/_components/history-upload-thumbnail-grid";
 import { useUploadImageUrls } from "@/app/admin/_components/use-upload-image-urls";
 import { ClinicalPeriodPanel } from "./clinical-period-panel";
@@ -91,7 +88,7 @@ function AdminHistoryOverviewPageInner() {
   const [ungroupedVisibleCount, setUngroupedVisibleCount] = useState(INITIAL_UNGROUPED_VISIBLE);
   const [groupVisibleCountByPatient, setGroupVisibleCountByPatient] = useState<Record<number, number>>({});
   const [selectedUploadId, setSelectedUploadId] = useState<number | null>(null);
-  const [draft, setDraft] = useState<HistoryUploadDraftVerdict>({ label: "suspected", comment: "" });
+  const [draft, setDraft] = useState<HistoryUploadDraftVerdict>({ label: "", comment: "" });
   const [saving, setSaving] = useState(false);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -224,7 +221,7 @@ function AdminHistoryOverviewPageInner() {
     }
     const timer = window.setTimeout(() => {
       setDraft({
-        label: suggestedHistoryUploadLabel(selectedUpload),
+        label: selectedUpload.annotation_label ?? "",
         comment: selectedUpload.annotation_comment ?? "",
       });
     }, 0);
@@ -290,6 +287,10 @@ function AdminHistoryOverviewPageInner() {
 
   async function onSaveSelected() {
     if (!selectedUpload) {
+      return;
+    }
+    if (draft.label === "") {
+      toast.error("請先選擇護理審核標籤");
       return;
     }
     setSaving(true);
