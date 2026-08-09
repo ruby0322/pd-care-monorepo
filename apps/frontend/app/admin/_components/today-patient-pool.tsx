@@ -16,7 +16,6 @@ type TodayPatientPoolProps = {
   otherPatients: number;
   items: StaffTodayAttentionPatientItem[];
   dayScopeLabel: string;
-  isTodaySelected: boolean;
   selectedDate: string;
   selectedPatientId: number | null;
   onSelectPatient: (patientId: number) => void;
@@ -53,7 +52,6 @@ export function TodayPatientPool({
   otherPatients,
   items,
   dayScopeLabel,
-  isTodaySelected,
   selectedDate,
   selectedPatientId,
   onSelectPatient,
@@ -113,7 +111,6 @@ export function TodayPatientPool({
         item={selectedItem}
         selectedDate={selectedDate}
         dayScopeLabel={dayScopeLabel}
-        isTodaySelected={isTodaySelected}
         className="w-full shrink-0 lg:sticky lg:top-4 lg:w-[320px] xl:w-[360px]"
         onReviewSaved={onReviewSaved}
         imageUrlByUploadId={imageUrlByUploadId}
