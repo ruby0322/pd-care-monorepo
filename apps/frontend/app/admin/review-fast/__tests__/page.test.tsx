@@ -100,8 +100,8 @@ describe("AdminFastReviewPage symptom modal", () => {
     expect(screen.getByText("膿")).toBeInTheDocument();
     expect(screen.queryByText("分泌物")).not.toBeInTheDocument();
     expect(screen.queryByText("無症狀")).not.toBeInTheDocument();
-    expect(screen.getByText("影像判讀")).toBeInTheDocument();
-    expect(screen.getByText("症狀綜合")).toBeInTheDocument();
+    expect(screen.getByText("AI 判讀結果")).toBeInTheDocument();
+    expect(screen.getByText("症狀綜合判定")).toBeInTheDocument();
   });
 
   test("shows 無症狀 when no symptoms are positive", async () => {

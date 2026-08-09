@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Literal
+from typing import Literal, cast
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import Select, and_, case, delete, func, select
@@ -1021,6 +1021,7 @@ class TodayAttentionPatientRow:
     representative_upload_id: int
     sort_upload_at: datetime
     has_annotation: bool
+    annotation_label: Literal["normal", "suspected", "confirmed_infection", "rejected"] | None
     picture_url: str | None
     day_upload_count: int
     preview_upload_ids: list[int]
@@ -1199,6 +1200,11 @@ def list_today_attention_patients(
                 latest_annotation_by_upload=latest_annotation_by_upload,
             )
             has_annotation = risk_representative.has_annotation
+            annotation_label = (
+                cast(Literal["normal", "suspected", "confirmed_infection", "rejected"], latest_annotation_by_upload.get(representative.id).label)
+                if representative.id in latest_annotation_by_upload
+                else None
+            )
         else:
             patient_tier = "other"
             representative = max(
@@ -1215,6 +1221,11 @@ def list_today_attention_patients(
             limit = day_upload_count if day_upload_count <= 4 else 3
             preview_upload_ids = [upload.id for upload in ordered[:limit]]
             has_annotation = representative.id in latest_annotation_by_upload
+            annotation_label = (
+                cast(Literal["normal", "suspected", "confirmed_infection", "rejected"], latest_annotation_by_upload.get(representative.id).label)
+                if representative.id in latest_annotation_by_upload
+                else None
+            )
 
         attention_rows.append(
             TodayAttentionPatientRow(
@@ -1223,6 +1234,7 @@ def list_today_attention_patients(
                 representative_upload_id=representative.id,
                 sort_upload_at=sort_upload_at,
                 has_annotation=has_annotation,
+                annotation_label=annotation_label,
                 picture_url=picture_by_patient.get(patient_id),
                 day_upload_count=day_upload_count,
                 preview_upload_ids=preview_upload_ids,

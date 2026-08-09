@@ -3,7 +3,7 @@
 import { PersonAvatar } from "@/app/admin/patient-assignment/person-avatar";
 import { UploadThumb } from "@/app/admin/_components/upload-thumb";
 import type { StaffTodayAttentionPatientItem, StaffTodayAttentionRiskHighlight } from "@/lib/api/staff";
-import { STAFF_REVIEW_COPY, annotationStatusBadgeClass } from "@/lib/i18n/staff-review-label-mapping";
+import { annotationBadgeClass, annotationLabelTextOrUnmarked } from "@/lib/i18n/staff-review-label-mapping";
 import { activeSymptomLabels } from "@/lib/symptoms";
 import { cn } from "@/lib/utils";
 
@@ -92,8 +92,10 @@ export function TodayPatientRow({
           <div className="flex items-center gap-2">
             <p className="truncate text-sm font-semibold text-zinc-900">{name}</p>
             {item.has_annotation ? (
-              <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${annotationStatusBadgeClass(true)}`}>
-                {STAFF_REVIEW_COPY.annotated}
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${annotationBadgeClass(item.annotation_label)}`}
+              >
+                {annotationLabelTextOrUnmarked(item.annotation_label)}
               </span>
             ) : null}
           </div>
