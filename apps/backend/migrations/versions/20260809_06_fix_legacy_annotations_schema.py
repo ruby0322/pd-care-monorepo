@@ -41,74 +41,57 @@ def upgrade() -> None:
 
     bind = op.get_bind()
 
-    fallback_reviewer_identity_id = bind.execute(
+    unresolved_rows = bind.execute(
         sa.text(
             """
-            SELECT id
-            FROM liff_identities
-            WHERE role IN ('staff', 'admin')
-            ORDER BY id
-            LIMIT 1
+            SELECT COUNT(*)
+            FROM annotations
+            WHERE reviewer_identity_id IS NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM liff_identities
+                WHERE liff_identities.id = annotations.staff_user_id
+              )
             """
         )
     ).scalar()
-    if fallback_reviewer_identity_id is None:
-        fallback_reviewer_identity_id = bind.execute(
-            sa.text(
-                """
-                SELECT id
-                FROM liff_identities
-                ORDER BY id
-                LIMIT 1
-                """
-            )
-        ).scalar()
+    if unresolved_rows and int(unresolved_rows) > 0:
+        raise RuntimeError(
+            "Cannot migrate annotations rows with NULL reviewer_identity_id "
+            "and unmatched staff_user_id in liff_identities."
+        )
 
     op.create_table(
         "annotations_v2",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("patient_id", sa.Integer(), sa.ForeignKey("patients.id", ondelete="CASCADE"), nullable=False),
         sa.Column("upload_id", sa.Integer(), sa.ForeignKey("uploads.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("reviewer_identity_id", sa.Integer(), sa.ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=True),
+        sa.Column("reviewer_identity_id", sa.Integer(), sa.ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=False),
         sa.Column("label", sa.String(length=64), nullable=False),
         sa.Column("comment", sa.Text(), nullable=True),
         sa.Column("patient_read_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
 
-    if fallback_reviewer_identity_id is None:
-        op.execute(
-            sa.text(
-                """
-                INSERT INTO annotations_v2 (
-                    id, patient_id, upload_id, reviewer_identity_id, label, comment, patient_read_at, created_at
-                )
-                SELECT
-                    id, patient_id, upload_id, reviewer_identity_id, label, comment, patient_read_at, created_at
-                FROM annotations
-                """
+    op.execute(
+        sa.text(
+            """
+            INSERT INTO annotations_v2 (
+                id, patient_id, upload_id, reviewer_identity_id, label, comment, patient_read_at, created_at
             )
+            SELECT
+                id,
+                patient_id,
+                upload_id,
+                COALESCE(reviewer_identity_id, staff_user_id),
+                label,
+                comment,
+                patient_read_at,
+                created_at
+            FROM annotations
+            """
         )
-    else:
-        op.execute(
-            sa.text(
-                """
-                INSERT INTO annotations_v2 (
-                    id, patient_id, upload_id, reviewer_identity_id, label, comment, patient_read_at, created_at
-                )
-                SELECT
-                    id,
-                    patient_id,
-                    upload_id,
-                    COALESCE(reviewer_identity_id, :fallback_reviewer_identity_id),
-                    label,
-                    comment,
-                    patient_read_at,
-                    created_at
-                FROM annotations
-                """
-            ).bindparams(fallback_reviewer_identity_id=int(fallback_reviewer_identity_id))
-        )
+    )
 
     op.drop_table("annotations")
     op.rename_table("annotations_v2", "annotations")
