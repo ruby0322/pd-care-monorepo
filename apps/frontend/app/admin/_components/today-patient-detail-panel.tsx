@@ -36,19 +36,10 @@ function statusLabel(item: StaffTodayAttentionPatientItem): {
   text: string;
   className: string;
 } {
-  if (item.tier === "other") {
-    if (item.has_annotation) {
-      return { text: STAFF_REVIEW_COPY.annotated, className: "text-emerald-600" };
-    }
-    return {
-      text: STAFF_REVIEW_COPY.unmarked,
-      className: "text-zinc-500",
-    };
-  }
   if (item.has_annotation) {
-    return { text: "已註解", className: "text-green-600" };
+    return { text: STAFF_REVIEW_COPY.annotated, className: "text-emerald-600" };
   }
-  return { text: "未處理", className: "text-red-600" };
+  return { text: STAFF_REVIEW_COPY.unmarked, className: "text-zinc-500" };
 }
 
 function formatTime(raw: string): string {
