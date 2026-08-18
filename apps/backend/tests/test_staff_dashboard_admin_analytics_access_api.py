@@ -368,6 +368,96 @@ def test_admin_analytics_buckets_uploads_by_taipei_local_date_boundary(tmp_path:
         assert active_payload["items"][-1]["active_users"] == 1
 
 
+def test_admin_active_users_series_includes_cumulative_registered_users(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-registered-users.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_REGISTERED_USERS", role="admin")
+        taipei_tz = timezone(timedelta(hours=8))
+        taipei_today = datetime.now(tz=timezone.utc).astimezone(taipei_tz).date()
+        bound_register_day = taipei_today - timedelta(days=5)
+        bound_created_at = datetime.combine(bound_register_day, datetime.min.time(), tzinfo=taipei_tz).astimezone(
+            timezone.utc
+        )
+        older_created_at = datetime.combine(
+            taipei_today - timedelta(days=20), datetime.min.time(), tzinfo=taipei_tz
+        ).astimezone(timezone.utc)
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            bound_patient = Patient(
+                case_number="REG-BOUND",
+                birth_date="1991-02-03",
+                full_name="Bound Registered Patient",
+                gender="male",
+                is_active=True,
+            )
+            unbound_patient = Patient(
+                case_number="REG-UNBOUND",
+                birth_date="1988-04-05",
+                full_name="Unbound Patient",
+                gender="female",
+                is_active=True,
+            )
+            staff_linked_patient = Patient(
+                case_number="REG-STAFF",
+                birth_date="1975-06-07",
+                full_name="Staff Linked Patient",
+                gender="other",
+                is_active=True,
+            )
+            session.add_all([bound_patient, unbound_patient, staff_linked_patient])
+            session.flush()
+            session.add_all(
+                [
+                    LiffIdentity(
+                        line_user_id="U_REG_BOUND",
+                        display_name="Bound Registered",
+                        picture_url=None,
+                        patient_id=bound_patient.id,
+                        role="patient",
+                        created_at=bound_created_at,
+                    ),
+                    LiffIdentity(
+                        line_user_id="U_REG_UNBOUND",
+                        display_name="Unbound",
+                        picture_url=None,
+                        patient_id=None,
+                        role="patient",
+                        created_at=older_created_at,
+                    ),
+                    LiffIdentity(
+                        line_user_id="U_REG_STAFF_LINKED",
+                        display_name="Staff Linked",
+                        picture_url=None,
+                        patient_id=staff_linked_patient.id,
+                        role="staff",
+                        created_at=older_created_at,
+                    ),
+                ]
+            )
+            session.commit()
+
+        token = _login_staff_token(client, "U_ADMIN_REGISTERED_USERS")
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.get(
+            "/v1/staff/admin/analytics/active-users?active_window_days=7&lookback_days=30&interval=day",
+            headers=headers,
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        items = payload["items"]
+        assert len(items) == 30
+        bound_key = bound_register_day.isoformat()
+        before_items = [item for item in items if item["date"] < bound_key]
+        on_or_after_items = [item for item in items if item["date"] >= bound_key]
+        assert before_items
+        assert on_or_after_items
+        assert all(item["registered_users"] == 0 for item in before_items)
+        assert all(item["registered_users"] == 1 for item in on_or_after_items)
+        assert items[-1]["registered_users"] == 1
+
+
 def test_admin_analytics_endpoints_apply_patient_filters(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-dashboard-admin-analytics-filters.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

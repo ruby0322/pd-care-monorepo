@@ -1,7 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
 import { UsageTrendsTab } from "@/app/admin/history-overview/usage-trends-tab";
-import { buildUploadChartData } from "@/app/admin/history-overview/usage-upload-chart-data";
 import { fetchAdminActiveUsersSeries, fetchAdminDailySuspectedSeries } from "@/lib/api/staff";
 
 jest.mock("@/components/ui/chart", () => ({
@@ -33,24 +32,6 @@ const uploadSeriesFixture = [
   { date: "2026-07-03", total_uploads: 1, suspected_uploads: 0, symptom_elevated_uploads: 1, suspected_ratio: 0 },
 ];
 
-describe("buildUploadChartData", () => {
-  test("maps daily upload counts", () => {
-    const result = buildUploadChartData(
-      uploadSeriesFixture.map(({ date, total_uploads }) => ({ date, total_uploads })),
-      "daily"
-    );
-    expect(result.map((point) => point.upload_count)).toEqual([2, 3, 1]);
-  });
-
-  test("maps cumulative upload counts within the window", () => {
-    const result = buildUploadChartData(
-      uploadSeriesFixture.map(({ date, total_uploads }) => ({ date, total_uploads })),
-      "cumulative"
-    );
-    expect(result.map((point) => point.upload_count)).toEqual([2, 5, 6]);
-  });
-});
-
 describe("UsageTrendsTab", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -58,7 +39,7 @@ describe("UsageTrendsTab", () => {
       active_window_days: 7,
       lookback_days: 30,
       interval: "day",
-      items: [{ date: "2026-07-01", active_users: 4 }],
+      items: [{ date: "2026-07-01", active_users: 4, registered_users: 9 }],
     });
     (fetchAdminDailySuspectedSeries as jest.Mock).mockResolvedValue({
       lookback_days: 30,
@@ -66,35 +47,10 @@ describe("UsageTrendsTab", () => {
     });
   });
 
-  test("renders upload trend section", async () => {
+  test("renders shared user and upload trend charts", async () => {
     render(<UsageTrendsTab />);
 
-    expect(await screen.findByText("上傳數趨勢")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "單日" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "累進" })).toBeInTheDocument();
-  });
-
-  test("switches upload chart to cumulative mode", async () => {
-    render(<UsageTrendsTab />);
-
-    await screen.findByText("上傳數趨勢");
-    const charts = screen.getAllByTestId("line-chart");
-    const uploadChart = charts[1];
-    expect(uploadChart.textContent).toContain('"upload_count":2');
-
-    fireEvent.click(screen.getByRole("button", { name: "累進" }));
-
-    await waitFor(() => {
-      expect(uploadChart.textContent).toContain('"upload_count":6');
-    });
-  });
-
-  test("fetches upload series with independent lookback", async () => {
-    render(<UsageTrendsTab />);
-
-    await screen.findByText("上傳數趨勢");
-
-    expect(fetchAdminDailySuspectedSeries).toHaveBeenCalledWith({ lookbackDays: 30 });
-    expect(fetchAdminDailySuspectedSeries).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText("用戶趨勢")).toBeInTheDocument();
+    expect(screen.getByText("上傳數趨勢")).toBeInTheDocument();
   });
 });

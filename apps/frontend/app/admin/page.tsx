@@ -8,7 +8,10 @@ import {
 } from "@/app/admin/_components/dashboard-day-calendar";
 import { TodayPatientPool } from "@/app/admin/_components/today-patient-pool";
 import { TodayWorkbenchHeader } from "@/app/admin/_components/today-workbench-header";
+import { UploadTrendChart } from "@/app/admin/_components/upload-trend-chart";
+import { UserTrendChart } from "@/app/admin/_components/user-trend-chart";
 import { useAdminSelectedDate } from "@/lib/admin/use-admin-selected-date";
+import { getStaffRole } from "@/lib/auth/staff-session";
 import {
   fetchTodayAttention,
   fetchWorkbenchDashboard,
@@ -31,6 +34,7 @@ function metricsFromWeekDays(weekDays: StaffWorkbenchWeekDayItem[]): Record<stri
 }
 
 function AdminDashboardInner() {
+  const isAdmin = getStaffRole() === "admin";
   const { selectedDate, setSelectedDate, dayScopeLabel } = useAdminSelectedDate();
 
   const [attention, setAttention] = useState<StaffTodayAttentionResponse | null>(null);
@@ -43,6 +47,7 @@ function AdminDashboardInner() {
 
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [metricsByDate, setMetricsByDate] = useState<Record<string, DayCalendarMetrics>>({});
+  const [usageChartsReady, setUsageChartsReady] = useState(false);
   const cachedWeekStartRef = useRef<string | null>(null);
 
   const loadWorkbench = useCallback(
@@ -82,10 +87,13 @@ function AdminDashboardInner() {
       } finally {
         if (!cancelled()) {
           setLoading(false);
+          if (isAdmin) {
+            setUsageChartsReady(true);
+          }
         }
       }
     },
-    [dayScopeLabel, selectedDate, weekStartDateKey]
+    [dayScopeLabel, isAdmin, selectedDate, weekStartDateKey]
   );
 
   useEffect(() => {
@@ -116,7 +124,14 @@ function AdminDashboardInner() {
 
   return (
     <main className="space-y-4 p-4 md:p-6">
-      <TodayWorkbenchHeader selectedDate={selectedDate} dayScopeLabel={dayScopeLabel} />
+      <TodayWorkbenchHeader showUsageTrends={isAdmin} />
+
+      {isAdmin && usageChartsReady ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <UserTrendChart />
+          <UploadTrendChart />
+        </div>
+      ) : null}
 
       <DashboardDayCalendar
         selectedDate={selectedDate}

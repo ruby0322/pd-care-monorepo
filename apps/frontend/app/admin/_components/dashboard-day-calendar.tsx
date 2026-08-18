@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   buildTaipeiWeekRow,
   formatTaipeiWeekRangeLabel,
+  getTaipeiTodayKey,
   getWeekStartDateKey,
   parseTaipeiDateKey,
   shiftTaipeiDateKey,
@@ -71,6 +72,7 @@ function DayCellButton({
   metricsByDate,
   available,
   selected,
+  isToday,
   onSelectDate,
   className,
 }: {
@@ -78,6 +80,7 @@ function DayCellButton({
   metricsByDate: Record<string, DayCalendarMetrics>;
   available: Set<string>;
   selected: boolean;
+  isToday: boolean;
   onSelectDate: (dateKey: string) => void;
   className?: string;
 }) {
@@ -108,6 +111,7 @@ function DayCellButton({
       <div className="flex shrink-0 items-baseline justify-between gap-1">
         <span className={cn("text-[13px] font-semibold leading-tight", selected && "font-bold")}>
           {cell.dayOfMonth}
+          {isToday ? <span className="ml-0.5 text-[10px] font-medium text-zinc-500">（今天）</span> : null}
         </span>
         {unhandled > 0 ? (
           <span className="min-w-0 text-right text-[9px] font-medium leading-tight text-rose-400">
@@ -139,6 +143,7 @@ export function DashboardDayCalendar({
     () => (availableDates instanceof Set ? availableDates : new Set(availableDates)),
     [availableDates]
   );
+  const todayKey = getTaipeiTodayKey();
   const weekCells = buildTaipeiWeekRow(weekStartDateKey);
   const weekTitle = formatTaipeiWeekRangeLabel(weekStartDateKey);
   const mobileTitle = formatTaipeiDateLabel(selectedDate);
@@ -294,6 +299,7 @@ export function DashboardDayCalendar({
           metricsByDate={metricsByDate}
           available={available}
           selected
+          isToday={selectedDate === todayKey}
           onSelectDate={onSelectDate}
           className="w-full"
         />
@@ -313,6 +319,7 @@ export function DashboardDayCalendar({
             metricsByDate={metricsByDate}
             available={available}
             selected={selectedDate === cell.dateKey}
+            isToday={cell.dateKey === todayKey}
             onSelectDate={onSelectDate}
           />
         ))}
