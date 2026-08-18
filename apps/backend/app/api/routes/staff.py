@@ -133,6 +133,7 @@ def _serialize_today_attention(
                 representative_upload_id=row.representative_upload_id,
                 sort_upload_at=row.sort_upload_at,
                 has_annotation=row.has_annotation,
+                annotation_label=row.annotation_label,
                 picture_url=row.picture_url,
                 day_upload_count=row.day_upload_count,
                 preview_upload_ids=row.preview_upload_ids,

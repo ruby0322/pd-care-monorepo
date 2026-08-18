@@ -8,6 +8,13 @@ import clsx from "clsx";
 
 import { useRapidReviewState } from "@/app/admin/_components/rapid-review-state";
 import { StaffAnnotationItem } from "@/lib/api/staff";
+import {
+  STAFF_ANNOTATION_LABEL_OPTIONS,
+  STAFF_REVIEW_COPY,
+  STAFF_REVIEW_FIELD_LABELS,
+  screeningResultText,
+  symptomAwarePriorityText,
+} from "@/lib/i18n/staff-review-label-mapping";
 
 type DraftVerdict = {
   label: StaffAnnotationItem["label"];
@@ -149,21 +156,21 @@ export default function AdminRapidReviewPage() {
             <dd className="text-right text-zinc-900">{new Date(currentItem.created_at).toLocaleString("zh-TW")}</dd>
           </div>
           <div className="flex items-start justify-between gap-4">
-            <dt className="text-zinc-400">影像判讀</dt>
-            <dd className="text-right text-zinc-900">{currentItem.screening_result}</dd>
+            <dt className="text-zinc-400">{STAFF_REVIEW_FIELD_LABELS.aiResult}</dt>
+            <dd className="text-right text-zinc-900">{screeningResultText(currentItem.screening_result)}</dd>
           </div>
           <div className="flex items-start justify-between gap-4">
-            <dt className="text-zinc-400">症狀綜合</dt>
-            <dd className="text-right text-zinc-900">{currentItem.symptom_aware_priority}</dd>
+            <dt className="text-zinc-400">{STAFF_REVIEW_FIELD_LABELS.symptomPriority}</dt>
+            <dd className="text-right text-zinc-900">{symptomAwarePriorityText(currentItem.symptom_aware_priority)}</dd>
           </div>
           <div className="flex items-start justify-between gap-4">
-            <dt className="text-zinc-400">機率</dt>
+            <dt className="text-zinc-400">{STAFF_REVIEW_FIELD_LABELS.infectionProbability}</dt>
             <dd className="text-right text-zinc-900">
               {currentItem.probability !== null ? `${(currentItem.probability * 100).toFixed(1)}%` : "-"}
             </dd>
           </div>
           <div className="flex items-start justify-between gap-4">
-            <dt className="text-zinc-400">Threshold</dt>
+            <dt className="text-zinc-400">{STAFF_REVIEW_FIELD_LABELS.decisionThreshold}</dt>
             <dd className="text-right text-zinc-900">
               {currentItem?.threshold !== null && currentItem?.threshold !== undefined
                 ? currentItem.threshold.toFixed(2)
@@ -171,7 +178,7 @@ export default function AdminRapidReviewPage() {
             </dd>
           </div>
           <div className="flex items-start justify-between gap-4">
-            <dt className="text-zinc-400">Model</dt>
+            <dt className="text-zinc-400">{STAFF_REVIEW_FIELD_LABELS.modelVersion}</dt>
             <dd className="text-right text-zinc-900">{currentItem?.model_version ?? "-"}</dd>
           </div>
         </dl>
@@ -205,15 +212,16 @@ export default function AdminRapidReviewPage() {
               onChange={(event) => onChangeDraft({ label: event.target.value as DraftVerdict["label"] })}
               className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100"
             >
-              <option value="normal">normal</option>
-              <option value="suspected">suspected</option>
-              <option value="confirmed_infection">confirmed_infection</option>
-              <option value="rejected">rejected</option>
+              {STAFF_ANNOTATION_LABEL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
             <input
               value={draft?.comment ?? ""}
               onChange={(event) => onChangeDraft({ comment: event.target.value })}
-              placeholder="comment..."
+              placeholder={STAFF_REVIEW_COPY.commentPlaceholder}
               className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
             />
             <button

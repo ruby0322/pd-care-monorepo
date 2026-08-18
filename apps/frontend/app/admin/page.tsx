@@ -35,7 +35,7 @@ function metricsFromWeekDays(weekDays: StaffWorkbenchWeekDayItem[]): Record<stri
 
 function AdminDashboardInner() {
   const isAdmin = getStaffRole() === "admin";
-  const { selectedDate, setSelectedDate, isTodaySelected, dayScopeLabel } = useAdminSelectedDate();
+  const { selectedDate, setSelectedDate, dayScopeLabel } = useAdminSelectedDate();
 
   const [attention, setAttention] = useState<StaffTodayAttentionResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -156,7 +156,6 @@ function AdminDashboardInner() {
         otherPatients={attention?.other_patients ?? 0}
         items={attention?.items ?? []}
         dayScopeLabel={dayScopeLabel}
-        isTodaySelected={isTodaySelected}
         selectedDate={selectedDate}
         selectedPatientId={resolvedPatientId}
         onSelectPatient={setSelectedPatientId}

@@ -8,6 +8,7 @@ import { PersonAvatar } from "@/app/admin/patient-assignment/person-avatar";
 import { PatientDayUploadReviewModal } from "@/app/admin/_components/patient-day-upload-review-modal";
 import { UploadThumb } from "@/app/admin/_components/upload-thumb";
 import type { StaffTodayAttentionPatientItem } from "@/lib/api/staff";
+import { STAFF_REVIEW_COPY, annotationBadgeClass, annotationLabelTextOrUnmarked } from "@/lib/i18n/staff-review-label-mapping";
 import { activeSymptomLabels } from "@/lib/symptoms";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +16,6 @@ type TodayPatientDetailPanelProps = {
   item: StaffTodayAttentionPatientItem | null;
   selectedDate: string;
   dayScopeLabel: string;
-  isTodaySelected: boolean;
   className?: string;
   onReviewSaved?: () => void;
   imageUrlByUploadId?: Record<number, string>;
@@ -32,20 +32,14 @@ function tierLabel(tier: StaffTodayAttentionPatientItem["tier"]): { text: string
   return { text: "一般", className: "bg-zinc-100 text-zinc-600" };
 }
 
-function statusLabel(item: StaffTodayAttentionPatientItem, isTodaySelected: boolean): {
+function statusLabel(item: StaffTodayAttentionPatientItem): {
   text: string;
   className: string;
 } {
-  if (item.tier === "other") {
-    return {
-      text: isTodaySelected ? "今日已上傳" : "當日已上傳",
-      className: "text-zinc-500",
-    };
-  }
   if (item.has_annotation) {
-    return { text: "已註解", className: "text-green-600" };
+    return { text: STAFF_REVIEW_COPY.annotated, className: "text-emerald-600" };
   }
-  return { text: "未處理", className: "text-red-600" };
+  return { text: STAFF_REVIEW_COPY.unmarked, className: "text-zinc-500" };
 }
 
 function formatTime(raw: string): string {
@@ -83,7 +77,6 @@ export function TodayPatientDetailPanel({
   item,
   selectedDate,
   dayScopeLabel,
-  isTodaySelected,
   className,
   onReviewSaved,
   imageUrlByUploadId = {},
@@ -107,7 +100,7 @@ export function TodayPatientDetailPanel({
 
   const name = item.full_name || item.case_number;
   const tier = tierLabel(item.tier);
-  const status = statusLabel(item, isTodaySelected);
+  const status = statusLabel(item);
   const highlight = item.risk_highlight;
   const uploadIds = collectUploadIds(item);
   const overflow = Math.max(0, item.day_upload_count - uploadIds.length);
@@ -131,7 +124,15 @@ export function TodayPatientDetailPanel({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-zinc-900">{name}</h2>
-            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", tier.className)}>
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium leading-none",
+                annotationBadgeClass(item.annotation_label)
+              )}
+            >
+              {annotationLabelTextOrUnmarked(item.annotation_label)}
+            </span>
+            <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium leading-none", tier.className)}>
               {tier.text}
             </span>
           </div>
@@ -147,15 +148,21 @@ export function TodayPatientDetailPanel({
       {highlight ? (
         <div className="mt-3 rounded-lg bg-zinc-50 p-3 ring-1 ring-zinc-200">
           <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">最高風險上傳</p>
-          <p className="mt-1 text-xs text-zinc-700">
-            {highlight.screening_result === "suspected"
-              ? `疑似感染${
-                  highlight.probability != null ? ` · AI ${Math.round(highlight.probability * 100)}%` : ""
-                }`
-              : "症狀高風險"}
-            <span className="mx-1 text-zinc-300">·</span>
-            {formatTime(highlight.created_at)}
-          </p>
+          <div className="mt-1 flex items-center gap-1.5">
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium leading-none",
+                highlight.screening_result === "suspected" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"
+              )}
+            >
+              {highlight.screening_result === "suspected" ? "疑似感染" : "症狀高風險"}
+            </span>
+            {highlight.screening_result === "suspected" && highlight.probability != null ? (
+              <span className="text-xs font-medium text-zinc-700">AI {Math.round(highlight.probability * 100)}%</span>
+            ) : null}
+            <span className="text-zinc-300">·</span>
+            <span className="text-xs text-zinc-700">{formatTime(highlight.created_at)}</span>
+          </div>
           {symptomLine ? <p className="mt-1 text-[11px] text-zinc-500">{symptomLine}</p> : null}
         </div>
       ) : null}

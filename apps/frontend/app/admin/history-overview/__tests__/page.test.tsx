@@ -244,8 +244,7 @@ describe("AdminHistoryOverviewPage grouped patient navigation", () => {
     const uploadButton = within(groupArticle as HTMLElement).getByRole("button", { name: /16:00:00/ });
     fireEvent.click(uploadButton);
 
-    expect(await screen.findByText("開啟病患完整頁")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "開啟病患完整頁" })).toHaveAttribute("href", "/admin/patients/42");
+    expect(await screen.findByText("護理審核標籤")).toBeInTheDocument();
     expect(screen.getByText("Full Name Patient")).toBeInTheDocument();
   });
 
