@@ -371,6 +371,7 @@ export type AdminPatientAnalyticsFilters = {
 export type AdminActiveUsersSeriesPoint = {
   date: string;
   active_users: number;
+  registered_users: number;
 };
 
 export type AdminActiveUsersSeriesResponse = {

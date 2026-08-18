@@ -8,6 +8,8 @@ import {
 } from "@/app/admin/_components/dashboard-day-calendar";
 import { TodayPatientPool } from "@/app/admin/_components/today-patient-pool";
 import { TodayWorkbenchHeader } from "@/app/admin/_components/today-workbench-header";
+import { UploadTrendChart } from "@/app/admin/_components/upload-trend-chart";
+import { UserTrendChart } from "@/app/admin/_components/user-trend-chart";
 import { useAdminSelectedDate } from "@/lib/admin/use-admin-selected-date";
 import {
   fetchTodayAttention,
@@ -116,7 +118,12 @@ function AdminDashboardInner() {
 
   return (
     <main className="space-y-4 p-4 md:p-6">
-      <TodayWorkbenchHeader selectedDate={selectedDate} dayScopeLabel={dayScopeLabel} />
+      <TodayWorkbenchHeader />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <UserTrendChart />
+        <UploadTrendChart />
+      </div>
 
       <DashboardDayCalendar
         selectedDate={selectedDate}
