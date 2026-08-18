@@ -19,7 +19,7 @@ const ACTIVE_WINDOW_OPTIONS = [3, 7, 14, 30] as const;
 const LOOKBACK_OPTIONS = [30, 60, 90] as const;
 
 const userTrendChartConfig = {
-  registered_users: { label: "註冊用戶", color: "#0f766e" },
+  registered_users: { label: "已綁定用戶", color: "#0f766e" },
   active_users: { label: "活躍用戶", color: "#2563eb" },
 } satisfies ChartConfig;
 
@@ -75,7 +75,9 @@ export function UserTrendChart() {
   return (
     <section className="min-w-0 rounded-xl border border-zinc-200 bg-white p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium text-zinc-900">用戶趨勢</h3>
+        <h3 className="text-sm font-medium text-zinc-900" title="已綁定用戶為已完成 LINE 病患身分綁定的帳號，不含僅建檔未綁定病患">
+          用戶趨勢
+        </h3>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <select
             className="rounded-lg border border-zinc-200 px-2 py-1"

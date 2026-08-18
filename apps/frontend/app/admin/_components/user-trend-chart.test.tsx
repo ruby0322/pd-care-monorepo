@@ -40,6 +40,10 @@ describe("UserTrendChart", () => {
     render(<UserTrendChart />);
 
     expect(await screen.findByText("用戶趨勢")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "用戶趨勢" })).toHaveAttribute(
+      "title",
+      "已綁定用戶為已完成 LINE 病患身分綁定的帳號，不含僅建檔未綁定病患"
+    );
     await waitFor(() => {
       expect(screen.getByTestId("line-chart").textContent).toContain('"active_users":4');
       expect(screen.getByTestId("line-chart").textContent).toContain('"registered_users":9');
