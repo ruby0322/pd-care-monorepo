@@ -1,8 +1,10 @@
 # Admin dashboard homepage renovate
 
 **Date:** 2026-07-25  
-**Status:** Approved  
+**Status:** Approved, amended 2026-08-18  
 **Companion session:** `.superpowers/brainstorm/1424761-1784972892/`
+
+**Amendment (2026-08-18):** `/admin` again shows compact **用戶趨勢** + **上傳數趨勢** Recharts above the calendar. These reuse the history-overview chart components. They are **admin-only** and mount after the today workbench request so staff do not hit analytics APIs and workbench latency stays first. History-overview 使用趨勢 remains the full usage surface (independent lookbacks, suspected-ratio series). Do **not** remove the homepage charts to restore the original 2026-07-25 IA.
 
 ## Problem
 
@@ -30,7 +32,7 @@
 | `/admin/history-overview` | **區間分析** — clinical period KPIs + day browser + usage trends |
 | `/admin/monitoring` | System observability (unchanged) |
 
-Homepage period chips / Recharts analytics panels move off `/admin` into `history-overview`.
+Homepage period chips / risk-composition Recharts move off `/admin` into `history-overview`. Compact user + upload trend charts stay on `/admin` for admins (2026-08-18 amendment).
 
 ```mermaid
 flowchart LR
@@ -39,17 +41,17 @@ flowchart LR
     UploadCount[TodayUploadCount]
     Thumbs[RecentUploadThumbs]
     Bind[PendingBindingsLink]
-    Active[ActiveUsersSummary]
+    Charts[UserAndUploadTrends]
   end
   subgraph period [HistoryOverview]
     ClinicalTab[ClinicalTab]
     UsageTab[UsageTrendsTab]
   end
-  List -->|row click| PatientDetail["/admin/patients/id"]
-  Thumbs -->|thumb click| PatientDetail
-  Thumbs -->|plusN| period
-  Bind -->|deep link| RegReview["/admin/registration-review"]
-  Active -->|link| period
+    List -->|row click| PatientDetail["/admin/patients/id"]
+    Thumbs -->|thumb click| PatientDetail
+    Thumbs -->|plusN| period
+    Bind -->|deep link| RegReview["/admin/registration-review"]
+    Charts -->|admin only| UsageTab
 ```
 
 ## Metric taxonomy
@@ -66,7 +68,9 @@ flowchart LR
 | 最新上傳縮圖 | Recent uploads with risk badge + time | Browse → patient; `+n` → history-overview |
 | 待審綁定 | Pending LINE↔patient bindings (count + summary rows) | Deep link to registration-review |
 
-**Removed from homepage:** unread notification panel; period filters; risk pie/bar; active-users chart; daily suspected series; “篩選病患數” as a homepage hero KPI.
+**Removed from homepage (v1 renovate):** unread notification panel; period filters; risk pie/bar; “篩選病患數” as a homepage hero KPI.
+
+**Restored (2026-08-18):** compact active/bound-user trend + upload-count trend (admin-only, above the calendar).
 
 ### Clinical — period (`history-overview` → 臨床 tab)
 
@@ -79,13 +83,13 @@ flowchart LR
 | Risk composition chart | From homepage |
 | Existing calendar + thumbnail browser | Keep / integrate |
 
-### System / usage (`history-overview` → 使用趨勢 tab; homepage summary only)
+### System / usage (`history-overview` → 使用趨勢 tab; homepage compact charts for admin)
 
 | Metric | Where |
 | --- | --- |
-| Active uploaders series | Usage tab (from homepage) |
-| Daily upload / suspected series | Usage tab (from homepage) |
-| 近 7 日活躍上傳者 (single number) | Homepage footer summary + link to 區間分析 |
+| Active uploaders + bound LINE identities series | Usage tab; compact copy on `/admin` (admin-only) |
+| Daily upload series | Usage tab; compact copy on `/admin` (admin-only) |
+| Daily suspected / elevated series | Usage tab only |
 
 Infra metrics stay on `/admin/monitoring`.
 
@@ -137,7 +141,7 @@ Entire row (including thumb) → `/admin/patients/[id]`
   1. 今日上傳次數 scalar
   2. 最新上傳 — compact thumbnail grid (history-overview style: risk badge + time), ~5 visible + `+n` overflow cell
   3. 待審綁定 — summary rows + deep link to registration-review (no full inline approve/link/create/reject on homepage)
-  4. 近 7 日活躍上傳者 + link to history-overview
+  4. Compact 用戶趨勢 + 上傳數趨勢 (admin-only; 2026-08-18)
 
 ### Mobile
 
@@ -194,7 +198,7 @@ Reuse existing:
 
 - upload queue (limit for thumb grid)
 - pending bindings list (summary only on FE)
-- active-users series (for 7-day summary number and usage tab)
+- active-users series (homepage compact charts + usage tab)
 - period suspected summary + chart series (history-overview)
 
 Exact shapes are implementation-plan details; this spec locks product semantics above.
@@ -209,7 +213,7 @@ Exact shapes are implementation-plan details; this spec locks product semantics 
 
 - Staff can open `/admin` and within one viewport see who to handle first (risk-first, oldest first) with handled state visible for risk rows
 - Counts answer “how many patients” by tier, not only “how many uploads”
-- Period/trend questions are answered on history-overview, not the homepage
+- Period/trend detail (risk composition, independent lookbacks, suspected series) stays on history-overview
 - Visual density comparable to patient-assignment; no notification panel; no three-column metric soup
 
 ## Open follow-ups (out of v1)
