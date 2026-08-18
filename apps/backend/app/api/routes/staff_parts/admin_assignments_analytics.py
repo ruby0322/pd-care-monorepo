@@ -421,7 +421,10 @@ async def get_admin_active_users_series(
         active_window_days=active_window_days,
         lookback_days=lookback_days,
         interval=interval,  # type: ignore[arg-type]
-        items=[StaffActiveUsersSeriesPoint(date=day, active_users=count) for day, count in rows],
+        items=[
+            StaffActiveUsersSeriesPoint(date=day, active_users=active_count, registered_users=registered_count)
+            for day, active_count, registered_count in rows
+        ],
     )
 
 

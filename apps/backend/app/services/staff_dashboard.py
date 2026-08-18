@@ -1334,11 +1334,14 @@ def get_active_users_series(
     lookback_days: int,
     interval: str,
     accessible_patient_ids: set[int] | None = None,
-) -> list[tuple[str, int]]:
+) -> list[tuple[str, int, int]]:
     end_date, _, _ = resolve_taipei_day_bounds()
     start_date = end_date - timedelta(days=lookback_days - 1)
     query_start_date = start_date - timedelta(days=active_window_days - 1)
     query_start = datetime.combine(query_start_date, time.min, tzinfo=TAIPEI_TIMEZONE).astimezone(timezone.utc)
+
+    if accessible_patient_ids is not None and not accessible_patient_ids:
+        return []
 
     query: Select = (
         select(Upload.patient_id, Upload.created_at)
@@ -1346,35 +1349,44 @@ def get_active_users_series(
         .where(Upload.created_at >= query_start)
     )
     if accessible_patient_ids is not None:
-        if not accessible_patient_ids:
-            return []
         query = query.where(Patient.id.in_(accessible_patient_ids))
     rows = session.execute(query).all()
     uploads_by_patient: dict[int, set[date]] = defaultdict(set)
     for patient_id, upload_created_at in rows:
         uploads_by_patient[int(patient_id)].add(to_taipei_date(upload_created_at))
 
-    points: list[tuple[str, int]] = []
+    identity_query: Select = select(LiffIdentity.created_at).where(
+        LiffIdentity.role == "patient",
+        LiffIdentity.patient_id.is_not(None),
+    )
+    if accessible_patient_ids is not None:
+        identity_query = identity_query.where(LiffIdentity.patient_id.in_(accessible_patient_ids))
+    register_days = sorted(to_taipei_date(created_at) for created_at in session.execute(identity_query).scalars().all())
+
+    points: list[tuple[str, int, int]] = []
     cursor = start_date
+    register_index = 0
     while cursor <= end_date:
         window_start = cursor - timedelta(days=active_window_days - 1)
         active_count = 0
         for upload_days in uploads_by_patient.values():
             if any(window_start <= uploaded_at <= cursor for uploaded_at in upload_days):
                 active_count += 1
-        points.append((cursor.isoformat(), active_count))
+        while register_index < len(register_days) and register_days[register_index] <= cursor:
+            register_index += 1
+        points.append((cursor.isoformat(), active_count, register_index))
         cursor += timedelta(days=1)
 
     if interval != "week":
         return points
 
-    weekly: dict[date, tuple[str, int]] = {}
-    for day_str, count in points:
+    weekly: dict[date, tuple[str, int, int]] = {}
+    for day_str, active_count, registered_count in points:
         day = date.fromisoformat(day_str)
         week_start = day - timedelta(days=day.weekday())
         existing = weekly.get(week_start)
         if existing is None or day_str > existing[0]:
-            weekly[week_start] = (day_str, count)
+            weekly[week_start] = (day_str, active_count, registered_count)
     return [weekly[key] for key in sorted(weekly.keys())]
 
 

@@ -493,6 +493,7 @@ class StaffAgeHistogramResponse(BaseModel):
 class StaffActiveUsersSeriesPoint(BaseModel):
     date: str
     active_users: int
+    registered_users: int
 
 
 class StaffActiveUsersSeriesResponse(BaseModel):
