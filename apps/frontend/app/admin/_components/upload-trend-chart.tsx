@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import {
   ChartContainer,
@@ -102,13 +102,23 @@ export function UploadTrendChart() {
       {loading ? <p className="text-sm text-zinc-400">載入上傳趨勢…</p> : null}
       {error ? <p className="mb-3 text-sm text-zinc-500">{error}</p> : null}
       <ChartContainer className="h-64 w-full" config={uploadChartConfig}>
-        <LineChart data={chartData}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
-          <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-          <ChartTooltip content={<ChartTooltipContent />} />
-          <Line dataKey="upload_count" stroke="var(--color-upload_count)" strokeWidth={2} dot={false} />
-        </LineChart>
+        {chartMode === "daily" ? (
+          <BarChart data={chartData}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Bar dataKey="upload_count" fill="var(--color-upload_count)" radius={4} />
+          </BarChart>
+        ) : (
+          <LineChart data={chartData}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Line dataKey="upload_count" stroke="var(--color-upload_count)" strokeWidth={2} dot={false} />
+          </LineChart>
+        )}
       </ChartContainer>
     </section>
   );
