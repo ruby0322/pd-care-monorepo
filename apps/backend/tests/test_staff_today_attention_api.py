@@ -317,6 +317,37 @@ def test_today_attention_respects_staff_assignment_scope(tmp_path: Path) -> None
         assert [item["patient_id"] for item in payload["items"]] == [assigned_id]
 
 
+def test_today_attention_other_tier_returns_four_preview_ids_when_more_than_four_uploads(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "today-attention-four-previews.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        other_id, other_upload_ids = _seed_today_patient(
+            client,
+            case_number="P-OTHER-FIVE",
+            line_user_id="U_OTHER_FIVE",
+            uploads=[
+                (timedelta(hours=1), "normal", None),
+                (timedelta(hours=2), "normal", None),
+                (timedelta(hours=3), "normal", None),
+                (timedelta(hours=4), "normal", None),
+                (timedelta(hours=5), "normal", None),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=other_id)
+
+        token = _login_staff_token(client)
+        response = client.get(
+            "/v1/staff/uploads/today-attention",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["items"][0]["patient_id"] == other_id
+        assert payload["items"][0]["day_upload_count"] == 5
+        assert payload["items"][0]["preview_upload_ids"] == other_upload_ids[:4]
+
+
 def test_today_attention_empty_day(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "today-attention-empty.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

@@ -1217,9 +1217,8 @@ def list_today_attention_patients(
                 (upload for upload, _, _ in patient_uploads),
                 key=lambda upload: (upload.created_at, upload.id),
             )
-            # ≤4: return all; >4: first 3 for FE "3 + n" display.
-            limit = day_upload_count if day_upload_count <= 4 else 3
-            preview_upload_ids = [upload.id for upload in ordered[:limit]]
+            # Always return up to 4 previews; FE overlays +n on the last thumb when count > 4.
+            preview_upload_ids = [upload.id for upload in ordered[: min(4, day_upload_count)]]
             has_annotation = representative.id in latest_annotation_by_upload
             annotation_label = (
                 cast(Literal["normal", "suspected", "confirmed_infection", "rejected"], latest_annotation_by_upload.get(representative.id).label)
