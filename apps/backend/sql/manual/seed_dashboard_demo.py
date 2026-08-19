@@ -4,6 +4,7 @@
 Creates P-DEV-DASH-* patients with mixed suspected / elevated / other tiers,
 staff assignments (U_DEV_STAFF), and optional staff annotations. Dates anchor to
 Taipei today so the admin week calendar always shows a realistic month of activity.
+P-DEV-DASH-013 (林靖芳) always has 6 other-tier uploads today for card +n overlay QA.
 
 Run after personas (and optionally fake patients):
 
@@ -69,7 +70,12 @@ _PATIENTS: tuple[DemoPatientSpec, ...] = (
     DemoPatientSpec("010", "楊志豪", "male", "1982-01-05", "https://i.pravatar.cc/150?u=dash010"),
     DemoPatientSpec("011", "鄭心怡", "female", "1995-10-11", "https://i.pravatar.cc/150?u=dash011"),
     DemoPatientSpec("012", "謝承恩", "male", "1970-05-25", "https://i.pravatar.cc/150?u=dash012"),
+    # Other-tier overflow case: enough today uploads to overlay +n on the last card thumb.
+    DemoPatientSpec("013", "林靖芳", "female", "1976-05-09", "https://i.pravatar.cc/150?u=dash013"),
 )
+
+OVERFLOW_PREVIEW_SUFFIX = "013"
+OVERFLOW_TODAY_UPLOADS = 6
 
 
 def _taipei_today() -> date:
@@ -193,6 +199,35 @@ def _is_showcase_day(local_day: date, today: date) -> bool:
     return local_day.month == 8 and local_day.day == 6
 
 
+def _seed_other_overflow_today(session: Session, patient: Patient, local_day: date) -> None:
+    """Six normal, unmarked uploads so the staff card shows 3 thumbs + overlay."""
+    for upload_index in range(OVERFLOW_TODAY_UPLOADS):
+        hour = 8 + upload_index
+        minute = 10 + upload_index * 7
+        upload = Upload(
+            patient_id=patient.id,
+            object_key=f"patients/dashboard-demo/{patient.id}/{local_day.isoformat()}-overflow-{upload_index}.jpg",
+            content_type="image/jpeg",
+            created_at=_parse_local_dt(local_day, hour, minute),
+            symptom_pain=False,
+            symptom_discharge=False,
+            symptom_pus=False,
+            symptom_cloudy_dialysate=False,
+        )
+        session.add(upload)
+        session.flush()
+        session.add(
+            AIResult(
+                upload_id=upload.id,
+                screening_result="normal",
+                probability=0.08 + upload_index * 0.02,
+                threshold=0.5,
+                predicted_class="class_1",
+                model_version="dashboard-demo-v1",
+            )
+        )
+
+
 def _seed_demo(session: Session, *, staff_identity_id: int | None) -> list[str]:
     patients_by_suffix: dict[str, Patient] = {}
     for spec in _PATIENTS:
@@ -238,17 +273,17 @@ def _seed_demo(session: Session, *, staff_identity_id: int | None) -> list[str]:
 
         active_days.append(local_day.isoformat())
 
+        pool_suffixes = [spec.suffix for spec in _PATIENTS if spec.suffix != OVERFLOW_PREVIEW_SUFFIX]
         if showcase:
-            chosen_suffixes = [spec.suffix for spec in _PATIENTS]
+            chosen_suffixes = pool_suffixes
             upload_target = max(SHOWCASE_MIN_UPLOADERS + 2, RNG.randint(14, 20))
         else:
             upload_target = RNG.randint(5, 14) if day_offset >= -7 else RNG.randint(3, 10)
             if weekday >= 5:
                 upload_target = max(2, upload_target - 2)
-            chosen_suffixes = RNG.sample(
-                [spec.suffix for spec in _PATIENTS],
-                k=min(len(_PATIENTS), RNG.randint(3, min(9, upload_target))),
-            )
+            high = max(1, min(9, upload_target, len(pool_suffixes)))
+            low = min(3, high)
+            chosen_suffixes = RNG.sample(pool_suffixes, k=RNG.randint(low, high))
 
         upload_count = 0
         patient_cycle = 0
@@ -335,6 +370,9 @@ def _seed_demo(session: Session, *, staff_identity_id: int | None) -> list[str]:
                 )
             upload_count += 1
 
+        if day_offset == 0:
+            _seed_other_overflow_today(session, patients_by_suffix[OVERFLOW_PREVIEW_SUFFIX], local_day)
+
     return active_days
 
 
@@ -374,6 +412,10 @@ def main() -> int:
     print("Login as U_DEV_ADMIN or U_DEV_STAFF → /admin")
     print("Use arrow keys / week nav / calendar icon on the week strip.")
     print(f"Sample active range: {active_days[0]} … {active_days[-1]}")
+    print(
+        f"Overflow preview: P-DEV-DASH-{OVERFLOW_PREVIEW_SUFFIX} 林靖芳 "
+        f"has {OVERFLOW_TODAY_UPLOADS} other-tier uploads today (card overlay +n)."
+    )
     return 0
 
 
