@@ -38,6 +38,6 @@ test("overlays +n on the last preview thumb instead of adding a fifth overflow c
   const previewCells = container.querySelectorAll(".aspect-square");
   expect(previewCells).toHaveLength(4);
   const overlay = screen.getByText("+2");
-  expect(overlay.className).toContain("bg-black/50");
+  expect(overlay.className).toContain("bg-black/30");
   expect(previewCells[3].contains(overlay)).toBe(true);
 });

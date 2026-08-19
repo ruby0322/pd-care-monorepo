@@ -180,7 +180,7 @@ export function TodayPatientDetailPanel({
                   imageError={imageErrorByUploadId[uploadId]}
                 />
                 {showOverflow ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-sm font-semibold text-white">
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-sm font-semibold text-white">
                     +{overflowCount}
                   </div>
                 ) : null}

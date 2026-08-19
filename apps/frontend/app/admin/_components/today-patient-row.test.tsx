@@ -108,7 +108,7 @@ test("overlays +n on the last of three thumbs when four or more images would ove
   const thumbs = container.querySelectorAll(".h-14.w-14.shrink-0");
   expect(thumbs).toHaveLength(3);
   const overlay = screen.getByText("+1");
-  expect(overlay.className).toContain("bg-black/50");
+  expect(overlay.className).toContain("bg-black/30");
   expect(thumbs[2].contains(overlay)).toBe(true);
 });
 
@@ -129,7 +129,7 @@ test("overlays leftover count on the last thumb when the patient uploaded more t
   const thumbs = container.querySelectorAll(".h-14.w-14.shrink-0");
   expect(thumbs).toHaveLength(3);
   const overlay = screen.getByText("+3");
-  expect(overlay.className).toContain("bg-black/50");
+  expect(overlay.className).toContain("bg-black/30");
   expect(thumbs[2].contains(overlay)).toBe(true);
 });
 

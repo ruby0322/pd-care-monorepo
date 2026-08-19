@@ -132,7 +132,7 @@ export function TodayPatientRow({
                   imageError={imageErrorByUploadId[uploadId]}
                 />
                 {showOverflow ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-xs font-semibold text-white">
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-xs font-semibold text-white">
                     +{overflowCount}
                   </div>
                 ) : null}
