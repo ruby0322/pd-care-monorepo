@@ -14,6 +14,11 @@ jest.mock("@/components/ui/chart", () => ({
 
 jest.mock("recharts", () => ({
   CartesianGrid: () => null,
+  Bar: () => null,
+  BarChart: ({ data }: { data: { upload_count?: number }[] }) => (
+    <div data-testid="bar-chart">{JSON.stringify(data)}</div>
+  ),
+  Cell: () => null,
   Line: () => null,
   LineChart: ({ data }: { data: { upload_count?: number }[] }) => (
     <div data-testid="line-chart">{JSON.stringify(data)}</div>
@@ -48,6 +53,15 @@ describe("buildUploadChartData", () => {
     );
     expect(result.map((point) => point.upload_count)).toEqual([2, 5, 6]);
   });
+
+  test("marks today's point for the daily bar highlight", () => {
+    const result = buildUploadChartData(
+      uploadSeriesFixture.map(({ date, total_uploads }) => ({ date, total_uploads })),
+      "daily",
+      "2026-07-03"
+    );
+    expect(result.map((point) => point.isToday)).toEqual([false, false, true]);
+  });
 });
 
 describe("UploadTrendChart", () => {
@@ -67,20 +81,23 @@ describe("UploadTrendChart", () => {
     expect(screen.getByRole("button", { name: "累進" })).toBeInTheDocument();
   });
 
-  test("switches upload chart to cumulative mode", async () => {
+  test("renders daily uploads as a bar chart and cumulative as a line chart", async () => {
     render(<UploadTrendChart />);
 
     await screen.findByText("上傳數趨勢");
-    const chart = screen.getByTestId("line-chart");
+    const barChart = screen.getByTestId("bar-chart");
     await waitFor(() => {
-      expect(chart.textContent).toContain('"upload_count":2');
+      expect(barChart.textContent).toContain('"upload_count":2');
     });
+    expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "累進" }));
 
+    const lineChart = await screen.findByTestId("line-chart");
     await waitFor(() => {
-      expect(chart.textContent).toContain('"upload_count":6');
+      expect(lineChart.textContent).toContain('"upload_count":6');
     });
+    expect(screen.queryByTestId("bar-chart")).not.toBeInTheDocument();
   });
 
   test("fetches upload series with lookback", async () => {

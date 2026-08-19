@@ -5,7 +5,11 @@ export type UploadSeriesPoint = {
 
 export type UploadChartMode = "daily" | "cumulative";
 
-export function buildUploadChartData(series: UploadSeriesPoint[], mode: UploadChartMode) {
+export function buildUploadChartData(
+  series: UploadSeriesPoint[],
+  mode: UploadChartMode,
+  todayKey?: string
+) {
   let running = 0;
   return series.map((point) => {
     running += point.total_uploads;
@@ -13,6 +17,7 @@ export function buildUploadChartData(series: UploadSeriesPoint[], mode: UploadCh
       date: point.date,
       shortDate: new Date(point.date).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }),
       upload_count: mode === "daily" ? point.total_uploads : running,
+      isToday: todayKey != null && point.date === todayKey,
     };
   });
 }

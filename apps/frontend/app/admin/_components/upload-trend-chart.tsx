@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import {
   ChartContainer,
@@ -13,10 +13,12 @@ import {
 import { getReadableApiError } from "@/lib/api/client";
 import type { AdminDailySuspectedSeriesPoint } from "@/lib/api/staff";
 import { fetchAdminDailySuspectedSeries } from "@/lib/api/staff";
+import { getTaipeiTodayKey } from "@/lib/utils/upload-calendar";
 
 import { buildUploadChartData, type UploadChartMode } from "./upload-trend-chart-data";
 
 const LOOKBACK_OPTIONS = [30, 60, 90] as const;
+const TODAY_UPLOAD_BAR_COLOR = "#ea580c";
 
 const uploadChartConfig = {
   upload_count: { label: "上傳數", color: "#0891b2" },
@@ -57,7 +59,10 @@ export function UploadTrendChart() {
     };
   }, [lookbackDays]);
 
-  const chartData = useMemo(() => buildUploadChartData(series, chartMode), [chartMode, series]);
+  const chartData = useMemo(
+    () => buildUploadChartData(series, chartMode, getTaipeiTodayKey()),
+    [chartMode, series]
+  );
 
   return (
     <section className="min-w-0 rounded-xl border border-zinc-200 bg-white p-4">
@@ -102,13 +107,30 @@ export function UploadTrendChart() {
       {loading ? <p className="text-sm text-zinc-400">載入上傳趨勢…</p> : null}
       {error ? <p className="mb-3 text-sm text-zinc-500">{error}</p> : null}
       <ChartContainer className="h-64 w-full" config={uploadChartConfig}>
-        <LineChart data={chartData}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
-          <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-          <ChartTooltip content={<ChartTooltipContent />} />
-          <Line dataKey="upload_count" stroke="var(--color-upload_count)" strokeWidth={2} dot={false} />
-        </LineChart>
+        {chartMode === "daily" ? (
+          <BarChart data={chartData}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Bar dataKey="upload_count" fill="var(--color-upload_count)" radius={4}>
+              {chartData.map((point) => (
+                <Cell
+                  key={point.date}
+                  fill={point.isToday ? TODAY_UPLOAD_BAR_COLOR : "var(--color-upload_count)"}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        ) : (
+          <LineChart data={chartData}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Line dataKey="upload_count" stroke="var(--color-upload_count)" strokeWidth={2} dot={false} />
+          </LineChart>
+        )}
       </ChartContainer>
     </section>
   );
