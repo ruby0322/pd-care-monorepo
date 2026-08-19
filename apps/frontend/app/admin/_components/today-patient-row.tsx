@@ -67,9 +67,8 @@ export function TodayPatientRow({
         }).join("、")
       : "";
 
-  const previewIds = item.preview_upload_ids ?? [];
-  const overflow =
-    !isRiskTier && item.day_upload_count > 4 ? item.day_upload_count - Math.min(previewIds.length, 3) : 0;
+  const previewIds = (item.preview_upload_ids ?? []).slice(0, 3);
+  const overflowCount = !isRiskTier && item.day_upload_count > 3 ? item.day_upload_count - 3 : 0;
 
   return (
     <button
@@ -123,20 +122,23 @@ export function TodayPatientRow({
 
       {!isRiskTier && previewIds.length > 0 ? (
         <div className="flex h-14 gap-1.5">
-          {previewIds.slice(0, overflow > 0 ? 3 : 4).map((uploadId) => (
-            <div key={uploadId} className="h-14 w-14 shrink-0">
-              <UploadThumb
-                uploadId={uploadId}
-                imageUrl={imageUrlByUploadId[uploadId] ?? null}
-                imageError={imageErrorByUploadId[uploadId]}
-              />
-            </div>
-          ))}
-          {overflow > 0 ? (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-xs font-semibold text-zinc-600 ring-1 ring-zinc-200">
-              +{overflow}
-            </div>
-          ) : null}
+          {previewIds.map((uploadId, index) => {
+            const showOverflow = overflowCount > 0 && index === previewIds.length - 1;
+            return (
+              <div key={uploadId} className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md">
+                <UploadThumb
+                  uploadId={uploadId}
+                  imageUrl={imageUrlByUploadId[uploadId] ?? null}
+                  imageError={imageErrorByUploadId[uploadId]}
+                />
+                {showOverflow ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-xs font-semibold text-white">
+                    +{overflowCount}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : null}
     </button>
