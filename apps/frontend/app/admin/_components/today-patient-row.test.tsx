@@ -72,6 +72,67 @@ test("shows a risk badge and AI percent for suspected highlights", () => {
   expect(screen.getByText("未標註")).toBeInTheDocument();
 });
 
+test("keeps three fixed 56px thumbs and does not show +n when the patient uploaded three images", () => {
+  const { container } = render(
+    <TodayPatientRow
+      item={makePatient({
+        day_upload_count: 3,
+        preview_upload_ids: [101, 102, 103],
+      })}
+      selected={false}
+      onSelect={jest.fn()}
+      imageUrlByUploadId={{}}
+      imageErrorByUploadId={{}}
+    />
+  );
+
+  const thumbs = container.querySelectorAll(".h-14.w-14.shrink-0");
+  expect(thumbs).toHaveLength(3);
+  expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument();
+});
+
+test("overlays +n on the last of three thumbs when four or more images would overflow the card", () => {
+  const { container } = render(
+    <TodayPatientRow
+      item={makePatient({
+        day_upload_count: 4,
+        preview_upload_ids: [101, 102, 103, 104],
+      })}
+      selected={false}
+      onSelect={jest.fn()}
+      imageUrlByUploadId={{}}
+      imageErrorByUploadId={{}}
+    />
+  );
+
+  const thumbs = container.querySelectorAll(".h-14.w-14.shrink-0");
+  expect(thumbs).toHaveLength(3);
+  const overlay = screen.getByText("+1");
+  expect(overlay.className).toContain("bg-black/30");
+  expect(thumbs[2].contains(overlay)).toBe(true);
+});
+
+test("overlays leftover count on the last thumb when the patient uploaded more than four images", () => {
+  const { container } = render(
+    <TodayPatientRow
+      item={makePatient({
+        day_upload_count: 6,
+        preview_upload_ids: [101, 102, 103, 104],
+      })}
+      selected={false}
+      onSelect={jest.fn()}
+      imageUrlByUploadId={{}}
+      imageErrorByUploadId={{}}
+    />
+  );
+
+  const thumbs = container.querySelectorAll(".h-14.w-14.shrink-0");
+  expect(thumbs).toHaveLength(3);
+  const overlay = screen.getByText("+3");
+  expect(overlay.className).toContain("bg-black/30");
+  expect(thumbs[2].contains(overlay)).toBe(true);
+});
+
 test("hides symptom chips in list card for elevated risk", () => {
   render(
     <TodayPatientRow

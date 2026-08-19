@@ -102,8 +102,8 @@ export function TodayPatientDetailPanel({
   const tier = tierLabel(item.tier);
   const status = statusLabel(item);
   const highlight = item.risk_highlight;
-  const uploadIds = collectUploadIds(item);
-  const overflow = Math.max(0, item.day_upload_count - uploadIds.length);
+  const uploadIds = collectUploadIds(item).slice(0, 4);
+  const overflowCount = Math.max(0, item.day_upload_count - uploadIds.length);
   const canReview = item.day_upload_count > 0;
 
   const symptomLine =
@@ -170,20 +170,23 @@ export function TodayPatientDetailPanel({
       <div className="mt-3">
         <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-zinc-400">上傳預覽</p>
         <div className="grid grid-cols-2 gap-2">
-          {uploadIds.map((uploadId) => (
-            <div key={uploadId} className="aspect-square">
-              <UploadThumb
-                uploadId={uploadId}
-                imageUrl={imageUrlByUploadId[uploadId] ?? null}
-                imageError={imageErrorByUploadId[uploadId]}
-              />
-            </div>
-          ))}
-          {overflow > 0 ? (
-            <div className="flex aspect-square items-center justify-center rounded-md bg-zinc-100 text-sm font-semibold text-zinc-600 ring-1 ring-zinc-200">
-              +{overflow}
-            </div>
-          ) : null}
+          {uploadIds.map((uploadId, index) => {
+            const showOverflow = overflowCount > 0 && index === uploadIds.length - 1;
+            return (
+              <div key={uploadId} className="relative aspect-square overflow-hidden rounded-md">
+                <UploadThumb
+                  uploadId={uploadId}
+                  imageUrl={imageUrlByUploadId[uploadId] ?? null}
+                  imageError={imageErrorByUploadId[uploadId]}
+                />
+                {showOverflow ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-sm font-semibold text-white">
+                    +{overflowCount}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </div>
 
