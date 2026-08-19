@@ -17,6 +17,7 @@ jest.mock("recharts", () => ({
   BarChart: ({ data }: { data: { upload_count?: number }[] }) => (
     <div data-testid="bar-chart">{JSON.stringify(data)}</div>
   ),
+  Cell: () => null,
   Line: () => null,
   LineChart: ({ data }: { data: { upload_count?: number }[] }) => (
     <div data-testid="line-chart">{JSON.stringify(data)}</div>

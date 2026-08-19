@@ -18,6 +18,7 @@ jest.mock("recharts", () => ({
   BarChart: ({ data }: { data: { upload_count?: number }[] }) => (
     <div data-testid="bar-chart">{JSON.stringify(data)}</div>
   ),
+  Cell: () => null,
   Line: () => null,
   LineChart: ({ data }: { data: { upload_count?: number }[] }) => (
     <div data-testid="line-chart">{JSON.stringify(data)}</div>
@@ -51,6 +52,15 @@ describe("buildUploadChartData", () => {
       "cumulative"
     );
     expect(result.map((point) => point.upload_count)).toEqual([2, 5, 6]);
+  });
+
+  test("marks today's point for the daily bar highlight", () => {
+    const result = buildUploadChartData(
+      uploadSeriesFixture.map(({ date, total_uploads }) => ({ date, total_uploads })),
+      "daily",
+      "2026-07-03"
+    );
+    expect(result.map((point) => point.isToday)).toEqual([false, false, true]);
   });
 });
 
