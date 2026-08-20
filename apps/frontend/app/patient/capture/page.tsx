@@ -564,8 +564,9 @@ function CapturePageInner() {
                 r="130"
                 fill="none"
                 stroke={ringStroke}
-                strokeWidth="2.5"
-                strokeDasharray="12 8"
+                strokeWidth="5"
+                strokeDasharray="18 14"
+                strokeLinecap="round"
                 opacity="0.9"
                 className="transition-[stroke] duration-300 ease-out"
               />
