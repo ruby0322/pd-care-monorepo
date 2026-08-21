@@ -10,7 +10,7 @@ const onboardingPost = {
 
 const valuePost = {
   slug: "每天拍一張",
-  title: "每天拍一張，護理師比較看得到你",
+  title: "每天拍一張，讓感染風險離你遠一點",
   description: "d",
   publishedAt: "2026-08-21",
   author: "臺大醫院 PD Care 團隊",

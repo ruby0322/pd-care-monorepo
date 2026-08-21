@@ -37,7 +37,7 @@ draft: false
       dir,
       "每天拍一張",
       `---
-title: 每天拍一張，護理師比較看得到你
+title: 每天拍一張，讓感染風險離你遠一點
 description: 平台能為你做什麼。
 publishedAt: "2026-08-21"
 author: 臺大醫院 PD Care 團隊
@@ -67,7 +67,7 @@ secret
     const posts = listPublishedPosts({ contentDir: dir, nodeEnv: "production" });
     expect(posts.map((post) => post.slug)).toEqual(["每天拍一張", "三分鐘學會拍照上傳"]);
     expect(getPostBySlug("每天拍一張", { contentDir: dir, nodeEnv: "production" })?.title).toBe(
-      "每天拍一張，護理師比較看得到你"
+      "每天拍一張，讓感染風險離你遠一點"
     );
   });
 
