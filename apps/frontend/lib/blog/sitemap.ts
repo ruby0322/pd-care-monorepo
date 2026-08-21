@@ -2,6 +2,7 @@ import type { BlogPostSummary } from "@/lib/blog/home-discovery";
 
 export const SITEMAP_STATIC_PATHS = [
   "",
+  "/about",
   "/blog",
   "/privacy-policy",
   "/privacy-policy/en",
