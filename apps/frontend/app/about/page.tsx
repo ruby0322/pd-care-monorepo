@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { AboutFaqAccordion } from "@/components/about/about-faq-accordion";
 import { getSiteUrl } from "@/lib/blog/seo";
 import {
   ABOUT_AFFILIATION_HEADING,
   ABOUT_DESCRIPTION,
   ABOUT_FAQ_HEADING,
+  ABOUT_FAQS,
   ABOUT_FUNCTION_HEADING,
   ABOUT_HISTORY_AFTER_CITATION,
   ABOUT_HISTORY_BEFORE_CITATION,
@@ -21,21 +21,13 @@ import {
   ABOUT_WHO_BUILT_IT,
 } from "@/lib/seo/about-copy";
 import { buildAboutJsonLd } from "@/lib/seo/jsonld";
+import { publicPageMetadata } from "@/lib/seo/page-metadata";
 
-const canonical = `${getSiteUrl()}/about`;
-
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: ABOUT_TITLE,
   description: ABOUT_DESCRIPTION,
-  alternates: { canonical },
-  openGraph: {
-    title: ABOUT_TITLE,
-    description: ABOUT_DESCRIPTION,
-    locale: "zh_TW",
-    type: "website",
-    url: canonical,
-  },
-};
+  path: "/about",
+});
 
 export default function AboutPage() {
   const jsonLd = buildAboutJsonLd(getSiteUrl());
@@ -76,9 +68,12 @@ export default function AboutPage() {
 
       <section className="mt-12">
         <h2 className="text-xl font-semibold leading-snug text-zinc-900">{ABOUT_FAQ_HEADING}</h2>
-        <div className="mt-4">
-          <AboutFaqAccordion />
-        </div>
+        {ABOUT_FAQS.map((faq) => (
+          <div key={faq.question} className="mt-6 border-t border-zinc-200 pt-6">
+            <h3 className="text-lg font-semibold leading-snug text-zinc-900">{faq.question}</h3>
+            <p className="mt-3 text-lg leading-8 text-zinc-700">{faq.answer}</p>
+          </div>
+        ))}
       </section>
 
       <section className="mt-12">
