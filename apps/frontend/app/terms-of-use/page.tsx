@@ -1,4 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+import { publicPageMetadata } from "@/lib/seo/page-metadata";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "使用條款｜PD Care",
+  description: "PD Care 腹膜透析出口照護系統之使用條款。",
+  path: "/terms-of-use",
+});
 
 export default function TermsOfUsePage() {
   return (

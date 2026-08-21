@@ -4,6 +4,6 @@ import { NOINDEX_METADATA } from "@/lib/seo/page-metadata";
 
 export const metadata: Metadata = NOINDEX_METADATA;
 
-export default function PatientLayout({ children }: { children: React.ReactNode }) {
+export default function AppsLayout({ children }: { children: React.ReactNode }) {
   return children;
 }

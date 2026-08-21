@@ -2,11 +2,18 @@ import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import "./globals.css";
 import { getSiteUrl } from "@/lib/blog/seo";
+import { publicPageMetadata } from "@/lib/seo/page-metadata";
+
+const HOME_TITLE = "PD Care｜腹膜透析出口照護系統";
+const HOME_DESCRIPTION = "臺大醫院腹膜透析智慧照護：出口影像與 AI 輔助感染偵測，結果不構成診斷。";
 
 export const metadata: Metadata = {
+  ...publicPageMetadata({
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
+    path: "/",
+  }),
   metadataBase: new URL(getSiteUrl()),
-  title: "PD Care｜腹膜透析出口照護系統",
-  description: "臺大醫院腹膜透析出口感染偵測與警示系統",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

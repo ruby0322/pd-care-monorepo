@@ -1,4 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+import { publicPageMetadata } from "@/lib/seo/page-metadata";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "隱私權政策｜PD Care",
+  description: "PD Care 腹膜透析出口照護系統之隱私權政策。",
+  path: "/privacy-policy",
+});
 
 export default function PrivacyPolicyPage() {
   return (
