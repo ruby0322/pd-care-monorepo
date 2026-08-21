@@ -70,13 +70,13 @@ export default async function BlogPostPage({ params }: PageProps) {
   return (
     <article className="mx-auto w-full max-w-2xl px-5 py-10">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
-      <p className="text-xs text-zinc-500">{formatDate(post.publishedAt)}</p>
-      <h1 className="mt-2 text-2xl font-semibold text-zinc-900">{post.title}</h1>
-      <p className="mt-2 text-sm text-zinc-500">{post.author}</p>
-      <div className="mt-6">
+      <p className="text-sm text-zinc-500">{formatDate(post.publishedAt)}</p>
+      <h1 className="mt-2 text-3xl font-semibold leading-snug text-zinc-900">{post.title}</h1>
+      <p className="mt-3 text-base text-zinc-500">{post.author}</p>
+      <div className="mt-8">
         <MDXRemote source={post.content} components={blogMdxComponents} options={{ mdxOptions: { remarkPlugins: [remarkGfm] } }} />
       </div>
-      <p className="mt-10 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs leading-relaxed text-zinc-600">
+      <p className="mt-10 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-base leading-7 text-zinc-600">
         {ARTICLE_DISCLAIMER}
       </p>
     </article>

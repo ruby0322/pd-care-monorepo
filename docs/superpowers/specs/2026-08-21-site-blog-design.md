@@ -28,7 +28,7 @@ Media lives in `apps/frontend/public/blog/` (git). Compiler: `gray-matter` + `ne
 | Title | Slug | Date | Job |
 | --- | --- | --- | --- |
 | 三分鐘學會拍照上傳 | `三分鐘學會拍照上傳` | 2026-08-20 | Product onboarding with phone screenshots |
-| 每天拍一張，護理師比較看得到你 | `每天拍一張` | 2026-08-21 | Platform value explainer |
+| 每天拍一張，讓感染風險離你遠一點 | `每天拍一張` | 2026-08-21 | Platform value explainer |
 
 Byline: `臺大醫院 PD Care 團隊`.
 
