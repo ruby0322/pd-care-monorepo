@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { listPublishedPosts } from "@/lib/blog/posts";
+import { publicPageMetadata } from "@/lib/seo/page-metadata";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "最新消息｜PD Care",
   description: "腹膜透析出口照護使用教學與平台說明。",
-};
+  path: "/blog",
+});
 
 function formatDate(value: string): string {
   return new Date(`${value}T00:00:00+08:00`).toLocaleDateString("zh-TW", {

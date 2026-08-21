@@ -18,6 +18,7 @@ describe("sitemap entries", () => {
 
     expect(staticEntries.map((entry) => entry.url)).toEqual([
       "https://example.test/",
+      "https://example.test/about",
       "https://example.test/blog",
       "https://example.test/privacy-policy",
       "https://example.test/privacy-policy/en",

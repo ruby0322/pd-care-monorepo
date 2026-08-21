@@ -1,4 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+import { publicPageMetadata } from "@/lib/seo/page-metadata";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "Privacy Policy｜PD Care",
+  description: "Privacy policy for the PD Care peritoneal dialysis exit-site care system.",
+  path: "/privacy-policy/en",
+  locale: "en_US",
+});
 
 export default function PrivacyPolicyEnPage() {
   return (

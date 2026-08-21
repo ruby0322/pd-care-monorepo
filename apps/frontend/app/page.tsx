@@ -150,6 +150,9 @@ export default function Home() {
 
         <p className="text-center text-xs text-zinc-300">臺大醫院 · 腹膜透析出口影像感染警示系統</p>
         <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
+          <Link href="/about" className="underline underline-offset-4 hover:text-zinc-800">
+            關於
+          </Link>
           <Link href="/blog" className="underline underline-offset-4 hover:text-zinc-800">
             最新消息
           </Link>

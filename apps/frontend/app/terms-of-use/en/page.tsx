@@ -1,4 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+import { publicPageMetadata } from "@/lib/seo/page-metadata";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "Terms of Use｜PD Care",
+  description: "Terms of use for the PD Care peritoneal dialysis exit-site care system.",
+  path: "/terms-of-use/en",
+  locale: "en_US",
+});
 
 export default function TermsOfUseEnPage() {
   return (
