@@ -101,6 +101,7 @@ jobs:
           build-args: |
             NEXT_PUBLIC_API_BASE_URL=/api
             NEXT_PUBLIC_LIFF_ID=${{ vars.PDCARE_DEV_LIFF_ID }}
+            NEXT_PUBLIC_SITE_URL=https://test.pd.lu.im.ntu.edu.tw
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE }}:${{ env.DEV_FRONTEND_TAG }}
 
       - name: Build and push prod frontend image
@@ -112,6 +113,7 @@ jobs:
           build-args: |
             NEXT_PUBLIC_API_BASE_URL=/api
             NEXT_PUBLIC_LIFF_ID=${{ vars.PDCARE_PROD_LIFF_ID }}
+            NEXT_PUBLIC_SITE_URL=https://pd.lu.im.ntu.edu.tw
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE }}:${{ env.PROD_FRONTEND_TAG }}
 
       - name: Update dev overlay image tags

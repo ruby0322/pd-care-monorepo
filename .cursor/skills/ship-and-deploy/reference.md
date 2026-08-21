@@ -103,6 +103,7 @@ eval "$(minikube docker-env)"
 docker build -t pd-care-frontend:latest \
   --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
   --build-arg NEXT_PUBLIC_LIFF_ID=1657724367-uzPg8SgK \
+  --build-arg NEXT_PUBLIC_SITE_URL=https://pd.lu.im.ntu.edu.tw \
   ./apps/frontend
 kubectl rollout restart deploy/frontend -n pd-care-prod
 kubectl rollout status deploy/frontend -n pd-care-prod --timeout=300s
