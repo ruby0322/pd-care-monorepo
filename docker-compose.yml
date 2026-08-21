@@ -98,6 +98,7 @@ services:
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
         NEXT_PUBLIC_LIFF_ID: ${NEXT_PUBLIC_LIFF_ID:-1657724367-uzPg8SgK}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://pd.lu.im.ntu.edu.tw}
     environment:
       PORT: 3000
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}

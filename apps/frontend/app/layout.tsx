@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import "./globals.css";
+import { getSiteUrl } from "@/lib/blog/seo";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(getSiteUrl()),
   title: "PD Care｜腹膜透析出口照護系統",
   description: "臺大醫院腹膜透析出口感染偵測與警示系統",
   manifest: "/manifest.json",
