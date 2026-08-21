@@ -17,6 +17,13 @@ type ListOptions = {
   nodeEnv?: string;
 };
 
+type PostCollection = {
+  posts: BlogPost[];
+  bySlug: Map<string, BlogPost>;
+};
+
+const collectionsByDir = new Map<string, PostCollection>();
+
 function resolveContentDir(options?: ListOptions): string {
   return options?.contentDir ?? DEFAULT_CONTENT_DIR;
 }
@@ -47,12 +54,35 @@ function parsePostFile(filePath: string, slug: string): BlogPost {
   };
 }
 
-function listAllPosts(options?: ListOptions): BlogPost[] {
-  const contentDir = resolveContentDir(options);
+function readCollection(contentDir: string): PostCollection {
   const files = readdirSync(contentDir).filter((name) => name.endsWith(".mdx"));
-  return files
+  const posts = files
     .map((name) => parsePostFile(join(contentDir, name), name.replace(/\.mdx$/, "")))
     .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+  return {
+    posts,
+    bySlug: new Map(posts.map((post) => [post.slug, post])),
+  };
+}
+
+function loadCollection(options?: ListOptions): PostCollection {
+  const contentDir = resolveContentDir(options);
+  const skipCache = resolveNodeEnv(options) === "development";
+  if (!skipCache) {
+    const cached = collectionsByDir.get(contentDir);
+    if (cached) {
+      return cached;
+    }
+  }
+  const collection = readCollection(contentDir);
+  if (!skipCache) {
+    collectionsByDir.set(contentDir, collection);
+  }
+  return collection;
+}
+
+function listAllPosts(options?: ListOptions): BlogPost[] {
+  return loadCollection(options).posts;
 }
 
 export function listPublishedPosts(options?: ListOptions): BlogPostSummary[] {
@@ -70,7 +100,7 @@ export function listPublishedPosts(options?: ListOptions): BlogPostSummary[] {
 
 export function getPostBySlug(slug: string, options?: ListOptions): BlogPost | null {
   const decoded = decodeURIComponent(slug);
-  const post = listAllPosts(options).find((item) => item.slug === decoded);
+  const post = loadCollection(options).bySlug.get(decoded) ?? null;
   if (!post) {
     return null;
   }
