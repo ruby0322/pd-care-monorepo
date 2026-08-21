@@ -194,17 +194,17 @@ function PatientOnboardingPageInner() {
       </button>
 
       <Link
-        href={`/blog/${encodeURIComponent(VALUE_POST_SLUG)}`}
-        className="mt-3 text-center text-sm font-medium text-zinc-600 underline underline-offset-4"
-      >
-        {UNBOUND_VALUE_LINK_LABEL}
-      </Link>
-
-      <Link
         href="/"
         className="mt-3 flex items-center justify-center w-full py-4 rounded-2xl border border-zinc-200 text-zinc-700 text-sm font-medium hover:bg-zinc-50 transition-colors"
       >
         取消並返回首頁
+      </Link>
+
+      <Link
+        href={`/blog/${encodeURIComponent(VALUE_POST_SLUG)}`}
+        className="mt-4 text-center text-sm font-medium text-zinc-600 underline underline-offset-4"
+      >
+        {UNBOUND_VALUE_LINK_LABEL}
       </Link>
     </div>
   );
