@@ -1,4 +1,6 @@
+import { ChevronLeft } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MDXRemote } from "next-mdx-remote/rsc";
 import remarkGfm from "remark-gfm";
@@ -70,7 +72,14 @@ export default async function BlogPostPage({ params }: PageProps) {
   return (
     <article className="mx-auto w-full max-w-2xl px-5 py-10">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
-      <p className="text-sm text-zinc-500">{formatDate(post.publishedAt)}</p>
+      <Link
+        href="/blog"
+        className="inline-flex min-h-11 items-center gap-1 text-base font-medium text-zinc-600 hover:text-zinc-900"
+      >
+        <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
+        返回最新消息
+      </Link>
+      <p className="mt-6 text-sm text-zinc-500">{formatDate(post.publishedAt)}</p>
       <h1 className="mt-2 text-3xl font-semibold leading-snug text-zinc-900">{post.title}</h1>
       <p className="mt-3 text-base text-zinc-500">{post.author}</p>
       <div className="mt-8">
