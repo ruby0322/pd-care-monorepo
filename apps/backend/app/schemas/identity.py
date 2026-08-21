@@ -35,3 +35,12 @@ class PatientProfileResponse(BaseModel):
     full_name: str | None
     case_number: str | None
     birth_date: str | None
+    onboarding_guide_dismissed: bool = False
+
+
+class PatientUiPreferencesRequest(BaseModel):
+    onboarding_guide_dismissed: bool
+
+
+class PatientUiPreferencesResponse(BaseModel):
+    onboarding_guide_dismissed: bool

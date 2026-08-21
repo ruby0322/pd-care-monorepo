@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
@@ -212,6 +213,7 @@ class IdentityProfile:
     full_name: str | None
     case_number: str | None
     birth_date: str | None
+    onboarding_guide_dismissed: bool
 
 
 def get_identity_profile(session: Session, *, line_user_id: str) -> IdentityProfile:
@@ -231,6 +233,7 @@ def get_identity_profile(session: Session, *, line_user_id: str) -> IdentityProf
         full_name=patient.full_name if patient else None,
         case_number=patient.case_number if patient else None,
         birth_date=patient.birth_date if patient else None,
+        onboarding_guide_dismissed=identity.onboarding_guide_dismissed_at is not None,
     )
 
 
@@ -248,4 +251,15 @@ def get_identity_profile_by_identity_id(session: Session, *, identity_id: int) -
         full_name=patient.full_name if patient else None,
         case_number=patient.case_number if patient else None,
         birth_date=patient.birth_date if patient else None,
+        onboarding_guide_dismissed=identity.onboarding_guide_dismissed_at is not None,
     )
+
+
+def dismiss_onboarding_guide(session: Session, *, identity_id: int) -> bool:
+    identity = session.get(LiffIdentity, identity_id)
+    if identity is None:
+        raise LookupError("Identity not found")
+    if identity.onboarding_guide_dismissed_at is None:
+        identity.onboarding_guide_dismissed_at = datetime.now(timezone.utc)
+        session.commit()
+    return True

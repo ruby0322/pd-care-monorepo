@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 
 from app.api.deps.auth import bearer_scheme, get_current_principal
 from app.db.models import Upload
-from app.schemas.identity import PatientProfileResponse
+from app.schemas.identity import PatientProfileResponse, PatientUiPreferencesRequest, PatientUiPreferencesResponse
 from app.schemas.prescreen import PatientPrescreenResponse
 from app.schemas.upload_history import (
     PatientMarkAllMessagesReadResponse,
@@ -26,7 +26,11 @@ from app.schemas.upload_history import (
 )
 from app.schemas.upload import PatientUploadResponse, PatientUploadResultResponse
 from app.services.auth.token_service import AuthPrincipal
-from app.services.identity import get_identity_profile_by_identity_id, get_identity_status_for_principal
+from app.services.identity import (
+    dismiss_onboarding_guide,
+    get_identity_profile_by_identity_id,
+    get_identity_status_for_principal,
+)
 from app.services.model_loader import LoadedModel
 from app.services.prescreen import (
     LIVE_PRESCREEN_THRESHOLD_FACTOR,
@@ -193,7 +197,31 @@ async def patient_profile(
             full_name=profile.full_name,
             case_number=profile.case_number,
             birth_date=profile.birth_date,
+            onboarding_guide_dismissed=profile.onboarding_guide_dismissed,
         )
+    finally:
+        session.close()
+
+
+@router.patch("/v1/patient/ui-preferences", response_model=PatientUiPreferencesResponse)
+async def patch_patient_ui_preferences(
+    request: Request,
+    payload: PatientUiPreferencesRequest,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> PatientUiPreferencesResponse:
+    _reject_legacy_line_user_id(request)
+    principal = get_current_principal(request, credentials)
+    session = _get_session(request)
+    try:
+        if payload.onboarding_guide_dismissed:
+            try:
+                dismiss_onboarding_guide(session, identity_id=principal.identity_id)
+            except LookupError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+        profile = get_identity_profile_by_identity_id(session, identity_id=principal.identity_id)
+        return PatientUiPreferencesResponse(onboarding_guide_dismissed=profile.onboarding_guide_dismissed)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     finally:
         session.close()
 
