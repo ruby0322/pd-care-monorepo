@@ -1,0 +1,582 @@
+"use client";
+
+import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
+import { LatestNewsStrip } from "@/components/patient/latest-news-strip";
+import { OnboardingGuideBanner } from "@/components/patient/onboarding-guide-banner";
+import { getApiErrorDetail } from "@/lib/api/client";
+import { bindIdentityWithRetry, fetchIdentityStatus, fetchPatientProfile, IdentityStatus, patchPatientUiPreferences } from "@/lib/api/identity";
+import {
+    fetchPatientMessages,
+    fetchUploadHistoryByMonthWindow,
+    mergeUploadHistoryDays,
+    PatientMessageItem,
+    UploadHistoryDay,
+    UploadHistorySummary28d,
+} from "@/lib/api/upload-history";
+import { getLiffLoginProof } from "@/lib/auth/liff";
+import { buildPatientOnboardingPath } from "@/lib/auth/patient-onboarding-intent";
+import { clearPatientSession, getPatientSession } from "@/lib/auth/patient-session";
+import { setActiveApp } from "@/lib/auth/principal-session";
+import { getStaffSession, setStaffSession } from "@/lib/auth/staff-session";
+import { Camera, MessageSquare, UserRound } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getMonthKeyFromDateKey, getRelativeMonthKey, getTaipeiTodayKey } from "@/lib/utils/upload-calendar";
+import {
+  MATCHED_ONBOARDING_BANNER,
+  MATCHED_ONBOARDING_CTA,
+  ONBOARDING_GUIDE_SLUG,
+  PENDING_ONBOARDING_BANNER,
+  UNBOUND_VALUE_LINK_LABEL,
+  VALUE_POST_SLUG,
+  type BlogPostSummary,
+  resolveMatchedHomeNews,
+} from "@/lib/blog/home-discovery";
+
+type LiffProfileState = {
+  displayName: string;
+};
+
+function getMessageLabelDotClass(label: string): string {
+  if (label === "confirmed_infection") {
+    return "bg-red-500";
+  }
+  if (label === "suspected") {
+    return "bg-amber-500";
+  }
+  if (label === "rejected") {
+    return "bg-zinc-500";
+  }
+  return "bg-emerald-500";
+}
+
+const PATIENT_FEEDBACK_FORM_URL = "https://forms.gle/gcmw6nPBCuhQ1bHn8";
+
+type PatientHomeProps = {
+  latestNewsPost: BlogPostSummary | null;
+};
+
+export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
+  const router = useRouter();
+  const [profile, setProfile] = useState<LiffProfileState | null>(null);
+  const [status, setStatus] = useState<IdentityStatus | null>(null);
+  const [historyDays, setHistoryDays] = useState<UploadHistoryDay[]>([]);
+  const [summary28d, setSummary28d] = useState<UploadHistorySummary28d>({
+    all_upload_count_28d: 0,
+    suspected_upload_count_28d: 0,
+    continuous_upload_streak_days: 0,
+  });
+  const [caseNumber, setCaseNumber] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [initialHistoryLoading, setInitialHistoryLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [latestMessage, setLatestMessage] = useState<PatientMessageItem | null>(null);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [messagePreviewError, setMessagePreviewError] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<"patient" | "staff" | "admin" | null>(null);
+  const [onboardingGuideDismissed, setOnboardingGuideDismissed] = useState(false);
+  const [visibleCalendarMonth, setVisibleCalendarMonth] = useState<string | null>(null);
+  const [oldestEdgeLoading, setOldestEdgeLoading] = useState(false);
+  const [loadedCalendarBounds, setLoadedCalendarBounds] = useState<{
+    oldestMonthKey: string | null;
+    newestMonthKey: string | null;
+  }>({
+    oldestMonthKey: null,
+    newestMonthKey: null,
+  });
+  const loadedMonthWindowsRef = useRef<Set<string>>(new Set());
+  const loadingMonthWindowsRef = useRef<Set<string>>(new Set());
+  const initialHistoryInflightRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const loadHistoryWindow = useCallback(async (
+    monthEnd: string,
+    options?: { replace?: boolean; mode?: "initial" | "background" }
+  ) => {
+    const replace = options?.replace ?? false;
+    const mode = options?.mode ?? "background";
+    const isInitialMode = mode === "initial";
+    if (!monthEnd) {
+      return;
+    }
+    if (loadedMonthWindowsRef.current.has(monthEnd) || loadingMonthWindowsRef.current.has(monthEnd)) {
+      return;
+    }
+    loadingMonthWindowsRef.current.add(monthEnd);
+    if (isInitialMode) {
+      initialHistoryInflightRef.current += 1;
+    }
+    if (mountedRef.current && isInitialMode) {
+      setInitialHistoryLoading(true);
+    }
+    try {
+      const history = await fetchUploadHistoryByMonthWindow(monthEnd);
+      if (!mountedRef.current) {
+        return;
+      }
+      setHistoryDays((current) => (replace ? history.days : mergeUploadHistoryDays(current, history.days)));
+      setSummary28d(history.summary_28d);
+      setHistoryError(null);
+      loadedMonthWindowsRef.current.add(monthEnd);
+      const monthStart = getRelativeMonthKey(monthEnd, -2);
+      setLoadedCalendarBounds((current) => ({
+        oldestMonthKey:
+          current.oldestMonthKey === null || monthStart < current.oldestMonthKey
+            ? monthStart
+            : current.oldestMonthKey,
+        newestMonthKey:
+          current.newestMonthKey === null || monthEnd > current.newestMonthKey
+            ? monthEnd
+            : current.newestMonthKey,
+      }));
+    } catch (historyRequestError) {
+      if (mountedRef.current) {
+        setHistoryError(getApiErrorDetail(historyRequestError) ?? "無法載入上傳日曆，仍可繼續拍攝。");
+      }
+    } finally {
+      loadingMonthWindowsRef.current.delete(monthEnd);
+      if (isInitialMode) {
+        initialHistoryInflightRef.current = Math.max(0, initialHistoryInflightRef.current - 1);
+      }
+      if (mountedRef.current) {
+        setInitialHistoryLoading(initialHistoryInflightRef.current > 0);
+      }
+    }
+  }, []);
+
+  const handleCalendarMonthChange = useCallback(
+    (monthKey: string) => {
+      setVisibleCalendarMonth(monthKey);
+      if (status !== "matched") {
+        return;
+      }
+      const prefetchWindowEnd = getRelativeMonthKey(monthKey, -3);
+      void loadHistoryWindow(prefetchWindowEnd, { mode: "background" });
+    },
+    [loadHistoryWindow, status]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const currentMonthKey = getMonthKeyFromDateKey(getTaipeiTodayKey());
+
+    const run = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const existingSession = getPatientSession();
+        if (!existingSession) {
+          const staffSession = getStaffSession();
+          clearPatientSession();
+          router.replace(buildPatientOnboardingPath(staffSession !== null));
+          return;
+        }
+
+        setUserRole(existingSession.role);
+        const proof = await getLiffLoginProof();
+        const bindStatus = await fetchIdentityStatus(proof.idToken);
+        if (cancelled) {
+          return;
+        }
+        try {
+          const patientProfile = await fetchPatientProfile();
+          if (!cancelled) {
+            setOnboardingGuideDismissed(patientProfile.onboarding_guide_dismissed);
+          }
+        } catch {
+          if (!cancelled) {
+            setOnboardingGuideDismissed(false);
+          }
+        }
+        if (bindStatus.status !== "matched") {
+          const onboardingPath =
+            existingSession.role === "staff" || existingSession.role === "admin"
+              ? buildPatientOnboardingPath(true)
+              : buildPatientOnboardingPath(false);
+          router.replace(onboardingPath);
+          return;
+        }
+        if (!cancelled) {
+          setProfile({ displayName: proof.profile.displayName });
+          setStatus("matched");
+          setHistoryError(null);
+          setMessagePreviewError(null);
+          setVisibleCalendarMonth(currentMonthKey);
+          setOldestEdgeLoading(false);
+          setLoadedCalendarBounds({
+            oldestMonthKey: null,
+            newestMonthKey: null,
+          });
+          setInitialHistoryLoading(true);
+        }
+        loadedMonthWindowsRef.current.clear();
+        loadingMonthWindowsRef.current.clear();
+        initialHistoryInflightRef.current = 0;
+        if (!cancelled) {
+          setHistoryDays([]);
+        }
+        try {
+          await loadHistoryWindow(currentMonthKey, { replace: true, mode: "initial" });
+        } catch {}
+        try {
+          const latest = await fetchPatientMessages({ limit: 1 });
+          if (!cancelled) {
+            setLatestMessage(latest.items[0] ?? null);
+            setUnreadMessageCount(latest.unread_count);
+          }
+        } catch (messageError) {
+          if (!cancelled) {
+            setMessagePreviewError(getApiErrorDetail(messageError) ?? "訊息預覽載入失敗，可前往訊息盒查看。");
+          }
+        } finally {
+          if (!cancelled) {
+            setInitialHistoryLoading(initialHistoryInflightRef.current > 0);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(getApiErrorDetail(err) ?? (err instanceof Error ? err.message : "無法初始化 LINE 身分驗證"));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadHistoryWindow, router]);
+
+  const submitBinding = async () => {
+    if (!profile) {
+      return;
+    }
+    if (!caseNumber.trim() || !birthDate) {
+      setError("請輸入病歷號與生日。");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError(null);
+      const result = await bindIdentityWithRetry(
+        {
+          case_number: caseNumber.trim(),
+          birth_date: birthDate,
+        },
+        async () => (await getLiffLoginProof()).idToken,
+        () => setError("連線失敗，正在重試…")
+      );
+      setStatus(result.status);
+    } catch (err) {
+      setError(getApiErrorDetail(err) ?? "綁定失敗，請稍後再試。");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-[100dvh] bg-white flex items-center justify-center px-6">
+        <p className="text-sm text-zinc-500">LINE 身分驗證初始化中...</p>
+      </div>
+    );
+  }
+
+  if (status === "matched") {
+    const currentMonthKey = getMonthKeyFromDateKey(getTaipeiTodayKey());
+    const suspectedRate =
+      summary28d.all_upload_count_28d > 0
+        ? Math.round((summary28d.suspected_upload_count_28d / summary28d.all_upload_count_28d) * 100)
+        : 0;
+
+    const onboardingGuideVisible = !onboardingGuideDismissed;
+    const homeNewsPost = resolveMatchedHomeNews({
+      latestPost: latestNewsPost,
+      onboardingGuideVisible,
+    });
+
+    return (
+      <div className="h-[100dvh] overflow-hidden bg-white px-6 pt-8 pb-[calc(env(safe-area-inset-bottom)+1rem)] flex flex-col">
+        <h1 className="text-xl font-semibold text-zinc-900">{profile?.displayName ?? "使用者"}，歡迎回來！</h1>
+        <p className="mt-2 text-sm text-zinc-600 leading-relaxed">最近 28 天上傳狀態摘要與每日追蹤紀錄。</p>
+
+        <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
+          {onboardingGuideVisible ? (
+            <div className="mb-4">
+              <OnboardingGuideBanner
+                href={`/blog/${encodeURIComponent(ONBOARDING_GUIDE_SLUG)}`}
+                message={MATCHED_ONBOARDING_BANNER}
+                ctaLabel={MATCHED_ONBOARDING_CTA}
+                dismissible
+                onDismiss={() => {
+                  setOnboardingGuideDismissed(true);
+                  void patchPatientUiPreferences({ onboarding_guide_dismissed: true }).catch(() => {
+                    setOnboardingGuideDismissed(false);
+                  });
+                }}
+              />
+            </div>
+          ) : null}
+          {homeNewsPost ? (
+            <div className="mb-4">
+              <LatestNewsStrip post={homeNewsPost} />
+            </div>
+          ) : null}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
+              <p className="text-[11px] text-zinc-500">疑似感染率</p>
+              <p className="mt-1 text-base font-semibold text-zinc-900">{suspectedRate}%</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
+              <p className="text-[11px] text-zinc-500">連續上傳</p>
+              <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.continuous_upload_streak_days} 天</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
+              <p className="text-[11px] text-zinc-500">上傳次數</p>
+              <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.all_upload_count_28d}</p>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            {initialHistoryLoading && historyDays.length === 0 ? (
+              <div className="rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-6 text-sm text-zinc-500">
+                正在載入上傳日曆...
+              </div>
+            ) : (
+              <PatientDailyCalendar
+                days={historyDays}
+                initialMonthKey={visibleCalendarMonth ?? undefined}
+                loadedOldestMonthKey={loadedCalendarBounds.oldestMonthKey ?? undefined}
+                loadedNewestMonthKey={loadedCalendarBounds.newestMonthKey ?? currentMonthKey}
+                oldestEdgeLoading={oldestEdgeLoading}
+                overlayLoading={oldestEdgeLoading}
+                onMonthChange={handleCalendarMonthChange}
+                onReachOldestEdge={async (oldestMonthKey) => {
+                  setOldestEdgeLoading(true);
+                  const nextWindowEnd = getRelativeMonthKey(oldestMonthKey, -1);
+                  try {
+                    await loadHistoryWindow(nextWindowEnd, { mode: "background" });
+                  } finally {
+                    setOldestEdgeLoading(false);
+                  }
+                }}
+                onDayClick={(dayKey) => {
+                  router.push(`/patient/day/${dayKey}`);
+                }}
+              />
+            )}
+          </div>
+
+          {historyError && <p className="mt-3 text-sm text-amber-700">{historyError}</p>}
+          {messagePreviewError && <p className="mt-3 text-sm text-amber-700">{messagePreviewError}</p>}
+
+          {latestMessage ? (
+            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white px-4 py-4 shadow-sm shadow-zinc-100/50">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-zinc-600">最新護理註解</p>
+                {!latestMessage.is_read ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600">
+                    <span className={`h-1.5 w-1.5 rounded-full ${getMessageLabelDotClass(latestMessage.label)}`} />
+                    未讀
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">已讀</span>
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-3">
+                <div className="h-14 w-14 overflow-hidden rounded-xl bg-zinc-100">
+                  <Image
+                    src={latestMessage.image_url}
+                    alt={`message-preview-${latestMessage.upload_id}`}
+                    width={56}
+                    height={56}
+                    unoptimized
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-zinc-800">標註：{latestMessage.label}</p>
+                  <p className="truncate text-xs text-zinc-600">{latestMessage.comment || "（無補充說明）"}</p>
+                </div>
+              </div>
+              <Link
+                href="/patient/messages"
+                className="mt-3 inline-flex items-center text-xs font-medium text-zinc-700 underline underline-offset-4"
+              >
+                顯示更多
+              </Link>
+            </div>
+          ) : null}
+
+          <div className="mt-6 flex items-center justify-center gap-3 pb-2">
+            {userRole === "staff" || userRole === "admin" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const session = getPatientSession();
+                  if (session && (session.role === "staff" || session.role === "admin")) {
+                    setStaffSession({
+                      accessToken: session.accessToken,
+                      expiresAt: session.expiresAt,
+                      role: session.role,
+                      lineUserId: session.lineUserId,
+                    });
+                  }
+                  setActiveApp("admin");
+                  router.push("/admin");
+                }}
+                className="text-xs text-zinc-400 underline underline-offset-4"
+              >
+                前往後台
+              </button>
+            ) : null}
+            <a
+              href={PATIENT_FEEDBACK_FORM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-zinc-400 underline underline-offset-4"
+            >
+              填寫意見回饋
+            </a>
+          </div>
+        </div>
+
+        <div className="pt-4">
+          <div className="relative">
+            <div className="grid grid-cols-5 items-end gap-3">
+              <Link
+                href="/patient/messages"
+                className="relative col-start-1 justify-self-start flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-50"
+              >
+                <MessageSquare className="h-4 w-4" strokeWidth={1.8} />
+                <span className="mt-0.5 text-[10px] font-medium">訊息</span>
+                {unreadMessageCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white">
+                    {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+                  </span>
+                ) : null}
+              </Link>
+
+              <Link
+                href="/patient/profile"
+                className="col-start-5 justify-self-end flex h-14 w-14 flex-col items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-50"
+              >
+                <UserRound className="h-4 w-4" strokeWidth={1.8} />
+                <span className="mt-0.5 text-[10px] font-medium">個人</span>
+              </Link>
+            </div>
+
+            <div className="pointer-events-none absolute inset-0 flex items-end justify-center">
+              <Link
+                href="/patient/capture"
+                className="pointer-events-auto flex h-20 w-20 flex-col items-center justify-center rounded-full bg-zinc-900 text-white transition-colors hover:bg-zinc-800"
+              >
+                <Camera className="h-6 w-6" strokeWidth={1.8} />
+                <span className="mt-0.5 text-[11px] font-medium">拍攝</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "pending") {
+    return (
+      <div className="min-h-screen bg-white flex flex-col px-6 py-14">
+        <div className="mb-5">
+          <OnboardingGuideBanner
+            href={`/blog/${encodeURIComponent(ONBOARDING_GUIDE_SLUG)}`}
+            message={PENDING_ONBOARDING_BANNER}
+          />
+        </div>
+        <h1 className="text-lg font-semibold text-zinc-900">等待護理師審核</h1>
+        <p className="mt-3 text-sm text-zinc-600 leading-relaxed">
+          已收到您的身分綁定申請，護理團隊確認後即可開始上傳出口影像。在核可前，系統暫時無法開啟拍攝流程。
+        </p>
+        <p className="mt-5 text-xs text-zinc-400">LINE 顯示名稱：{profile?.displayName ?? "未知"}</p>
+        <Link
+          href="/"
+          className="mt-auto flex items-center justify-center w-full py-4 rounded-2xl border border-zinc-200 text-zinc-700 text-sm font-medium hover:bg-zinc-50 transition-colors"
+        >
+          返回首頁
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white flex flex-col px-6 py-14">
+      <h1 className="text-lg font-semibold text-zinc-900">首次身分綁定</h1>
+      <p className="mt-3 text-sm text-zinc-600 leading-relaxed">
+        請輸入病歷號與生日完成臨床身分驗證。若資料尚未建檔，系統會送出待審核申請，待護理師完成綁定後才能上傳影像。
+      </p>
+
+      <div className="mt-6 space-y-4">
+        <div>
+          <label htmlFor="case-number" className="block text-xs font-medium text-zinc-500 mb-1">
+            病歷號
+          </label>
+          <input
+            id="case-number"
+            value={caseNumber}
+            onChange={(event) => setCaseNumber(event.target.value)}
+            placeholder="例如 P123456"
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+          />
+        </div>
+        <div>
+          <label htmlFor="birth-date" className="block text-xs font-medium text-zinc-500 mb-1">
+            生日
+          </label>
+          <input
+            id="birth-date"
+            type="date"
+            value={birthDate}
+            onChange={(event) => setBirthDate(event.target.value)}
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+          />
+        </div>
+      </div>
+
+      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+
+      <button
+        onClick={submitBinding}
+        disabled={submitting}
+        className="mt-6 w-full py-4 rounded-2xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-40"
+      >
+        {submitting ? "送出中..." : "送出綁定申請"}
+      </button>
+
+      <Link
+        href={`/blog/${encodeURIComponent(VALUE_POST_SLUG)}`}
+        className="mt-3 text-center text-sm font-medium text-zinc-600 underline underline-offset-4"
+      >
+        {UNBOUND_VALUE_LINK_LABEL}
+      </Link>
+
+      <Link
+        href="/"
+        className="mt-3 flex items-center justify-center w-full py-4 rounded-2xl border border-zinc-200 text-zinc-700 text-sm font-medium hover:bg-zinc-50 transition-colors"
+      >
+        取消並返回首頁
+      </Link>
+    </div>
+  );
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Camera, ShieldCheck, Stethoscope } from "lucide-react";
+import { Activity, BookOpen, Camera, ShieldCheck, Stethoscope } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -128,6 +128,16 @@ export default function Home() {
               <p className="text-xs text-zinc-500">後台可查看病患動態、訊息與審核任務，縮短回應時間。</p>
             </div>
           </div>
+          <Link
+            href="/blog"
+            className="flex items-start gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 hover:bg-zinc-100"
+          >
+            <BookOpen className="mt-0.5 h-4 w-4 text-zinc-700" strokeWidth={1.5} />
+            <div>
+              <p className="text-sm font-medium text-zinc-900">衛教與使用教學</p>
+              <p className="text-xs text-zinc-500">三分鐘學會拍照上傳，了解為什麼每天拍一張有幫助。</p>
+            </div>
+          </Link>
         </div>
 
         <button
@@ -140,6 +150,9 @@ export default function Home() {
 
         <p className="text-center text-xs text-zinc-300">臺大醫院 · 腹膜透析出口影像感染警示系統</p>
         <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
+          <Link href="/blog" className="underline underline-offset-4 hover:text-zinc-800">
+            最新消息
+          </Link>
           <Link href="/privacy-policy" className="underline underline-offset-4 hover:text-zinc-800">
             隱私權政策
           </Link>

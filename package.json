@@ -17,6 +17,7 @@
     "seed:dev-personas": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && \"$PYTHON_BIN\" sql/manual/seed_dev_personas.py'",
     "seed:dashboard-demo": "bash -lc 'cd apps/backend && PYTHON_BIN=\"python3\" && if [ -x .venv/bin/python ]; then PYTHON_BIN=\"$(pwd)/.venv/bin/python\"; fi && \"$PYTHON_BIN\" sql/manual/seed_dashboard_demo.py'",
     "seed:dev-fake-patients": "bash ops/deploy/seed-dev-fake-patients.sh",
+    "blog:screenshots": "npm --prefix apps/frontend run blog:screenshots --",
     "docker:up": "docker compose up --build",
     "docker:up:frontend": "docker compose up --build frontend",
     "docker:up:backend": "docker compose up --build backend",

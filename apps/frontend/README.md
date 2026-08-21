@@ -79,6 +79,17 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+## Public blog screenshots
+
+Named patient-UI shots for MDX posts live in `public/blog/` (`shot-*.png`). Reuse them in new articles; regenerate or add a shot with:
+
+```bash
+npm run blog:screenshots -- --list
+npm run blog:screenshots -- --only home,result
+```
+
+See [`scripts/blog-screenshots/README.md`](scripts/blog-screenshots/README.md).
+
 ## Docker
 
 The frontend is also available through the monorepo root compose setup:

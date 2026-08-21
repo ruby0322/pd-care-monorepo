@@ -18,6 +18,9 @@ ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 ARG NEXT_PUBLIC_LIFF_ID=
 ENV NEXT_PUBLIC_LIFF_ID=${NEXT_PUBLIC_LIFF_ID}
 
+ARG NEXT_PUBLIC_SITE_URL=https://pd.lu.im.ntu.edu.tw
+ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
+
 RUN npm run build
 
 FROM node:20-bookworm-slim AS runner
@@ -33,6 +36,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/content ./content
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
 COPY tls-gateway.cjs ./tls-gateway.cjs
 

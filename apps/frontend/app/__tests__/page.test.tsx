@@ -68,6 +68,8 @@ describe("Home landing page", () => {
     await waitFor(() => {
       expect(screen.getByText("PD Care")).toBeInTheDocument();
     });
+    expect(screen.getByText("衛教與使用教學")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "最新消息" })).toHaveAttribute("href", "/blog");
     const cta = screen.getByRole("button", { name: "開始使用" });
     fireEvent.click(cta);
     expect(mockPush).toHaveBeenCalledWith("/role-select");

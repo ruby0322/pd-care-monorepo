@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import PatientPage from "@/app/patient/page";
-import { fetchIdentityStatus } from "@/lib/api/identity";
+import PatientHome from "@/app/patient/patient-home";
+import { fetchIdentityStatus, fetchPatientProfile } from "@/lib/api/identity";
 import { fetchPatientMessages, fetchUploadHistoryByMonthWindow } from "@/lib/api/upload-history";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { buildPatientOnboardingPath } from "@/lib/auth/patient-onboarding-intent";
@@ -53,7 +53,10 @@ jest.mock("@/lib/api/client", () => ({
 
 jest.mock("@/lib/api/identity", () => ({
   bindIdentity: jest.fn(),
+  bindIdentityWithRetry: jest.fn(),
   fetchIdentityStatus: jest.fn(),
+  fetchPatientProfile: jest.fn(),
+  patchPatientUiPreferences: jest.fn(),
 }));
 
 jest.mock("@/lib/auth/liff", () => ({
@@ -97,6 +100,9 @@ describe("PatientPage month window prefetch flow", () => {
       limit: 1,
       offset: 0,
     });
+    (fetchPatientProfile as jest.Mock).mockResolvedValue({
+      onboarding_guide_dismissed: false,
+    });
   }
 
   beforeEach(() => {
@@ -107,7 +113,7 @@ describe("PatientPage month window prefetch flow", () => {
   test("redirects users without patient session to patient onboarding", async () => {
     (getPatientSession as jest.Mock).mockReturnValue(null);
 
-    render(<PatientPage />);
+    render(<PatientHome latestNewsPost={null} />);
 
     await waitFor(() => {
       expect(mockRouter.replace).toHaveBeenCalledWith(buildPatientOnboardingPath(false));
@@ -125,7 +131,7 @@ describe("PatientPage month window prefetch flow", () => {
       lineUserId: "line-staff",
     });
 
-    render(<PatientPage />);
+    render(<PatientHome latestNewsPost={null} />);
 
     await waitFor(() => {
       expect(mockRouter.replace).toHaveBeenCalledWith(buildPatientOnboardingPath(true));
@@ -149,7 +155,7 @@ describe("PatientPage month window prefetch flow", () => {
       can_upload: false,
     });
 
-    render(<PatientPage />);
+    render(<PatientHome latestNewsPost={null} />);
 
     await waitFor(() => {
       expect(mockRouter.replace).toHaveBeenCalledWith(buildPatientOnboardingPath(true));
@@ -174,7 +180,7 @@ describe("PatientPage month window prefetch flow", () => {
       return Promise.resolve(baseHistoryResponse);
     });
 
-    render(<PatientPage />);
+    render(<PatientHome latestNewsPost={null} />);
 
     await waitFor(() => {
       expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2026-05");
@@ -215,7 +221,7 @@ describe("PatientPage month window prefetch flow", () => {
       return Promise.resolve(baseHistoryResponse);
     });
 
-    render(<PatientPage />);
+    render(<PatientHome latestNewsPost={null} />);
 
     expect(await screen.findByText("LINE 身分驗證初始化中...")).toBeInTheDocument();
     expect(screen.queryByTestId("patient-calendar")).not.toBeInTheDocument();
@@ -250,7 +256,7 @@ describe("PatientPage month window prefetch flow", () => {
       return Promise.resolve(baseHistoryResponse);
     });
 
-    render(<PatientPage />);
+    render(<PatientHome latestNewsPost={null} />);
 
     await waitFor(() => {
       expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2026-05");
@@ -283,5 +289,27 @@ describe("PatientPage month window prefetch flow", () => {
     });
 
     jest.useRealTimers();
+  });
+
+  test("shows onboarding banner and 最新消息 when they point at different posts", async () => {
+    (fetchIdentityStatus as jest.Mock).mockResolvedValue({ status: "matched" });
+    mockMatchedSession();
+    (fetchUploadHistoryByMonthWindow as jest.Mock).mockResolvedValue(baseHistoryResponse);
+
+    render(
+      <PatientHome
+        latestNewsPost={{
+          slug: "每天拍一張",
+          title: "每天拍一張，護理師比較看得到你",
+          description: "d",
+          publishedAt: "2026-08-21",
+          author: "臺大醫院 PD Care 團隊",
+        }}
+      />
+    );
+
+    expect(await screen.findByText("還沒拍過？三步驟學會上傳出口照")).toBeInTheDocument();
+    expect(screen.getByText("最新消息")).toBeInTheDocument();
+    expect(screen.getByText("每天拍一張，護理師比較看得到你")).toBeInTheDocument();
   });
 });

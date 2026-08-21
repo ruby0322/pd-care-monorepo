@@ -8,6 +8,13 @@ import { bindIdentityWithRetry, fetchAuthBootstrap, fetchIdentityStatus, Identit
 import { getApiErrorDetail } from "@/lib/api/client";
 import { buildLoginPath, getLiffLoginProof } from "@/lib/auth/liff";
 import { PATIENT_ONBOARDING_INTENT } from "@/lib/auth/patient-onboarding-intent";
+import {
+  ONBOARDING_GUIDE_SLUG,
+  PENDING_ONBOARDING_BANNER,
+  UNBOUND_VALUE_LINK_LABEL,
+  VALUE_POST_SLUG,
+} from "@/lib/blog/home-discovery";
+import { OnboardingGuideBanner } from "@/components/patient/onboarding-guide-banner";
 
 type LiffProfileState = {
   displayName: string;
@@ -121,6 +128,12 @@ function PatientOnboardingPageInner() {
   if (status === "pending") {
     return (
       <div className="min-h-screen bg-white flex flex-col px-6 py-14">
+        <div className="mb-5">
+          <OnboardingGuideBanner
+            href={`/blog/${encodeURIComponent(ONBOARDING_GUIDE_SLUG)}`}
+            message={PENDING_ONBOARDING_BANNER}
+          />
+        </div>
         <h1 className="text-lg font-semibold text-zinc-900">病患註冊審核中</h1>
         <p className="mt-3 text-sm text-zinc-600 leading-relaxed">
           已收到您的身分綁定申請，護理團隊確認後即可開始上傳出口影像。在核可前，系統暫時無法開啟拍攝流程。
@@ -179,6 +192,13 @@ function PatientOnboardingPageInner() {
       >
         {submitting ? "送出中..." : "送出綁定申請"}
       </button>
+
+      <Link
+        href={`/blog/${encodeURIComponent(VALUE_POST_SLUG)}`}
+        className="mt-3 text-center text-sm font-medium text-zinc-600 underline underline-offset-4"
+      >
+        {UNBOUND_VALUE_LINK_LABEL}
+      </Link>
 
       <Link
         href="/"

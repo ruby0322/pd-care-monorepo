@@ -323,7 +323,7 @@ function ResultPageInner() {
 
       <main className="flex flex-1 flex-col gap-4 px-5 pb-8 pt-4">
         {uploadId !== null ? (
-          <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100">
+          <div className="relative w-full overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100">
             <div className="absolute right-2 top-2 z-10 rounded-md bg-zinc-900/70 px-2 py-0.5 text-[10px] font-medium tracking-wide text-zinc-50">
               上傳 #{uploadId}
             </div>
@@ -331,13 +331,14 @@ function ResultPageInner() {
               <Image
                 src={preview.url}
                 alt={`upload-preview-${uploadId}`}
-                fill
+                width={1200}
+                height={900}
                 unoptimized
-                className="object-cover"
+                className="h-auto w-full"
                 onError={() => setPreviewBroken(true)}
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-xs text-zinc-500">
+              <div className="flex aspect-[4/3] h-full w-full items-center justify-center text-xs text-zinc-500">
                 本次上傳預覽
               </div>
             )}

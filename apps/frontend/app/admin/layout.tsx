@@ -121,6 +121,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <AdminNotificationProvider>
+      <meta name="robots" content="noindex, nofollow" />
       <div className="min-h-screen bg-zinc-50 flex">
         <div
           className={`fixed inset-0 z-40 bg-zinc-900/30 transition-opacity md:hidden ${

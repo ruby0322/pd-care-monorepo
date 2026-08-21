@@ -28,6 +28,7 @@ export type PatientProfileResponse = {
   full_name: string | null;
   case_number: string | null;
   birth_date: string | null;
+  onboarding_guide_dismissed: boolean;
 };
 
 export type HealthcareAccessRequestStatusResponse = {
@@ -92,6 +93,16 @@ export async function bindIdentityWithRetry(
 
 export async function fetchPatientProfile(): Promise<PatientProfileResponse> {
   const { data } = await apiClient.get<PatientProfileResponse>("/v1/patient/profile");
+  return data;
+}
+
+export async function patchPatientUiPreferences(payload: {
+  onboarding_guide_dismissed: boolean;
+}): Promise<{ onboarding_guide_dismissed: boolean }> {
+  const { data } = await apiClient.patch<{ onboarding_guide_dismissed: boolean }>(
+    "/v1/patient/ui-preferences",
+    payload
+  );
   return data;
 }
 
