@@ -70,6 +70,7 @@ describe("PatientProfilePage", () => {
     expect(screen.getByText("主要護理師")).toBeInTheDocument();
     expect(screen.getByText("鄭靜誼")).toBeInTheDocument();
     expect(container.querySelector(".rounded-3xl.border")).not.toBeInTheDocument();
+    expect(screen.getByText("PD Care v0.1.0")).toBeInTheDocument();
   });
 
   test("redirects users without a patient session", async () => {

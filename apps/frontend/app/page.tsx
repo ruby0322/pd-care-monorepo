@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { fetchAuthBootstrap } from "@/lib/api/identity";
+import { APP_VERSION_LABEL } from "@/lib/app-version";
 import { resolveSessionlessBootstrapDestination } from "@/lib/auth/bootstrap-routing";
 import { getLiffLoginProof, isLiffLoggedInSilently } from "@/lib/auth/liff";
 import { getPatientSession } from "@/lib/auth/patient-session";
@@ -148,7 +149,7 @@ export default function Home() {
           開始使用
         </button>
 
-        <p className="text-center text-xs text-zinc-300">臺大醫院 · 腹膜透析出口影像感染警示系統</p>
+        <p className="text-center text-xs text-zinc-300">臺大醫院 · 腹膜透析出口影像感染警示系統 · {APP_VERSION_LABEL}</p>
         <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
           <Link href="/about" className="underline underline-offset-4 hover:text-zinc-800">
             關於

@@ -8,6 +8,7 @@ import { ChevronLeft, CircleUserRound } from "lucide-react";
 
 import { getReadableApiError } from "@/lib/api/client";
 import { fetchPatientProfile, PatientProfileResponse } from "@/lib/api/identity";
+import { APP_VERSION_LABEL } from "@/lib/app-version";
 import { getPatientSession } from "@/lib/auth/patient-session";
 
 export default function PatientProfilePage() {
@@ -131,6 +132,7 @@ export default function PatientProfilePage() {
         >
           返回追蹤首頁
         </Link>
+        <p className="mt-8 text-center text-xs text-zinc-400">PD Care {APP_VERSION_LABEL}</p>
       </div>
     </div>
   );
