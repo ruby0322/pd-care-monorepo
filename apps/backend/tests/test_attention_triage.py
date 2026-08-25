@@ -4,6 +4,7 @@ from app.services.attention_triage import (
     TriageUploadRef,
     calendar_tier_to_attention_tier,
     count_unhandled_patients,
+    select_day_cover_upload,
     select_risk_representative,
 )
 
@@ -64,6 +65,47 @@ def test_select_risk_representative_picks_earliest_in_target_tier() -> None:
 
 def test_select_risk_representative_none_for_other_only() -> None:
     assert select_risk_representative([_ref(1, tier="other")]) is None
+
+
+def test_select_day_cover_upload_prefers_suspected_over_elevated() -> None:
+    cover = select_day_cover_upload(
+        [
+            _ref(1, tier="elevated", minute=1),
+            _ref(2, tier="suspected", minute=5),
+            _ref(3, tier="other", minute=0),
+        ]
+    )
+    assert cover is not None
+    assert cover.upload_id == 2
+    assert cover.tier == "suspected"
+
+
+def test_select_day_cover_upload_picks_earliest_in_target_tier() -> None:
+    cover = select_day_cover_upload(
+        [
+            _ref(10, tier="suspected", minute=20),
+            _ref(11, tier="suspected", minute=5),
+            _ref(12, tier="elevated", minute=1),
+        ]
+    )
+    assert cover is not None
+    assert cover.upload_id == 11
+
+
+def test_select_day_cover_upload_picks_latest_when_other_only() -> None:
+    cover = select_day_cover_upload(
+        [
+            _ref(1, tier="other", minute=0),
+            _ref(3, tier="other", minute=8),
+            _ref(2, tier="other", minute=8),
+        ]
+    )
+    assert cover is not None
+    assert cover.upload_id == 3
+
+
+def test_select_day_cover_upload_none_for_empty() -> None:
+    assert select_day_cover_upload([]) is None
 
 
 def test_count_unhandled_patients_ignores_annotated_representative() -> None:

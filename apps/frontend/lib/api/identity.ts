@@ -29,6 +29,9 @@ export type PatientProfileResponse = {
   case_number: string | null;
   birth_date: string | null;
   onboarding_guide_dismissed: boolean;
+  longest_continuous_upload_streak_days: number;
+  total_upload_count: number;
+  primary_nurse_name: string | null;
 };
 
 export type HealthcareAccessRequestStatusResponse = {

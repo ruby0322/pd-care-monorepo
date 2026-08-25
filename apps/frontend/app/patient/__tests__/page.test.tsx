@@ -31,12 +31,24 @@ jest.mock("@/components/patient-daily-calendar", () => ({
   PatientDailyCalendar: ({
     onMonthChange,
     overlayLoading,
+    streakDays,
+    showCalendarModeTabs,
+    galleryHref,
   }: {
     onMonthChange?: (monthKey: string) => void;
     overlayLoading?: boolean;
+    streakDays?: number;
+    showCalendarModeTabs?: boolean;
+    galleryHref?: string;
   }) => (
     <div>
-      <div data-testid="patient-calendar" data-overlay-loading={overlayLoading ? "true" : "false"} />
+      <div
+        data-testid="patient-calendar"
+        data-overlay-loading={overlayLoading ? "true" : "false"}
+        data-streak-days={streakDays ?? ""}
+        data-show-calendar-mode-tabs={showCalendarModeTabs ? "true" : "false"}
+        data-gallery-href={galleryHref ?? ""}
+      />
       <button type="button" onClick={() => onMonthChange?.("2026-02")}>
         change-month
       </button>
@@ -75,9 +87,7 @@ describe("PatientPage month window prefetch flow", () => {
     patient_id: 1,
     can_upload: true,
     days: [],
-    summary_28d: {
-      all_upload_count_28d: 0,
-      suspected_upload_count_28d: 0,
+    summary: {
       continuous_upload_streak_days: 0,
     },
   };
@@ -189,7 +199,7 @@ describe("PatientPage month window prefetch flow", () => {
     fireEvent.click(await screen.findByRole("button", { name: "change-month" }));
 
     await waitFor(() => {
-      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11");
+      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11", { includeSummary: false });
     });
 
     expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
@@ -198,7 +208,7 @@ describe("PatientPage month window prefetch flow", () => {
 
     resolvePrefetch?.();
     await waitFor(() => {
-      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11");
+      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11", { includeSummary: false });
       expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
     });
 
@@ -264,14 +274,14 @@ describe("PatientPage month window prefetch flow", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "change-month" }));
     await waitFor(() => {
-      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11");
+      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11", { includeSummary: false });
     });
     expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
     expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
 
     fireEvent.click(screen.getByRole("button", { name: "change-month-older" }));
     await waitFor(() => {
-      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-08");
+      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-08", { includeSummary: false });
     });
     expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
     expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
@@ -311,5 +321,11 @@ describe("PatientPage month window prefetch flow", () => {
     expect(await screen.findByText("還沒拍過？三步驟學會上傳出口照")).toBeInTheDocument();
     expect(screen.getByText("最新消息")).toBeInTheDocument();
     expect(screen.getByText("每天拍一張，讓感染風險離你遠一點")).toBeInTheDocument();
+    expect(screen.queryByText("最近 28 天上傳狀態摘要與每日追蹤紀錄。")).not.toBeInTheDocument();
+    expect(screen.queryByText("疑似感染率")).not.toBeInTheDocument();
+    expect(screen.queryByText("上傳次數")).not.toBeInTheDocument();
+    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-streak-days", "0");
+    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-show-calendar-mode-tabs", "true");
+    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-gallery-href", "/patient/gallery");
   });
 });

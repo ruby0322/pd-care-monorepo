@@ -437,7 +437,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
             isSidebarCollapsed ? "md:ml-20" : "md:ml-56"
           }`}
         >
-          <header className="bg-white border-b border-zinc-100 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+          <header className="bg-white border-b border-zinc-100 px-3 py-4 flex items-center justify-between sticky top-0 z-10">
             <div className="flex items-center gap-2 md:hidden">
               <button
                 type="button"
@@ -459,7 +459,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
             </div>
           </header>
 
-          <main className="flex-1 px-6 py-6">{children}</main>
+          <main className="flex-1 px-3 py-6">{children}</main>
         </div>
       </div>
     </AdminNotificationProvider>

@@ -18,9 +18,9 @@ describe("parseArgs", () => {
     expect(parseArgs(["-h"]).help).toBe(true);
   });
 
-  it("keeps catalog order for --only", () => {
-    const parsed = parseArgs(["--only", "result,home,capture"]);
-    expect(parsed.only?.map((shot) => shot.id)).toEqual(["home", "capture", "result"]);
+  it("keeps catalog order for gallery flow ids", () => {
+    const parsed = parseArgs(["--only", "gallery-calendar,gallery"]);
+    expect(parsed.only?.map((shot) => shot.id)).toEqual(["gallery", "gallery-calendar"]);
   });
 
   it("rejects unknown shot ids", () => {

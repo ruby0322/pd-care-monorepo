@@ -25,6 +25,12 @@ from app.api.deps.auth import (
     get_session,
     require_staff_or_admin,
 )
+from app.schemas.upload_history import (
+    PatientGalleryMonthResponse,
+    PatientGalleryUploadItemResponse,
+    PatientGalleryUploadsResponse,
+    UploadHistoryDayResponse,
+)
 from app.schemas.staff_dashboard import (
     StaffAnnotationItem,
     StaffAnnotationListResponse,
@@ -100,6 +106,7 @@ from app.services.staff_history_overview import (
 from app.services.staff_workbench import get_workbench_dashboard
 from app.services.symptoms import derived_symptom_fields
 from app.services.attention_triage import HistoryOverviewScope
+from app.services.upload_history import list_patient_gallery_month, list_patient_gallery_uploads
 
 router = APIRouter(tags=["Staff"])
 
@@ -503,6 +510,128 @@ async def get_staff_patient_upload_calendar(
                 StaffPatientUploadCalendarItem(**item)
                 for item in list_patient_upload_calendar_days(session, patient_id=patient_id)
             ]
+        )
+    finally:
+        session.close()
+
+
+def _staff_signed_image_url(
+    request: Request,
+    *,
+    upload_id: int,
+    object_key: str,
+) -> tuple[str, int]:
+    storage_service = getattr(request.app.state, "storage_service", None)
+    if storage_service is None:
+        raise HTTPException(status_code=503, detail="Storage is not initialized")
+    ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
+    token = storage_service.generate_access_token(object_key, subject="staff", ttl_seconds=ttl_seconds)
+    return f"/api/v1/staff/uploads/{upload_id}/image-public?token={token}", ttl_seconds
+
+
+def _staff_history_day_response(request: Request, entry) -> UploadHistoryDayResponse:
+    image_url: str | None = None
+    expires_in: int | None = None
+    if entry.representative_upload_id is not None and entry.representative_object_key:
+        image_url, expires_in = _staff_signed_image_url(
+            request,
+            upload_id=entry.representative_upload_id,
+            object_key=entry.representative_object_key,
+        )
+    return UploadHistoryDayResponse(
+        date=entry.date.isoformat(),
+        upload_count=entry.upload_count,
+        has_suspected_risk=entry.has_suspected_risk,
+        has_symptom_elevated_risk=entry.has_symptom_elevated_risk,
+        representative_upload_id=entry.representative_upload_id,
+        representative_image_url=image_url,
+        representative_image_expires_in=expires_in,
+    )
+
+
+@router.get(
+    "/v1/staff/patients/{patient_id}/gallery/uploads",
+    response_model=PatientGalleryUploadsResponse,
+)
+async def get_staff_patient_gallery_uploads(
+    request: Request,
+    patient_id: int,
+    before_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=30, ge=1, le=100),
+    credentials=Depends(bearer_scheme),
+) -> PatientGalleryUploadsResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        if session.get(Patient, patient_id) is None:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        _assert_patient_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            patient_id=patient_id,
+        )
+        try:
+            page = list_patient_gallery_uploads(
+                session,
+                patient_id=patient_id,
+                before_id=before_id,
+                limit=limit,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        items = []
+        for item in page.items:
+            image_url, expires_in = _staff_signed_image_url(
+                request,
+                upload_id=item.upload_id,
+                object_key=item.object_key,
+            )
+            items.append(
+                PatientGalleryUploadItemResponse(
+                    upload_id=item.upload_id,
+                    created_at=item.created_at,
+                    date=item.local_date.isoformat(),
+                    image_url=image_url,
+                    image_expires_in=expires_in,
+                    has_suspected_risk=item.has_suspected_risk,
+                    has_symptom_elevated_risk=item.has_symptom_elevated_risk,
+                )
+            )
+        return PatientGalleryUploadsResponse(items=items, has_more_older=page.has_more_older, limit=limit)
+    finally:
+        session.close()
+
+
+@router.get(
+    "/v1/staff/patients/{patient_id}/gallery/months",
+    response_model=PatientGalleryMonthResponse,
+)
+async def get_staff_patient_gallery_month(
+    request: Request,
+    patient_id: int,
+    month: str = Query(..., min_length=7, max_length=7),
+    credentials=Depends(bearer_scheme),
+) -> PatientGalleryMonthResponse:
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        if session.get(Patient, patient_id) is None:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        _assert_patient_access(
+            session,
+            role=principal.role,
+            identity_id=principal.identity_id,
+            patient_id=patient_id,
+        )
+        try:
+            bundle = list_patient_gallery_month(session, patient_id=patient_id, month_key=month)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return PatientGalleryMonthResponse(
+            month=bundle.month,
+            days=[_staff_history_day_response(request, entry) for entry in bundle.days],
+            has_more_older=bundle.has_more_older,
         )
     finally:
         session.close()

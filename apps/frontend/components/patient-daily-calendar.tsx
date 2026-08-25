@@ -1,6 +1,9 @@
 "use client";
 
 import clsx from "clsx";
+import { CalendarDays, Images } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -10,6 +13,7 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel";
 
+import { streakEmoji } from "@/lib/utils/streak-emoji";
 import {
   buildTaipeiMonthGrid,
   getMonthKeyFromDateKey,
@@ -22,7 +26,10 @@ type CalendarDay = {
   upload_count: number;
   has_suspected_risk: boolean;
   has_symptom_elevated_risk?: boolean;
+  representative_image_url?: string | null;
 };
+
+type CalendarMode = "calendar-days" | "images";
 
 type PatientDailyCalendarProps = {
   days: CalendarDay[];
@@ -34,6 +41,9 @@ type PatientDailyCalendarProps = {
   oldestEdgeLoading?: boolean;
   overlayLoading?: boolean;
   onReachOldestEdge?: (oldestMonthKey: string) => void | Promise<void>;
+  streakDays?: number;
+  showCalendarModeTabs?: boolean;
+  galleryHref?: string;
 };
 
 function dayStyle(uploadCount: number, hasSuspectedRisk: boolean, hasSymptomElevatedRisk: boolean): string {
@@ -93,10 +103,14 @@ export function PatientDailyCalendar({
   oldestEdgeLoading = false,
   overlayLoading = false,
   onReachOldestEdge,
+  streakDays,
+  showCalendarModeTabs = false,
+  galleryHref,
 }: PatientDailyCalendarProps) {
   const dayMap = new Map(days.map((entry) => [entry.date, entry]));
   const todayKey = getTaipeiTodayKey();
   const currentMonthKey = getMonthKeyFromDateKey(todayKey);
+  const [calendarMode, setCalendarMode] = useState<CalendarMode>("calendar-days");
   const effectiveNewestMonthKey = loadedNewestMonthKey && loadedNewestMonthKey <= currentMonthKey
     ? loadedNewestMonthKey
     : currentMonthKey;
@@ -247,32 +261,45 @@ export function PatientDailyCalendar({
       const uploadCount = record?.upload_count ?? 0;
       const hasSuspectedRisk = record?.has_suspected_risk ?? false;
       const hasSymptomElevatedRisk = record?.has_symptom_elevated_risk ?? false;
+      const coverUrl = record?.representative_image_url ?? null;
       return {
         ...cell,
         uploadCount,
         hasSuspectedRisk,
         hasSymptomElevatedRisk,
+        coverUrl,
         isToday: cell.dateKey === todayKey,
       };
     });
 
     return panelCells.map((cell) => {
       const isMutedAdjacentDay = !cell.isCurrentMonth;
-      const backgroundClass =
-        isMutedAdjacentDay && cell.uploadCount <= 0
+      const isPhotoMode = calendarMode === "images";
+      const showCover = isPhotoMode && Boolean(cell.coverUrl);
+      const backgroundClass = showCover
+        ? "bg-zinc-200"
+        : isMutedAdjacentDay && cell.uploadCount <= 0
           ? "bg-zinc-100"
           : dayStyle(cell.uploadCount, cell.hasSuspectedRisk, cell.hasSymptomElevatedRisk);
+      const riskBorderClass = isPhotoMode
+        ? cell.hasSuspectedRisk
+          ? "border-2 border-red-500"
+          : cell.hasSymptomElevatedRisk
+            ? "border-2 border-orange-500"
+            : "border border-white/80"
+        : "border border-white/80";
       return (
         <button
           type="button"
           key={cell.dateKey}
           data-testid="calendar-day-cell"
           className={clsx(
-            "aspect-square h-auto min-h-10 rounded-md border border-white/80 text-center flex items-center justify-center lg:aspect-auto lg:h-11",
+            "relative aspect-square h-auto min-h-10 overflow-hidden rounded-md text-center flex items-center justify-center lg:aspect-auto lg:h-11",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-700/80 focus-visible:ring-offset-1",
             backgroundClass,
+            riskBorderClass,
             cell.isToday && "ring-2 ring-zinc-800/70 ring-offset-1",
-            isMutedAdjacentDay ? "text-zinc-400" : "text-zinc-800",
+            isMutedAdjacentDay ? "text-zinc-400" : showCover ? "text-white" : "text-zinc-800",
             onDayClick ? "cursor-pointer hover:opacity-90 transition-opacity" : "cursor-default"
           )}
           title={`${cell.dateKey}：${cell.uploadCount} 次上傳`}
@@ -280,7 +307,24 @@ export function PatientDailyCalendar({
           onClick={() => onDayClick?.(cell.dateKey)}
           disabled={!onDayClick || isCalendarOverlayVisible}
         >
-          <span className={clsx("text-[11px]", isMutedAdjacentDay ? "font-normal" : "font-semibold")}>{cell.dayOfMonth}</span>
+          {showCover && cell.coverUrl ? (
+            <Image
+              src={cell.coverUrl}
+              alt=""
+              fill
+              unoptimized
+              className={clsx("object-cover", isMutedAdjacentDay && "opacity-40")}
+            />
+          ) : null}
+          <span
+            className={clsx(
+              "relative z-10 text-[11px]",
+              isMutedAdjacentDay ? "font-normal" : "font-semibold",
+              showCover && "drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
+            )}
+          >
+            {cell.dayOfMonth}
+          </span>
         </button>
       );
     });
@@ -298,16 +342,94 @@ export function PatientDailyCalendar({
     ));
   }
 
+  const showStreakTab = typeof streakDays === "number" && !(showCalendarModeTabs && galleryHref && calendarMode === "images");
+  const showGalleryLink = Boolean(showCalendarModeTabs && galleryHref && calendarMode === "images");
+  const showRightTab = showStreakTab || showGalleryLink;
+  const showTabStrip = showCalendarModeTabs || showRightTab;
+
   return (
-    <section
-      aria-label="每日上傳日曆"
-      aria-busy={isCalendarOverlayVisible}
-      className="rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-4"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
-    >
-      <div className="flex items-center justify-between">
+    <div>
+      {showTabStrip ? (
+        <div
+          className={clsx(
+            "flex items-end",
+            showCalendarModeTabs && showRightTab
+              ? "justify-between"
+              : showRightTab
+                ? "justify-end"
+                : "justify-start"
+          )}
+        >
+          {showCalendarModeTabs ? (
+            <div role="tablist" aria-label="日曆顯示模式" className="flex gap-1">
+              <button
+                type="button"
+                role="tab"
+                aria-label="日曆"
+                aria-selected={calendarMode === "calendar-days"}
+                className={clsx(
+                  "relative z-10 -mb-px rounded-t-xl border border-b-0 px-3 py-2",
+                  calendarMode === "calendar-days"
+                    ? "border-zinc-100 bg-zinc-50 text-zinc-800"
+                    : "border-zinc-100 bg-zinc-100 text-zinc-400"
+                )}
+                onClick={() => setCalendarMode("calendar-days")}
+              >
+                <CalendarDays className="h-5 w-5" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-label="相片"
+                aria-selected={calendarMode === "images"}
+                className={clsx(
+                  "relative z-10 -mb-px rounded-t-xl border border-b-0 px-3 py-2",
+                  calendarMode === "images"
+                    ? "border-zinc-100 bg-zinc-50 text-zinc-800"
+                    : "border-zinc-100 bg-zinc-100 text-zinc-400"
+                )}
+                onClick={() => setCalendarMode("images")}
+              >
+                <Images className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
+          {showGalleryLink && galleryHref ? (
+            <Link
+              href={galleryHref}
+              data-testid="calendar-gallery-link"
+              className="relative z-10 -mb-px rounded-t-xl border border-b-0 border-zinc-100 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-800 underline underline-offset-2"
+            >
+              查看相簿
+            </Link>
+          ) : showStreakTab ? (
+            <div
+              data-testid="calendar-streak-tab"
+              role="status"
+              aria-label={`連續上傳 ${streakDays} 天`}
+              className="relative z-10 -mb-px rounded-t-xl border border-b-0 border-zinc-100 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-800"
+            >
+              連續 {streakDays} 天
+              <span aria-hidden="true" className="ml-1">
+                {streakEmoji(streakDays)}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <section
+        aria-label="每日上傳日曆"
+        aria-busy={isCalendarOverlayVisible}
+        className={clsx(
+          "rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-4",
+          showCalendarModeTabs && "rounded-tl-none",
+          showRightTab && "rounded-tr-none"
+        )}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      >
+        <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-zinc-900">每日上傳日曆</h2>
         <span className="text-xs text-zinc-500">{monthLabel}</span>
       </div>
@@ -365,19 +487,33 @@ export function PatientDailyCalendar({
           <span className="h-3 w-3 rounded bg-zinc-200" />
           未上傳
         </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="h-3 w-3 rounded bg-emerald-500" />
-          一般
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="h-3 w-3 rounded bg-orange-500" />
-          症狀高風險
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="h-3 w-3 rounded bg-red-500" />
-          疑似風險
-        </span>
-        <span className="text-zinc-400">顏色深淺代表當日上傳次數</span>
+        {calendarMode === "images" ? (
+          <>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-3 w-3 rounded border-2 border-orange-500 bg-zinc-50" />
+              症狀高風險
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-3 w-3 rounded border-2 border-red-500 bg-zinc-50" />
+              疑似風險
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-3 w-3 rounded bg-emerald-500" />
+              一般
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-3 w-3 rounded bg-orange-500" />
+              症狀高風險
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-3 w-3 rounded bg-red-500" />
+              疑似風險
+            </span>
+          </>
+        )}
       </div>
 
       <div className="mt-3 hidden justify-end gap-2 lg:flex">
@@ -398,6 +534,7 @@ export function PatientDailyCalendar({
           下個月
         </button>
       </div>
-    </section>
+      </section>
+    </div>
   );
 }

@@ -6,11 +6,12 @@ export type UploadHistoryDay = {
   upload_count: number;
   has_suspected_risk: boolean;
   has_symptom_elevated_risk?: boolean;
+  representative_upload_id?: number | null;
+  representative_image_url?: string | null;
+  representative_image_expires_in?: number | null;
 };
 
-export type UploadHistorySummary28d = {
-  all_upload_count_28d: number;
-  suspected_upload_count_28d: number;
+export type UploadHistorySummary = {
   continuous_upload_streak_days: number;
 };
 
@@ -19,7 +20,7 @@ export type UploadHistoryResponse = {
   patient_id: number | null;
   can_upload: boolean;
   days: UploadHistoryDay[];
-  summary_28d: UploadHistorySummary28d;
+  summary: UploadHistorySummary;
 };
 
 export type PatientDayUploadItem = {
@@ -96,12 +97,17 @@ export function getWindowStartMonthKey(monthEnd: string): string {
   return getRelativeMonthKey(monthEnd, -2);
 }
 
-export async function fetchUploadHistoryByMonthWindow(monthEnd: string): Promise<UploadHistoryResponse> {
+export async function fetchUploadHistoryByMonthWindow(
+  monthEnd: string,
+  options?: { includeSummary?: boolean }
+): Promise<UploadHistoryResponse> {
   const monthStart = getWindowStartMonthKey(monthEnd);
+  const includeSummary = options?.includeSummary ?? true;
   const { data } = await apiClient.get<UploadHistoryResponse>("/v1/patient/upload-history", {
     params: {
       month_start: monthStart,
       month_end: monthEnd,
+      ...(includeSummary ? {} : { include_summary: false }),
     },
   });
   return data;
@@ -157,5 +163,47 @@ export type PatientMarkAllMessagesReadResponse = {
 
 export async function markAllPatientMessagesRead(): Promise<PatientMarkAllMessagesReadResponse> {
   const { data } = await apiClient.post<PatientMarkAllMessagesReadResponse>("/v1/patient/messages/read-all");
+  return data;
+}
+
+export type GalleryUploadItem = {
+  upload_id: number;
+  created_at: string;
+  date: string;
+  image_url: string;
+  image_expires_in: number;
+  has_suspected_risk: boolean;
+  has_symptom_elevated_risk?: boolean;
+};
+
+export type GalleryUploadsResponse = {
+  items: GalleryUploadItem[];
+  has_more_older: boolean;
+  limit: number;
+};
+
+export type GalleryMonthResponse = {
+  month: string;
+  days: UploadHistoryDay[];
+  has_more_older: boolean;
+};
+
+export async function fetchPatientGalleryUploads(params?: {
+  beforeId?: number;
+  limit?: number;
+}): Promise<GalleryUploadsResponse> {
+  const { data } = await apiClient.get<GalleryUploadsResponse>("/v1/patient/gallery/uploads", {
+    params: {
+      before_id: params?.beforeId,
+      limit: params?.limit ?? 30,
+    },
+  });
+  return data;
+}
+
+export async function fetchPatientGalleryMonth(month: string): Promise<GalleryMonthResponse> {
+  const { data } = await apiClient.get<GalleryMonthResponse>("/v1/patient/gallery/months", {
+    params: { month },
+  });
   return data;
 }

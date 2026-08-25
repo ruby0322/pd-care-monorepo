@@ -17,7 +17,16 @@ export const BINDABLE_PATIENT = {
   birthDate: "1990-01-01",
 } as const;
 
-export type BlogShotId = "role-select" | "bind" | "pending" | "home" | "capture" | "result";
+export type BlogShotId =
+  | "role-select"
+  | "bind"
+  | "pending"
+  | "home"
+  | "home-photos"
+  | "gallery"
+  | "gallery-calendar"
+  | "capture"
+  | "result";
 
 export type BlogShot = {
   id: BlogShotId;
@@ -26,7 +35,7 @@ export type BlogShot = {
   /**
    * Shots that share a flow run in one login/session. Independent shots omit this.
    */
-  flow?: "patient-capture";
+  flow?: "patient-capture" | "patient-gallery";
 };
 
 export const BLOG_SHOT_CATALOG: readonly BlogShot[] = [
@@ -48,7 +57,24 @@ export const BLOG_SHOT_CATALOG: readonly BlogShot[] = [
   {
     id: "home",
     file: "shot-home.png",
-    description: "已綁定病患首頁（日曆與拍攝）",
+    description: "已綁定病患首頁（顏色日曆與拍攝）",
+  },
+  {
+    id: "home-photos",
+    file: "shot-home-photos.png",
+    description: "首頁相片模式與查看相簿",
+  },
+  {
+    id: "gallery",
+    file: "shot-gallery.png",
+    description: "相簿九宮格（示範出口照）",
+    flow: "patient-gallery",
+  },
+  {
+    id: "gallery-calendar",
+    file: "shot-gallery-calendar.png",
+    description: "相簿日曆模式（示範出口照）",
+    flow: "patient-gallery",
   },
   {
     id: "capture",

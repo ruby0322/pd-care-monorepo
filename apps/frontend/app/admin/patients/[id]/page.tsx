@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   CheckCircle,
@@ -66,7 +66,9 @@ function AnnotationChip({ annotation }: { annotation: StaffAnnotationItem | unde
 
 export default function PatientDetailPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const patientId = Number(params.id);
+  const dateQuery = searchParams.get("date") ?? "";
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof fetchStaffPatientDetail>> | null>(null);
   const [uploads, setUploads] = useState<StaffPatientDetailUpload[]>([]);
   const [calendarDays, setCalendarDays] = useState<Awaited<ReturnType<typeof fetchStaffPatientUploadCalendar>>["items"]>([]);
@@ -83,8 +85,8 @@ export default function PatientDetailPage() {
   const [uploadPage, setUploadPage] = useState(1);
   const [uploadPageSize, setUploadPageSize] = useState<20 | 50 | 100>(20);
   const [uploadTotal, setUploadTotal] = useState(0);
-  const [createdFrom, setCreatedFrom] = useState("");
-  const [createdTo, setCreatedTo] = useState("");
+  const [createdFrom, setCreatedFrom] = useState(dateQuery);
+  const [createdTo, setCreatedTo] = useState(dateQuery);
 
   useEffect(() => {
     let cancelled = false;
@@ -326,11 +328,21 @@ export default function PatientDetailPage() {
         ))}
       </div>
 
-      <PatientDailyCalendar
-        days={calendarDays}
-        loadedOldestMonthKey={calendarMonthBounds.oldestMonthKey}
-        loadedNewestMonthKey={calendarMonthBounds.newestMonthKey}
-      />
+      <div className="flex flex-col gap-2">
+        <div className="flex justify-end">
+          <Link
+            href={`/patient/gallery/${patientId}`}
+            className="text-sm font-medium text-zinc-800 underline underline-offset-2"
+          >
+            查看相簿
+          </Link>
+        </div>
+        <PatientDailyCalendar
+          days={calendarDays}
+          loadedOldestMonthKey={calendarMonthBounds.oldestMonthKey}
+          loadedNewestMonthKey={calendarMonthBounds.newestMonthKey}
+        />
+      </div>
 
       <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
         <div className="border-b border-zinc-100 px-5 py-4">

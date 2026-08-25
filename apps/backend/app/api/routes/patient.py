@@ -14,6 +14,9 @@ from app.db.models import Upload
 from app.schemas.identity import PatientProfileResponse, PatientUiPreferencesRequest, PatientUiPreferencesResponse
 from app.schemas.prescreen import PatientPrescreenResponse
 from app.schemas.upload_history import (
+    PatientGalleryMonthResponse,
+    PatientGalleryUploadItemResponse,
+    PatientGalleryUploadsResponse,
     PatientMarkAllMessagesReadResponse,
     PatientMessageItemResponse,
     PatientMessageListResponse,
@@ -22,7 +25,7 @@ from app.schemas.upload_history import (
     PatientUploadDetailResponse,
     UploadHistoryDayResponse,
     UploadHistoryResponse,
-    UploadHistorySummary28dResponse,
+    UploadHistorySummaryResponse,
 )
 from app.schemas.upload import PatientUploadResponse, PatientUploadResultResponse
 from app.services.auth.token_service import AuthPrincipal
@@ -30,6 +33,7 @@ from app.services.identity import (
     dismiss_onboarding_guide,
     get_identity_profile_by_identity_id,
     get_identity_status_for_principal,
+    get_primary_nurse_real_name,
 )
 from app.services.model_loader import LoadedModel
 from app.services.prescreen import (
@@ -48,12 +52,14 @@ from app.services.upload import get_patient_result_for_line_user, persist_patien
 from app.services.symptoms import derived_symptom_fields
 from app.services.upload_history import (
     get_patient_upload_detail,
+    list_patient_gallery_month,
+    list_patient_gallery_uploads,
     list_patient_uploads_by_local_day,
     list_patient_annotation_messages,
     mark_all_patient_annotation_messages_read,
     mark_patient_annotation_message_read,
-    summarize_patient_upload_history,
-    summarize_patient_upload_metrics_28d,
+    summarize_patient_upload_history_with_metrics,
+    summarize_patient_upload_lifetime_metrics,
 )
 
 
@@ -128,6 +134,9 @@ def _reject_legacy_line_user_id(request: Request) -> None:
 async def patient_upload_history(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    month_start: str | None = Query(default=None, min_length=7, max_length=7, pattern=r"^\d{4}-\d{2}$"),
+    month_end: str | None = Query(default=None, min_length=7, max_length=7, pattern=r"^\d{4}-\d{2}$"),
+    include_summary: bool = Query(default=True),
 ) -> UploadHistoryResponse:
     _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
@@ -140,32 +149,55 @@ async def patient_upload_history(
                 patient_id=patient_id,
                 can_upload=can_upload,
                 days=[],
-                summary_28d=UploadHistorySummary28dResponse(
-                    all_upload_count_28d=0,
-                    suspected_upload_count_28d=0,
+                summary=UploadHistorySummaryResponse(
                     continuous_upload_streak_days=0,
                 ),
             )
 
-        days = summarize_patient_upload_history(session, patient_id=patient_id)
-        summary_28d = summarize_patient_upload_metrics_28d(session, patient_id=patient_id)
-        return UploadHistoryResponse(
-            status=status,
-            patient_id=patient_id,
-            can_upload=can_upload,
-            days=[
+        try:
+            history = summarize_patient_upload_history_with_metrics(
+                session,
+                patient_id=patient_id,
+                month_start=month_start,
+                month_end=month_end,
+                include_metrics=include_summary,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        storage_service = _get_storage_service(request)
+        ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
+        day_responses: list[UploadHistoryDayResponse] = []
+        for entry in history.days:
+            image_url: str | None = None
+            expires_in: int | None = None
+            if entry.representative_upload_id is not None and entry.representative_object_key:
+                token = storage_service.generate_access_token(
+                    entry.representative_object_key,
+                    subject="patient",
+                    ttl_seconds=ttl_seconds,
+                )
+                image_url = (
+                    f"/api/v1/patient/uploads/{entry.representative_upload_id}/image-public?token={token}"
+                )
+                expires_in = ttl_seconds
+            day_responses.append(
                 UploadHistoryDayResponse(
                     date=entry.date.isoformat(),
                     upload_count=entry.upload_count,
                     has_suspected_risk=entry.has_suspected_risk,
                     has_symptom_elevated_risk=entry.has_symptom_elevated_risk,
+                    representative_upload_id=entry.representative_upload_id,
+                    representative_image_url=image_url,
+                    representative_image_expires_in=expires_in,
                 )
-                for entry in days
-            ],
-            summary_28d=UploadHistorySummary28dResponse(
-                all_upload_count_28d=summary_28d.all_upload_count_28d,
-                suspected_upload_count_28d=summary_28d.suspected_upload_count_28d,
-                continuous_upload_streak_days=summary_28d.continuous_upload_streak_days,
+            )
+        return UploadHistoryResponse(
+            status=status,
+            patient_id=patient_id,
+            can_upload=can_upload,
+            days=day_responses,
+            summary=UploadHistorySummaryResponse(
+                continuous_upload_streak_days=history.metrics.continuous_upload_streak_days,
             ),
         )
     finally:
@@ -187,6 +219,15 @@ async def patient_profile(
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+        longest_streak = 0
+        total_upload_count = 0
+        primary_nurse_name = None
+        if status == "matched" and patient_id is not None:
+            lifetime = summarize_patient_upload_lifetime_metrics(session, patient_id=patient_id)
+            longest_streak = lifetime.longest_continuous_upload_streak_days
+            total_upload_count = lifetime.total_upload_count
+            primary_nurse_name = get_primary_nurse_real_name(session, patient_id=patient_id)
+
         return PatientProfileResponse(
             status=status,
             can_upload=can_upload,
@@ -198,6 +239,9 @@ async def patient_profile(
             case_number=profile.case_number,
             birth_date=profile.birth_date,
             onboarding_guide_dismissed=profile.onboarding_guide_dismissed,
+            longest_continuous_upload_streak_days=longest_streak,
+            total_upload_count=total_upload_count,
+            primary_nurse_name=primary_nurse_name,
         )
     finally:
         session.close()
@@ -222,6 +266,106 @@ async def patch_patient_ui_preferences(
         return PatientUiPreferencesResponse(onboarding_guide_dismissed=profile.onboarding_guide_dismissed)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    finally:
+        session.close()
+
+
+def _patient_signed_image_url(
+    request: Request,
+    *,
+    upload_id: int,
+    object_key: str,
+) -> tuple[str, int]:
+    storage_service = _get_storage_service(request)
+    ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
+    token = storage_service.generate_access_token(object_key, subject="patient", ttl_seconds=ttl_seconds)
+    return f"/api/v1/patient/uploads/{upload_id}/image-public?token={token}", ttl_seconds
+
+
+def _history_day_response_from_entry(request: Request, entry) -> UploadHistoryDayResponse:
+    image_url: str | None = None
+    expires_in: int | None = None
+    if entry.representative_upload_id is not None and entry.representative_object_key:
+        image_url, expires_in = _patient_signed_image_url(
+            request,
+            upload_id=entry.representative_upload_id,
+            object_key=entry.representative_object_key,
+        )
+    return UploadHistoryDayResponse(
+        date=entry.date.isoformat(),
+        upload_count=entry.upload_count,
+        has_suspected_risk=entry.has_suspected_risk,
+        has_symptom_elevated_risk=entry.has_symptom_elevated_risk,
+        representative_upload_id=entry.representative_upload_id,
+        representative_image_url=image_url,
+        representative_image_expires_in=expires_in,
+    )
+
+
+@router.get("/v1/patient/gallery/uploads", response_model=PatientGalleryUploadsResponse)
+async def patient_gallery_uploads(
+    request: Request,
+    before_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=30, ge=1, le=100),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> PatientGalleryUploadsResponse:
+    _reject_legacy_line_user_id(request)
+    principal = get_current_principal(request, credentials)
+    session = _get_session(request)
+    try:
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
+        try:
+            page = list_patient_gallery_uploads(
+                session,
+                patient_id=patient_id,
+                before_id=before_id,
+                limit=limit,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        items = []
+        for item in page.items:
+            image_url, expires_in = _patient_signed_image_url(
+                request,
+                upload_id=item.upload_id,
+                object_key=item.object_key,
+            )
+            items.append(
+                PatientGalleryUploadItemResponse(
+                    upload_id=item.upload_id,
+                    created_at=item.created_at,
+                    date=item.local_date.isoformat(),
+                    image_url=image_url,
+                    image_expires_in=expires_in,
+                    has_suspected_risk=item.has_suspected_risk,
+                    has_symptom_elevated_risk=item.has_symptom_elevated_risk,
+                )
+            )
+        return PatientGalleryUploadsResponse(items=items, has_more_older=page.has_more_older, limit=limit)
+    finally:
+        session.close()
+
+
+@router.get("/v1/patient/gallery/months", response_model=PatientGalleryMonthResponse)
+async def patient_gallery_month(
+    request: Request,
+    month: str = Query(..., min_length=7, max_length=7),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> PatientGalleryMonthResponse:
+    _reject_legacy_line_user_id(request)
+    principal = get_current_principal(request, credentials)
+    session = _get_session(request)
+    try:
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
+        try:
+            bundle = list_patient_gallery_month(session, patient_id=patient_id, month_key=month)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return PatientGalleryMonthResponse(
+            month=bundle.month,
+            days=[_history_day_response_from_entry(request, entry) for entry in bundle.days],
+            has_more_older=bundle.has_more_older,
+        )
     finally:
         session.close()
 

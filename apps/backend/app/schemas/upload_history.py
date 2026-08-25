@@ -11,12 +11,13 @@ class UploadHistoryDayResponse(BaseModel):
     upload_count: int = Field(ge=0)
     has_suspected_risk: bool
     has_symptom_elevated_risk: bool = False
+    representative_upload_id: int | None = None
+    representative_image_url: str | None = None
+    representative_image_expires_in: int | None = Field(default=None, ge=1)
 
 
-class UploadHistorySummary28dResponse(BaseModel):
-    all_upload_count_28d: int = Field(ge=0)
-    suspected_upload_count_28d: int = Field(ge=0)
-    continuous_upload_streak_days: int = Field(ge=0, le=28)
+class UploadHistorySummaryResponse(BaseModel):
+    continuous_upload_streak_days: int = Field(ge=0)
 
 
 class UploadHistoryResponse(BaseModel):
@@ -24,7 +25,7 @@ class UploadHistoryResponse(BaseModel):
     patient_id: int | None
     can_upload: bool
     days: list[UploadHistoryDayResponse]
-    summary_28d: UploadHistorySummary28dResponse
+    summary: UploadHistorySummaryResponse
 
 
 class PatientDayUploadItemResponse(BaseModel):
@@ -95,3 +96,25 @@ class PatientMessageListResponse(BaseModel):
 class PatientMarkAllMessagesReadResponse(BaseModel):
     updated_count: int = Field(ge=0)
     unread_count: int = Field(ge=0)
+
+
+class PatientGalleryUploadItemResponse(BaseModel):
+    upload_id: int
+    created_at: datetime
+    date: str = Field(examples=["2026-05-11"])
+    image_url: str
+    image_expires_in: int = Field(ge=1)
+    has_suspected_risk: bool
+    has_symptom_elevated_risk: bool = False
+
+
+class PatientGalleryUploadsResponse(BaseModel):
+    items: list[PatientGalleryUploadItemResponse]
+    has_more_older: bool
+    limit: int = Field(ge=1)
+
+
+class PatientGalleryMonthResponse(BaseModel):
+    month: str = Field(examples=["2026-05"])
+    days: list[UploadHistoryDayResponse]
+    has_more_older: bool

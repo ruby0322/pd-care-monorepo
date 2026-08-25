@@ -1,4 +1,5 @@
 import { apiClient } from "@/lib/api/client";
+import type { GalleryMonthResponse, GalleryUploadsResponse } from "@/lib/api/upload-history";
 
 export type StaffMeResponse = {
   line_user_id: string;
@@ -596,6 +597,33 @@ export async function fetchStaffPatientUploadCalendar(
 ): Promise<StaffPatientUploadCalendarResponse> {
   const { data } = await apiClient.get<StaffPatientUploadCalendarResponse>(
     `/v1/staff/patients/${patientId}/upload-calendar`
+  );
+  return data;
+}
+
+export async function fetchStaffPatientGalleryUploads(
+  patientId: number,
+  params?: { beforeId?: number; limit?: number }
+): Promise<GalleryUploadsResponse> {
+  const { data } = await apiClient.get<GalleryUploadsResponse>(
+    `/v1/staff/patients/${patientId}/gallery/uploads`,
+    {
+      params: {
+        before_id: params?.beforeId,
+        limit: params?.limit ?? 30,
+      },
+    }
+  );
+  return data;
+}
+
+export async function fetchStaffPatientGalleryMonth(
+  patientId: number,
+  month: string
+): Promise<GalleryMonthResponse> {
+  const { data } = await apiClient.get<GalleryMonthResponse>(
+    `/v1/staff/patients/${patientId}/gallery/months`,
+    { params: { month } }
   );
   return data;
 }

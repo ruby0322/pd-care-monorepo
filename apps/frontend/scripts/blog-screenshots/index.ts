@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { BLOG_SHOT_CATALOG, formatCatalog, type BlogShot } from "./catalog";
 import { parseArgs, USAGE } from "./cli";
 import { assertPersonasAvailable, createRuntime, launchBlogBrowser, makeFakeCameraVideo } from "./runtime";
-import { capturePatientCaptureFlow, INDEPENDENT_SHOT_RUNNERS } from "./shots";
+import { capturePatientCaptureFlow, capturePatientGalleryFlow, INDEPENDENT_SHOT_RUNNERS } from "./shots";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const frontendRoot = resolve(root, "../..");
@@ -41,6 +41,10 @@ async function runShots(shots: readonly BlogShot[], outDir: string): Promise<voi
         throw new Error(`No independent runner registered for shot "${shot.id}". Add it in shots.ts.`);
       }
       await runner(runtime);
+    }
+
+    if (selectedIds.has("gallery") || selectedIds.has("gallery-calendar")) {
+      await capturePatientGalleryFlow(runtime, selectedIds);
     }
 
     if (selectedIds.has("capture") || selectedIds.has("result")) {

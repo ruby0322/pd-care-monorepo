@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from app.db.models import AuthorizationAuditEvent, LiffIdentity, Patient, PendingBinding
+from app.db.models import AuthorizationAuditEvent, LiffIdentity, Patient, PendingBinding, StaffPatientAssignment
 from app.services.auth.token_service import AuthPrincipal
 from app.services.identity_validation import assert_valid_line_user_id
 
@@ -253,6 +253,20 @@ def get_identity_profile_by_identity_id(session: Session, *, identity_id: int) -
         birth_date=patient.birth_date if patient else None,
         onboarding_guide_dismissed=identity.onboarding_guide_dismissed_at is not None,
     )
+
+
+def get_primary_nurse_real_name(session: Session, *, patient_id: int) -> str | None:
+    real_name = session.execute(
+        select(LiffIdentity.real_name)
+        .join(StaffPatientAssignment, StaffPatientAssignment.staff_identity_id == LiffIdentity.id)
+        .where(StaffPatientAssignment.patient_id == patient_id)
+        .order_by(StaffPatientAssignment.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if real_name is None:
+        return None
+    normalized = real_name.strip()
+    return normalized or None
 
 
 def dismiss_onboarding_guide(session: Session, *, identity_id: int) -> bool:
