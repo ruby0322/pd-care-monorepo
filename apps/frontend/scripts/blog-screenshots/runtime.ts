@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -101,6 +101,27 @@ export function createRuntime(page: Page, baseURL: string, outDir: string, stock
       await expect(page).toHaveURL((url) => waitForPath.test(url.pathname));
     },
   };
+}
+
+/** Replace remote clinical images with the licensed stock exit-site JPEG. */
+export async function stubRemoteImagesWithStockPhoto(page: Page, stockExitPhoto: string): Promise<void> {
+  const body = readFileSync(stockExitPhoto);
+  await page.route("**/*", async (route) => {
+    if (route.request().resourceType() !== "image") {
+      await route.continue();
+      return;
+    }
+    const url = route.request().url();
+    if (url.includes("/_next/") || url.includes("/blog/")) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "image/jpeg",
+      body,
+    });
+  });
 }
 
 export async function assertPersonasAvailable(page: Page, baseURL: string): Promise<void> {

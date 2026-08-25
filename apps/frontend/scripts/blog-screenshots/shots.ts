@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 
 import { BINDABLE_PATIENT, type BlogShotId } from "./catalog";
-import type { ShotRuntime } from "./runtime";
+import { stubRemoteImagesWithStockPhoto, type ShotRuntime } from "./runtime";
 
 async function waitForLiveCamera(runtime: ShotRuntime): Promise<boolean> {
   try {
@@ -113,6 +113,69 @@ export async function captureHome(runtime: ShotRuntime): Promise<void> {
   await runtime.screenshot("shot-home.png");
 }
 
+export async function captureHomePhotos(runtime: ShotRuntime): Promise<void> {
+  await runtime.loginAs("U_DEV_PAT_MATCH", /^\/patient$/, "/patient");
+  const photosTab = runtime.page.getByRole("tab", { name: "相片" });
+  await expect(photosTab).toBeVisible({ timeout: 30_000 });
+  await photosTab.click();
+  await expect(photosTab).toHaveAttribute("aria-selected", "true");
+  await expect(runtime.page.getByRole("link", { name: "查看相簿" })).toBeVisible({ timeout: 15_000 });
+  await runtime.screenshot("shot-home-photos.png");
+}
+
+async function waitForLoadedImages(runtime: ShotRuntime, selector: string): Promise<void> {
+  await runtime.page.waitForFunction(
+    (target) => {
+      const images = Array.from(document.querySelectorAll(target));
+      return (
+        images.length > 0 &&
+        images.every((node) => node instanceof HTMLImageElement && node.complete && node.naturalWidth > 20)
+      );
+    },
+    selector,
+    { timeout: 20_000 }
+  );
+}
+
+async function openGallery(runtime: ShotRuntime): Promise<void> {
+  await runtime.page.goto(`${runtime.baseURL}/patient/gallery`, { waitUntil: "networkidle" });
+  await expect(runtime.page.getByRole("heading", { name: "相簿" })).toBeVisible({ timeout: 30_000 });
+}
+
+export async function capturePatientGalleryFlow(
+  runtime: ShotRuntime,
+  selected: ReadonlySet<BlogShotId>
+): Promise<void> {
+  await runtime.loginAs("U_DEV_PAT_MATCH", /^\/patient$/, "/patient");
+  await stubRemoteImagesWithStockPhoto(runtime.page, runtime.stockExitPhoto);
+  await openGallery(runtime);
+  await expect(runtime.page.getByTestId("gallery-grid-skeleton")).toHaveCount(0, { timeout: 30_000 });
+
+  if (await runtime.page.getByText("尚無相片").isVisible()) {
+    await openCapturePreview(runtime, false);
+    await submitCaptureAndWaitForResult(runtime);
+    await openGallery(runtime);
+    await expect(runtime.page.getByTestId("gallery-grid-skeleton")).toHaveCount(0, { timeout: 30_000 });
+  }
+
+  if (selected.has("gallery")) {
+    await expect(runtime.page.getByRole("tab", { name: "九宮格" })).toHaveAttribute("aria-selected", "true");
+    await expect(runtime.page.getByTestId("gallery-grid-cell").first()).toBeVisible({ timeout: 20_000 });
+    await waitForLoadedImages(runtime, '[data-testid="gallery-grid-cell"] img');
+    await runtime.screenshot("shot-gallery.png");
+  }
+
+  if (selected.has("gallery-calendar")) {
+    const calendarTab = runtime.page.getByRole("tab", { name: "日曆" });
+    await calendarTab.click();
+    await expect(calendarTab).toHaveAttribute("aria-selected", "true");
+    await expect(runtime.page.getByTestId("gallery-calendar-skeleton")).toHaveCount(0, { timeout: 20_000 });
+    await expect(runtime.page.getByTestId("gallery-calendar-day").first()).toBeVisible({ timeout: 20_000 });
+    await waitForLoadedImages(runtime, '[data-testid="gallery-calendar-day"] img');
+    await runtime.screenshot("shot-gallery-calendar.png");
+  }
+}
+
 export async function capturePatientCaptureFlow(
   runtime: ShotRuntime,
   selected: ReadonlySet<BlogShotId>
@@ -128,11 +191,12 @@ export async function capturePatientCaptureFlow(
 }
 
 export const INDEPENDENT_SHOT_RUNNERS: Record<
-  Exclude<BlogShotId, "capture" | "result">,
+  Exclude<BlogShotId, "capture" | "result" | "gallery" | "gallery-calendar">,
   (runtime: ShotRuntime) => Promise<void>
 > = {
   "role-select": captureRoleSelect,
   bind: captureBind,
   pending: capturePending,
   home: captureHome,
+  "home-photos": captureHomePhotos,
 };

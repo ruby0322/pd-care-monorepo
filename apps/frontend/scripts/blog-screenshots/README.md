@@ -26,7 +26,7 @@ npm run blog:screenshots -- --only home,result
 npm run blog:screenshots -- --only capture --out /tmp/blog-shots
 ```
 
-`--only` ids run in **catalog order**, not argument order. `capture` and `result` share one login/upload session.
+`--only` ids run in **catalog order**, not argument order. `capture` and `result` share one login/upload session. `gallery` and `gallery-calendar` share one login; remote photos are replaced with `stock-exit-site.jpg` so public articles never show NTUH / training-set patients.
 
 ## Use in a new article
 
@@ -41,7 +41,10 @@ In `apps/frontend/content/blog/<slug>.mdx`:
 | `role-select` | `shot-role-select.png` | 選身份 |
 | `bind` | `shot-bind.png` | 填病歷號 |
 | `pending` | `shot-pending.png` | 等待審核 |
-| `home` | `shot-home.png` | 已綁定首頁 / 日曆 |
+| `home` | `shot-home.png` | 已綁定首頁 / 顏色日曆 |
+| `home-photos` | `shot-home-photos.png` | 首頁相片模式與「查看相簿」 |
+| `gallery` | `shot-gallery.png` | 相簿九宮格 |
+| `gallery-calendar` | `shot-gallery-calendar.png` | 相簿日曆模式 |
 | `capture` | `shot-capture.png` | 拍攝觀景窗 |
 | `result` | `shot-result.png` | 輔助判讀結果 |
 
