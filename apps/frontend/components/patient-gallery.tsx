@@ -235,7 +235,7 @@ export function PatientGalleryView({
         }
         void loadOlderMonth();
       },
-      { root: scroller, rootMargin: "0px" }
+      { root: scroller, rootMargin: "80px" }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
