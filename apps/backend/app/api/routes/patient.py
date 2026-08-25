@@ -22,7 +22,7 @@ from app.schemas.upload_history import (
     PatientUploadDetailResponse,
     UploadHistoryDayResponse,
     UploadHistoryResponse,
-    UploadHistorySummary28dResponse,
+    UploadHistorySummaryResponse,
 )
 from app.schemas.upload import PatientUploadResponse, PatientUploadResultResponse
 from app.services.auth.token_service import AuthPrincipal
@@ -53,7 +53,7 @@ from app.services.upload_history import (
     list_patient_annotation_messages,
     mark_all_patient_annotation_messages_read,
     mark_patient_annotation_message_read,
-    summarize_patient_upload_history,
+    summarize_patient_upload_history_with_metrics,
     summarize_patient_upload_lifetime_metrics,
 )
 
@@ -141,28 +141,46 @@ async def patient_upload_history(
                 patient_id=patient_id,
                 can_upload=can_upload,
                 days=[],
-                summary_28d=UploadHistorySummary28dResponse(
+                summary=UploadHistorySummaryResponse(
                     continuous_upload_streak_days=0,
                 ),
             )
 
-        days = summarize_patient_upload_history(session, patient_id=patient_id)
-        summary_28d = summarize_patient_upload_lifetime_metrics(session, patient_id=patient_id)
-        return UploadHistoryResponse(
-            status=status,
-            patient_id=patient_id,
-            can_upload=can_upload,
-            days=[
+        history = summarize_patient_upload_history_with_metrics(session, patient_id=patient_id)
+        storage_service = _get_storage_service(request)
+        ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
+        day_responses: list[UploadHistoryDayResponse] = []
+        for entry in history.days:
+            image_url: str | None = None
+            expires_in: int | None = None
+            if entry.representative_upload_id is not None and entry.representative_object_key:
+                token = storage_service.generate_access_token(
+                    entry.representative_object_key,
+                    subject="patient",
+                    ttl_seconds=ttl_seconds,
+                )
+                image_url = (
+                    f"/api/v1/patient/uploads/{entry.representative_upload_id}/image-public?token={token}"
+                )
+                expires_in = ttl_seconds
+            day_responses.append(
                 UploadHistoryDayResponse(
                     date=entry.date.isoformat(),
                     upload_count=entry.upload_count,
                     has_suspected_risk=entry.has_suspected_risk,
                     has_symptom_elevated_risk=entry.has_symptom_elevated_risk,
+                    representative_upload_id=entry.representative_upload_id,
+                    representative_image_url=image_url,
+                    representative_image_expires_in=expires_in,
                 )
-                for entry in days
-            ],
-            summary_28d=UploadHistorySummary28dResponse(
-                continuous_upload_streak_days=summary_28d.continuous_upload_streak_days,
+            )
+        return UploadHistoryResponse(
+            status=status,
+            patient_id=patient_id,
+            can_upload=can_upload,
+            days=day_responses,
+            summary=UploadHistorySummaryResponse(
+                continuous_upload_streak_days=history.metrics.continuous_upload_streak_days,
             ),
         )
     finally:

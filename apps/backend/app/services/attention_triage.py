@@ -51,6 +51,16 @@ def select_risk_representative(refs: Sequence[TriageUploadRef]) -> TriageUploadR
     return min(candidates, key=lambda ref: (normalize_datetime(ref.created_at), ref.upload_id))
 
 
+def select_day_cover_upload(refs: Sequence[TriageUploadRef]) -> TriageUploadRef | None:
+    """Pick the day's representative photo: risk cover if any, else latest upload."""
+    if not refs:
+        return None
+    risk_cover = select_risk_representative(refs)
+    if risk_cover is not None:
+        return risk_cover
+    return max(refs, key=lambda ref: (normalize_datetime(ref.created_at), ref.upload_id))
+
+
 def count_unhandled_patients(groups: Mapping[int, Sequence[TriageUploadRef]]) -> int:
     """Count patients with a risk representative that has no annotation."""
     unhandled = 0

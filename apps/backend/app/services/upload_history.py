@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, Upload
+from app.services.attention_triage import (
+    TriageUploadRef,
+    calendar_tier_to_attention_tier,
+    select_day_cover_upload,
+)
 from app.services.symptoms import calendar_risk_tier
 
 
@@ -17,6 +22,17 @@ class UploadHistoryDay:
     upload_count: int
     has_suspected_risk: bool
     has_symptom_elevated_risk: bool
+    representative_upload_id: int | None = None
+    representative_object_key: str | None = None
+
+
+@dataclass
+class _UploadHistoryDayBucket:
+    upload_count: int = 0
+    has_suspected_risk: bool = False
+    has_symptom_elevated_risk: bool = False
+    refs: list[TriageUploadRef] = field(default_factory=list)
+    object_key_by_upload_id: dict[int, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -24,6 +40,12 @@ class PatientUploadLifetimeMetrics:
     continuous_upload_streak_days: int
     longest_continuous_upload_streak_days: int
     total_upload_count: int
+
+
+@dataclass(frozen=True)
+class PatientUploadHistoryBundle:
+    days: list[UploadHistoryDay]
+    metrics: PatientUploadLifetimeMetrics
 
 
 @dataclass(frozen=True)
@@ -104,16 +126,12 @@ def _load_latest_annotation_by_upload(session: Session, *, patient_id: int) -> d
     return latest_by_upload
 
 
-def summarize_patient_upload_history(
-    session: Session,
-    *,
-    patient_id: int,
-    timezone_name: str = "Asia/Taipei",
-) -> list[UploadHistoryDay]:
-    rows: Sequence[tuple] = session.execute(
+def _load_patient_upload_history_rows(session: Session, *, patient_id: int) -> Sequence[tuple]:
+    return session.execute(
         select(
             Upload.id,
             Upload.created_at,
+            Upload.object_key,
             AIResult.screening_result,
             Upload.symptom_pain,
             Upload.symptom_pus,
@@ -124,12 +142,54 @@ def summarize_patient_upload_history(
         .order_by(Upload.created_at.asc())
     ).all()
 
+
+def _lifetime_metrics_from_date_counts(
+    uploads_by_date: dict[date, int],
+    *,
+    today: date,
+) -> PatientUploadLifetimeMetrics:
+    streak = 0
+    checking = today
+    while uploads_by_date.get(checking, 0) > 0:
+        streak += 1
+        checking -= timedelta(days=1)
+
+    longest = 0
+    run = 0
+    previous_day: date | None = None
+    for current_day in sorted(uploads_by_date):
+        if previous_day is not None and current_day == previous_day + timedelta(days=1):
+            run += 1
+        else:
+            run = 1
+        longest = max(longest, run)
+        previous_day = current_day
+
+    return PatientUploadLifetimeMetrics(
+        continuous_upload_streak_days=streak,
+        longest_continuous_upload_streak_days=longest,
+        total_upload_count=sum(uploads_by_date.values()),
+    )
+
+
+def summarize_patient_upload_history_with_metrics(
+    session: Session,
+    *,
+    patient_id: int,
+    timezone_name: str = "Asia/Taipei",
+    today: date | None = None,
+) -> PatientUploadHistoryBundle:
+    rows = _load_patient_upload_history_rows(session, patient_id=patient_id)
     local_timezone = _resolve_local_timezone(timezone_name)
+    local_today = today or datetime.now(tz=timezone.utc).astimezone(local_timezone).date()
     latest_annotation_by_upload = _load_latest_annotation_by_upload(session, patient_id=patient_id)
-    by_day: dict[date, UploadHistoryDay] = {}
+    by_day: dict[date, _UploadHistoryDayBucket] = {}
+    uploads_by_date: dict[date, int] = {}
+
     for (
         upload_id,
         created_at,
+        object_key,
         screening_result,
         symptom_pain,
         symptom_pus,
@@ -139,7 +199,6 @@ def summarize_patient_upload_history(
             continue
         normalized = _normalize_datetime(created_at)
         day_key = normalized.astimezone(local_timezone).date()
-        existing = by_day.get(day_key)
         latest_annotation = latest_annotation_by_upload.get(upload_id)
         tier = calendar_risk_tier(
             screening_result=screening_result,
@@ -148,25 +207,55 @@ def summarize_patient_upload_history(
             symptom_pus=bool(symptom_pus),
             symptom_cloudy_dialysate=bool(symptom_cloudy_dialysate),
         )
-        is_suspected = tier == "suspected"
-        is_elevated = tier == "elevated"
-        if existing is None:
-            by_day[day_key] = UploadHistoryDay(
-                date=day_key,
-                upload_count=1,
-                has_suspected_risk=is_suspected,
-                has_symptom_elevated_risk=is_elevated,
+        bucket = by_day.setdefault(day_key, _UploadHistoryDayBucket())
+        bucket.upload_count += 1
+        bucket.has_suspected_risk = bucket.has_suspected_risk or tier == "suspected"
+        bucket.has_symptom_elevated_risk = bucket.has_symptom_elevated_risk or tier == "elevated"
+        bucket.refs.append(
+            TriageUploadRef(
+                upload_id=upload_id,
+                created_at=normalized,
+                tier=calendar_tier_to_attention_tier(tier),
+                has_annotation=latest_annotation is not None,
             )
-            continue
-
-        by_day[day_key] = UploadHistoryDay(
-            date=day_key,
-            upload_count=existing.upload_count + 1,
-            has_suspected_risk=existing.has_suspected_risk or is_suspected,
-            has_symptom_elevated_risk=existing.has_symptom_elevated_risk or is_elevated,
         )
+        bucket.object_key_by_upload_id[upload_id] = object_key
+        # Lifetime metrics keep the previous inner-join rule: only scored (non-rejected) uploads.
+        if screening_result is not None and day_key <= local_today:
+            uploads_by_date[day_key] = uploads_by_date.get(day_key, 0) + 1
 
-    return [by_day[current] for current in sorted(by_day.keys())]
+    days: list[UploadHistoryDay] = []
+    for day_key in sorted(by_day.keys()):
+        bucket = by_day[day_key]
+        cover = select_day_cover_upload(bucket.refs)
+        cover_id = cover.upload_id if cover is not None else None
+        days.append(
+            UploadHistoryDay(
+                date=day_key,
+                upload_count=bucket.upload_count,
+                has_suspected_risk=bucket.has_suspected_risk,
+                has_symptom_elevated_risk=bucket.has_symptom_elevated_risk,
+                representative_upload_id=cover_id,
+                representative_object_key=bucket.object_key_by_upload_id.get(cover_id) if cover_id is not None else None,
+            )
+        )
+    return PatientUploadHistoryBundle(
+        days=days,
+        metrics=_lifetime_metrics_from_date_counts(uploads_by_date, today=local_today),
+    )
+
+
+def summarize_patient_upload_history(
+    session: Session,
+    *,
+    patient_id: int,
+    timezone_name: str = "Asia/Taipei",
+) -> list[UploadHistoryDay]:
+    return summarize_patient_upload_history_with_metrics(
+        session,
+        patient_id=patient_id,
+        timezone_name=timezone_name,
+    ).days
 
 
 def summarize_patient_upload_lifetime_metrics(
@@ -186,7 +275,6 @@ def summarize_patient_upload_lifetime_metrics(
 
     local_today = today or datetime.now(tz=timezone.utc).astimezone(local_timezone).date()
     uploads_by_date: dict[date, int] = {}
-    total_upload_count = 0
 
     for created_at, screening_result in rows:
         if screening_result == "rejected":
@@ -196,30 +284,8 @@ def summarize_patient_upload_lifetime_metrics(
         if local_date > local_today:
             continue
         uploads_by_date[local_date] = uploads_by_date.get(local_date, 0) + 1
-        total_upload_count += 1
 
-    streak = 0
-    checking = local_today
-    while uploads_by_date.get(checking, 0) > 0:
-        streak += 1
-        checking -= timedelta(days=1)
-
-    longest = 0
-    run = 0
-    previous_day: date | None = None
-    for current_day in sorted(uploads_by_date):
-        if previous_day is not None and current_day == previous_day + timedelta(days=1):
-            run += 1
-        else:
-            run = 1
-        longest = max(longest, run)
-        previous_day = current_day
-
-    return PatientUploadLifetimeMetrics(
-        continuous_upload_streak_days=streak,
-        longest_continuous_upload_streak_days=longest,
-        total_upload_count=total_upload_count,
-    )
+    return _lifetime_metrics_from_date_counts(uploads_by_date, today=local_today)
 
 
 def list_patient_uploads_by_local_day(

@@ -97,7 +97,7 @@ def _seed_pending_identity(client: TestClient, line_user_id: str = "U_LINE_PENDI
         session.commit()
 
 
-def _seed_upload_history(client: TestClient, patient_id: int) -> None:
+def _seed_upload_history(client: TestClient, patient_id: int) -> tuple[int, int, int]:
     session_factory = client.app.state.db_session_factory
     with session_factory() as session:
         base = datetime(2026, 5, 9, 2, 30, tzinfo=timezone.utc)
@@ -141,6 +141,35 @@ def _seed_upload_history(client: TestClient, patient_id: int) -> None:
             ]
         )
         session.commit()
+        return upload_1.id, upload_2.id, upload_3.id
+
+
+def _attach_storage(client: TestClient) -> None:
+    client.app.state.storage_service = _FakeStorageService()
+
+
+def _signed_history_day(
+    *,
+    date: str,
+    upload_count: int,
+    has_suspected_risk: bool,
+    has_symptom_elevated_risk: bool,
+    representative_upload_id: int,
+    object_key: str,
+    ttl_seconds: int = 300,
+) -> dict:
+    token = f"patient:{object_key}:{ttl_seconds}"
+    return {
+        "date": date,
+        "upload_count": upload_count,
+        "has_suspected_risk": has_suspected_risk,
+        "has_symptom_elevated_risk": has_symptom_elevated_risk,
+        "representative_upload_id": representative_upload_id,
+        "representative_image_url": (
+            f"/api/v1/patient/uploads/{representative_upload_id}/image-public?token={token}"
+        ),
+        "representative_image_expires_in": ttl_seconds,
+    }
 
 
 class _FakeStorageService:
@@ -176,8 +205,9 @@ def test_upload_history_returns_aggregated_days_for_matched_patient(tmp_path: Pa
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         patient_id = _seed_matched_identity(client, line_user_id="U_LINE_HISTORY")
-        _seed_upload_history(client, patient_id=patient_id)
+        _, upload_2_id, upload_3_id = _seed_upload_history(client, patient_id=patient_id)
         token = _issue_token_for_line_user(client, line_user_id="U_LINE_HISTORY")
+        _attach_storage(client)
 
         response = client.get(
             "/v1/patient/upload-history",
@@ -190,20 +220,24 @@ def test_upload_history_returns_aggregated_days_for_matched_patient(tmp_path: Pa
         assert payload["patient_id"] == patient_id
         assert payload["can_upload"] is True
         assert payload["days"] == [
-            {
-                "date": "2026-05-08",
-                "upload_count": 2,
-                "has_suspected_risk": True,
-                "has_symptom_elevated_risk": False,
-            },
-            {
-                "date": "2026-05-09",
-                "upload_count": 1,
-                "has_suspected_risk": False,
-                "has_symptom_elevated_risk": False,
-            },
+            _signed_history_day(
+                date="2026-05-08",
+                upload_count=2,
+                has_suspected_risk=True,
+                has_symptom_elevated_risk=False,
+                representative_upload_id=upload_2_id,
+                object_key="patients/1/uploads/u2.jpg",
+            ),
+            _signed_history_day(
+                date="2026-05-09",
+                upload_count=1,
+                has_suspected_risk=False,
+                has_symptom_elevated_risk=False,
+                representative_upload_id=upload_3_id,
+                object_key="patients/1/uploads/u3.jpg",
+            ),
         ]
-        assert payload["summary_28d"]["continuous_upload_streak_days"] >= 0
+        assert payload["summary"]["continuous_upload_streak_days"] >= 0
 
 
 def test_upload_history_returns_pending_status_without_day_data(tmp_path: Path) -> None:
@@ -224,7 +258,7 @@ def test_upload_history_returns_pending_status_without_day_data(tmp_path: Path) 
         assert payload["patient_id"] is None
         assert payload["can_upload"] is False
         assert payload["days"] == []
-        assert payload["summary_28d"] == {
+        assert payload["summary"] == {
             "continuous_upload_streak_days": 0,
         }
 
@@ -256,7 +290,9 @@ def test_upload_history_groups_by_taipei_local_date_boundary(tmp_path: Path) -> 
             session.flush()
             session.add(AIResult(upload_id=upload.id, screening_result="normal"))
             session.commit()
+            upload_id = upload.id
 
+        _attach_storage(client)
         response = client.get(
             "/v1/patient/upload-history",
             headers={"Authorization": f"Bearer {token}"},
@@ -265,12 +301,14 @@ def test_upload_history_groups_by_taipei_local_date_boundary(tmp_path: Path) -> 
         payload = response.json()
         assert payload["status"] == "matched"
         assert payload["days"] == [
-            {
-                "date": "2026-05-11",
-                "upload_count": 1,
-                "has_suspected_risk": False,
-                "has_symptom_elevated_risk": False,
-            },
+            _signed_history_day(
+                date="2026-05-11",
+                upload_count=1,
+                has_suspected_risk=False,
+                has_symptom_elevated_risk=False,
+                representative_upload_id=upload_id,
+                object_key="patients/1/uploads/tz-boundary.jpg",
+            ),
         ]
 
 
@@ -397,7 +435,9 @@ def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: P
                 )
             )
             session.commit()
+            upload_id = upload.id
 
+        _attach_storage(client)
         response = client.get(
             "/v1/patient/upload-history",
             headers={"Authorization": f"Bearer {token}"},
@@ -405,14 +445,16 @@ def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: P
         assert response.status_code == 200
         payload = response.json()
         assert payload["days"] == [
-            {
-                "date": datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
-                "upload_count": 1,
-                "has_suspected_risk": True,
-                "has_symptom_elevated_risk": False,
-            }
+            _signed_history_day(
+                date=datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
+                upload_count=1,
+                has_suspected_risk=True,
+                has_symptom_elevated_risk=False,
+                representative_upload_id=upload_id,
+                object_key="patients/1/uploads/summary-annotation.jpg",
+            )
         ]
-        assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
+        assert payload["summary"]["continuous_upload_streak_days"] == 1
 
 
 def test_upload_history_excludes_rejected_from_summary_and_daily_counts(tmp_path: Path) -> None:
@@ -445,7 +487,9 @@ def test_upload_history_excludes_rejected_from_summary_and_daily_counts(tmp_path
                 ]
             )
             session.commit()
+            suspected_upload_id = upload_suspected.id
 
+        _attach_storage(client)
         response = client.get(
             "/v1/patient/upload-history",
             headers={"Authorization": f"Bearer {token}"},
@@ -456,7 +500,49 @@ def test_upload_history_excludes_rejected_from_summary_and_daily_counts(tmp_path
         assert payload["days"][0]["upload_count"] == 1
         assert payload["days"][0]["has_suspected_risk"] is True
         assert payload["days"][0]["has_symptom_elevated_risk"] is False
-        assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
+        assert payload["days"][0]["representative_upload_id"] == suspected_upload_id
+        assert payload["days"][0]["representative_image_url"].startswith(
+            f"/api/v1/patient/uploads/{suspected_upload_id}/image-public?token="
+        )
+        assert payload["summary"]["continuous_upload_streak_days"] == 1
+
+
+def test_upload_history_counts_unscored_uploads_on_calendar_but_not_in_streak(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-unscored-pending.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_UNSCORED")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_UNSCORED")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            upload = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/pending.jpg",
+                content_type="image/jpeg",
+                created_at=datetime.now(tz=timezone.utc),
+            )
+            session.add(upload)
+            session.commit()
+            upload_id = upload.id
+
+        _attach_storage(client)
+        response = client.get(
+            "/v1/patient/upload-history",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["days"] == [
+            _signed_history_day(
+                date=datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
+                upload_count=1,
+                has_suspected_risk=False,
+                has_symptom_elevated_risk=False,
+                representative_upload_id=upload_id,
+                object_key="patients/1/uploads/pending.jpg",
+            )
+        ]
+        assert payload["summary"]["continuous_upload_streak_days"] == 0
 
 
 def test_patient_uploads_by_day_returns_day_scoped_records(tmp_path: Path) -> None:
@@ -806,7 +892,9 @@ def test_upload_history_marks_symptom_elevated_day_and_counts_rate(tmp_path: Pat
             session.flush()
             session.add(AIResult(upload_id=upload.id, screening_result="normal"))
             session.commit()
+            upload_id = upload.id
 
+        _attach_storage(client)
         response = client.get(
             "/v1/patient/upload-history",
             headers={"Authorization": f"Bearer {token}"},
@@ -814,14 +902,16 @@ def test_upload_history_marks_symptom_elevated_day_and_counts_rate(tmp_path: Pat
         assert response.status_code == 200
         payload = response.json()
         assert payload["days"] == [
-            {
-                "date": datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
-                "upload_count": 1,
-                "has_suspected_risk": False,
-                "has_symptom_elevated_risk": True,
-            }
+            _signed_history_day(
+                date=datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
+                upload_count=1,
+                has_suspected_risk=False,
+                has_symptom_elevated_risk=True,
+                representative_upload_id=upload_id,
+                object_key="patients/1/uploads/elevated.jpg",
+            )
         ]
-        assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
+        assert payload["summary"]["continuous_upload_streak_days"] == 1
 
 
 def test_upload_history_elevated_cleared_when_annotated_normal(tmp_path: Path) -> None:
@@ -859,7 +949,9 @@ def test_upload_history_elevated_cleared_when_annotated_normal(tmp_path: Path) -
                 )
             )
             session.commit()
+            upload_id = upload.id
 
+        _attach_storage(client)
         response = client.get(
             "/v1/patient/upload-history",
             headers={"Authorization": f"Bearer {token}"},
@@ -867,14 +959,16 @@ def test_upload_history_elevated_cleared_when_annotated_normal(tmp_path: Path) -
         assert response.status_code == 200
         payload = response.json()
         assert payload["days"] == [
-            {
-                "date": datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
-                "upload_count": 1,
-                "has_suspected_risk": False,
-                "has_symptom_elevated_risk": False,
-            }
+            _signed_history_day(
+                date=datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
+                upload_count=1,
+                has_suspected_risk=False,
+                has_symptom_elevated_risk=False,
+                representative_upload_id=upload_id,
+                object_key="patients/1/uploads/elevated-clear.jpg",
+            )
         ]
-        assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
+        assert payload["summary"]["continuous_upload_streak_days"] == 1
 
 
 def _taipei_today() -> date:
@@ -922,12 +1016,13 @@ def test_upload_history_current_streak_is_not_capped_at_28_days(tmp_path: Path) 
                 )
             session.commit()
 
+        _attach_storage(client)
         response = client.get(
             "/v1/patient/upload-history",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
-        assert response.json()["summary_28d"]["continuous_upload_streak_days"] == 30
+        assert response.json()["summary"]["continuous_upload_streak_days"] == 30
 
 
 def test_patient_profile_reports_longest_streak_and_total_upload_count(tmp_path: Path) -> None:
@@ -962,6 +1057,7 @@ def test_patient_profile_reports_longest_streak_and_total_upload_count(tmp_path:
             )
             session.commit()
 
+        _attach_storage(client)
         history = client.get(
             "/v1/patient/upload-history",
             headers={"Authorization": f"Bearer {token}"},
@@ -972,6 +1068,6 @@ def test_patient_profile_reports_longest_streak_and_total_upload_count(tmp_path:
         )
         assert history.status_code == 200
         assert profile.status_code == 200
-        assert history.json()["summary_28d"]["continuous_upload_streak_days"] == 3
+        assert history.json()["summary"]["continuous_upload_streak_days"] == 3
         assert profile.json()["longest_continuous_upload_streak_days"] == 10
         assert profile.json()["total_upload_count"] == 13

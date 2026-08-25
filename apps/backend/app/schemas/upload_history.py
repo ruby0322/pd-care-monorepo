@@ -11,9 +11,12 @@ class UploadHistoryDayResponse(BaseModel):
     upload_count: int = Field(ge=0)
     has_suspected_risk: bool
     has_symptom_elevated_risk: bool = False
+    representative_upload_id: int | None = None
+    representative_image_url: str | None = None
+    representative_image_expires_in: int | None = Field(default=None, ge=1)
 
 
-class UploadHistorySummary28dResponse(BaseModel):
+class UploadHistorySummaryResponse(BaseModel):
     continuous_upload_streak_days: int = Field(ge=0)
 
 
@@ -22,7 +25,7 @@ class UploadHistoryResponse(BaseModel):
     patient_id: int | None
     can_upload: bool
     days: list[UploadHistoryDayResponse]
-    summary_28d: UploadHistorySummary28dResponse
+    summary: UploadHistorySummaryResponse
 
 
 class PatientDayUploadItemResponse(BaseModel):
