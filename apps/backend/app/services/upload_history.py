@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, Upload
@@ -85,6 +85,29 @@ class PatientUploadDetail:
     local_date: date
     prev_upload_id: int | None
     next_upload_id: int | None
+
+
+@dataclass(frozen=True)
+class PatientGalleryUploadItem:
+    upload_id: int
+    created_at: datetime
+    local_date: date
+    object_key: str
+    has_suspected_risk: bool
+    has_symptom_elevated_risk: bool
+
+
+@dataclass(frozen=True)
+class PatientGalleryUploadsPage:
+    items: list[PatientGalleryUploadItem]
+    has_more_older: bool
+
+
+@dataclass(frozen=True)
+class PatientGalleryMonthBundle:
+    month: str
+    days: list[UploadHistoryDay]
+    has_more_older: bool
 
 
 @dataclass(frozen=True)
@@ -286,6 +309,95 @@ def summarize_patient_upload_lifetime_metrics(
         uploads_by_date[local_date] = uploads_by_date.get(local_date, 0) + 1
 
     return _lifetime_metrics_from_date_counts(uploads_by_date, today=local_today)
+
+
+def _parse_gallery_month_key(month_key: str) -> date:
+    parts = month_key.split("-")
+    if len(parts) != 2 or len(parts[0]) != 4 or len(parts[1]) != 2:
+        raise ValueError("month must be in YYYY-MM format")
+    try:
+        year = int(parts[0])
+        month = int(parts[1])
+        return date(year, month, 1)
+    except ValueError as exc:
+        raise ValueError("month must be in YYYY-MM format") from exc
+
+
+def _gallery_qualifying_clause():
+    return or_(AIResult.screening_result.is_(None), AIResult.screening_result != "rejected")
+
+
+def list_patient_gallery_uploads(
+    session: Session,
+    *,
+    patient_id: int,
+    before_id: int | None = None,
+    limit: int = 30,
+    timezone_name: str = "Asia/Taipei",
+) -> PatientGalleryUploadsPage:
+    local_timezone = _resolve_local_timezone(timezone_name)
+    stmt = (
+        select(Upload, AIResult)
+        .outerjoin(AIResult, AIResult.upload_id == Upload.id)
+        .where(Upload.patient_id == patient_id)
+        .where(_gallery_qualifying_clause())
+    )
+    if before_id is not None:
+        cursor = session.get(Upload, before_id)
+        if cursor is None or cursor.patient_id != patient_id:
+            raise LookupError("Gallery cursor upload was not found")
+        cursor_result = session.execute(select(AIResult).where(AIResult.upload_id == cursor.id)).scalar_one_or_none()
+        if cursor_result is not None and cursor_result.screening_result == "rejected":
+            raise LookupError("Gallery cursor upload was not found")
+        stmt = stmt.where(
+            or_(
+                Upload.created_at < cursor.created_at,
+                and_(Upload.created_at == cursor.created_at, Upload.id < cursor.id),
+            )
+        )
+    stmt = stmt.order_by(Upload.created_at.desc(), Upload.id.desc()).limit(limit + 1)
+    rows = session.execute(stmt).all()
+    has_more_older = len(rows) > limit
+    page_rows = list(reversed(rows[:limit]))
+    latest_annotation_by_upload = _load_latest_annotation_by_upload(session, patient_id=patient_id)
+    items: list[PatientGalleryUploadItem] = []
+    for upload, ai_result in page_rows:
+        screening_result = ai_result.screening_result if ai_result is not None else None
+        latest_annotation = latest_annotation_by_upload.get(upload.id)
+        tier = calendar_risk_tier(
+            screening_result=screening_result,
+            annotation_label=latest_annotation.label if latest_annotation else None,
+            symptom_pain=bool(upload.symptom_pain),
+            symptom_pus=bool(upload.symptom_pus),
+            symptom_cloudy_dialysate=bool(upload.symptom_cloudy_dialysate),
+        )
+        normalized = _normalize_datetime(upload.created_at)
+        items.append(
+            PatientGalleryUploadItem(
+                upload_id=upload.id,
+                created_at=upload.created_at,
+                local_date=normalized.astimezone(local_timezone).date(),
+                object_key=upload.object_key,
+                has_suspected_risk=tier == "suspected",
+                has_symptom_elevated_risk=tier == "elevated",
+            )
+        )
+    return PatientGalleryUploadsPage(items=items, has_more_older=has_more_older)
+
+
+def list_patient_gallery_month(
+    session: Session,
+    *,
+    patient_id: int,
+    month_key: str,
+    timezone_name: str = "Asia/Taipei",
+) -> PatientGalleryMonthBundle:
+    month_start = _parse_gallery_month_key(month_key)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    days = summarize_patient_upload_history(session, patient_id=patient_id, timezone_name=timezone_name)
+    month_days = [day for day in days if month_start <= day.date < next_month]
+    has_more_older = any(day.date < month_start for day in days)
+    return PatientGalleryMonthBundle(month=month_key, days=month_days, has_more_older=has_more_older)
 
 
 def list_patient_uploads_by_local_day(

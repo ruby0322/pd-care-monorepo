@@ -96,3 +96,25 @@ class PatientMessageListResponse(BaseModel):
 class PatientMarkAllMessagesReadResponse(BaseModel):
     updated_count: int = Field(ge=0)
     unread_count: int = Field(ge=0)
+
+
+class PatientGalleryUploadItemResponse(BaseModel):
+    upload_id: int
+    created_at: datetime
+    date: str = Field(examples=["2026-05-11"])
+    image_url: str
+    image_expires_in: int = Field(ge=1)
+    has_suspected_risk: bool
+    has_symptom_elevated_risk: bool = False
+
+
+class PatientGalleryUploadsResponse(BaseModel):
+    items: list[PatientGalleryUploadItemResponse]
+    has_more_older: bool
+    limit: int = Field(ge=1)
+
+
+class PatientGalleryMonthResponse(BaseModel):
+    month: str = Field(examples=["2026-05"])
+    days: list[UploadHistoryDayResponse]
+    has_more_older: bool

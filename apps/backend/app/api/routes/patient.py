@@ -14,6 +14,9 @@ from app.db.models import Upload
 from app.schemas.identity import PatientProfileResponse, PatientUiPreferencesRequest, PatientUiPreferencesResponse
 from app.schemas.prescreen import PatientPrescreenResponse
 from app.schemas.upload_history import (
+    PatientGalleryMonthResponse,
+    PatientGalleryUploadItemResponse,
+    PatientGalleryUploadsResponse,
     PatientMarkAllMessagesReadResponse,
     PatientMessageItemResponse,
     PatientMessageListResponse,
@@ -49,6 +52,8 @@ from app.services.upload import get_patient_result_for_line_user, persist_patien
 from app.services.symptoms import derived_symptom_fields
 from app.services.upload_history import (
     get_patient_upload_detail,
+    list_patient_gallery_month,
+    list_patient_gallery_uploads,
     list_patient_uploads_by_local_day,
     list_patient_annotation_messages,
     mark_all_patient_annotation_messages_read,
@@ -249,6 +254,106 @@ async def patch_patient_ui_preferences(
         return PatientUiPreferencesResponse(onboarding_guide_dismissed=profile.onboarding_guide_dismissed)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    finally:
+        session.close()
+
+
+def _patient_signed_image_url(
+    request: Request,
+    *,
+    upload_id: int,
+    object_key: str,
+) -> tuple[str, int]:
+    storage_service = _get_storage_service(request)
+    ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
+    token = storage_service.generate_access_token(object_key, subject="patient", ttl_seconds=ttl_seconds)
+    return f"/api/v1/patient/uploads/{upload_id}/image-public?token={token}", ttl_seconds
+
+
+def _history_day_response_from_entry(request: Request, entry) -> UploadHistoryDayResponse:
+    image_url: str | None = None
+    expires_in: int | None = None
+    if entry.representative_upload_id is not None and entry.representative_object_key:
+        image_url, expires_in = _patient_signed_image_url(
+            request,
+            upload_id=entry.representative_upload_id,
+            object_key=entry.representative_object_key,
+        )
+    return UploadHistoryDayResponse(
+        date=entry.date.isoformat(),
+        upload_count=entry.upload_count,
+        has_suspected_risk=entry.has_suspected_risk,
+        has_symptom_elevated_risk=entry.has_symptom_elevated_risk,
+        representative_upload_id=entry.representative_upload_id,
+        representative_image_url=image_url,
+        representative_image_expires_in=expires_in,
+    )
+
+
+@router.get("/v1/patient/gallery/uploads", response_model=PatientGalleryUploadsResponse)
+async def patient_gallery_uploads(
+    request: Request,
+    before_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=30, ge=1, le=100),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> PatientGalleryUploadsResponse:
+    _reject_legacy_line_user_id(request)
+    principal = get_current_principal(request, credentials)
+    session = _get_session(request)
+    try:
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
+        try:
+            page = list_patient_gallery_uploads(
+                session,
+                patient_id=patient_id,
+                before_id=before_id,
+                limit=limit,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        items = []
+        for item in page.items:
+            image_url, expires_in = _patient_signed_image_url(
+                request,
+                upload_id=item.upload_id,
+                object_key=item.object_key,
+            )
+            items.append(
+                PatientGalleryUploadItemResponse(
+                    upload_id=item.upload_id,
+                    created_at=item.created_at,
+                    date=item.local_date.isoformat(),
+                    image_url=image_url,
+                    image_expires_in=expires_in,
+                    has_suspected_risk=item.has_suspected_risk,
+                    has_symptom_elevated_risk=item.has_symptom_elevated_risk,
+                )
+            )
+        return PatientGalleryUploadsResponse(items=items, has_more_older=page.has_more_older, limit=limit)
+    finally:
+        session.close()
+
+
+@router.get("/v1/patient/gallery/months", response_model=PatientGalleryMonthResponse)
+async def patient_gallery_month(
+    request: Request,
+    month: str = Query(..., min_length=7, max_length=7),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> PatientGalleryMonthResponse:
+    _reject_legacy_line_user_id(request)
+    principal = get_current_principal(request, credentials)
+    session = _get_session(request)
+    try:
+        patient_id = _resolve_matched_patient_id(session, principal=principal)
+        try:
+            bundle = list_patient_gallery_month(session, patient_id=patient_id, month_key=month)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return PatientGalleryMonthResponse(
+            month=bundle.month,
+            days=[_history_day_response_from_entry(request, entry) for entry in bundle.days],
+            has_more_older=bundle.has_more_older,
+        )
     finally:
         session.close()
 
