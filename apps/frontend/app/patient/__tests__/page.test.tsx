@@ -199,7 +199,7 @@ describe("PatientPage month window prefetch flow", () => {
     fireEvent.click(await screen.findByRole("button", { name: "change-month" }));
 
     await waitFor(() => {
-      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11");
+      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11", { includeSummary: false });
     });
 
     expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
@@ -208,7 +208,7 @@ describe("PatientPage month window prefetch flow", () => {
 
     resolvePrefetch?.();
     await waitFor(() => {
-      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11");
+      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11", { includeSummary: false });
       expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
     });
 
@@ -274,14 +274,14 @@ describe("PatientPage month window prefetch flow", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "change-month" }));
     await waitFor(() => {
-      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11");
+      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-11", { includeSummary: false });
     });
     expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
     expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");
 
     fireEvent.click(screen.getByRole("button", { name: "change-month-older" }));
     await waitFor(() => {
-      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-08");
+      expect(fetchUploadHistoryByMonthWindow).toHaveBeenCalledWith("2025-08", { includeSummary: false });
     });
     expect(screen.getByTestId("patient-calendar")).toBeInTheDocument();
     expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-overlay-loading", "false");

@@ -276,6 +276,7 @@ def summarize_patient_upload_history_with_metrics(
     today: date | None = None,
     month_start: str | None = None,
     month_end: str | None = None,
+    include_metrics: bool = True,
 ) -> PatientUploadHistoryBundle:
     if (month_start is None) != (month_end is None):
         raise ValueError("month_start and month_end must be provided together")
@@ -359,7 +360,13 @@ def summarize_patient_upload_history_with_metrics(
                 representative_object_key=bucket.object_key_by_upload_id.get(cover_id) if cover_id is not None else None,
             )
         )
-    if window_start_date is not None:
+    if not include_metrics:
+        metrics = PatientUploadLifetimeMetrics(
+            continuous_upload_streak_days=0,
+            longest_continuous_upload_streak_days=0,
+            total_upload_count=0,
+        )
+    elif window_start_date is not None:
         metrics = summarize_patient_upload_lifetime_metrics(
             session,
             patient_id=patient_id,
@@ -499,6 +506,23 @@ def list_patient_gallery_uploads(
     return PatientGalleryUploadsPage(items=items, has_more_older=has_more_older)
 
 
+def _has_qualifying_upload_before(
+    session: Session,
+    *,
+    patient_id: int,
+    before_created_at: datetime,
+) -> bool:
+    row = session.execute(
+        select(Upload.id)
+        .outerjoin(AIResult, AIResult.upload_id == Upload.id)
+        .where(Upload.patient_id == patient_id)
+        .where(_gallery_qualifying_clause())
+        .where(Upload.created_at < before_created_at)
+        .limit(1)
+    ).first()
+    return row is not None
+
+
 def list_patient_gallery_month(
     session: Session,
     *,
@@ -506,12 +530,28 @@ def list_patient_gallery_month(
     month_key: str,
     timezone_name: str = "Asia/Taipei",
 ) -> PatientGalleryMonthBundle:
-    month_start = _parse_gallery_month_key(month_key)
-    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    days = summarize_patient_upload_history(session, patient_id=patient_id, timezone_name=timezone_name)
-    month_days = [day for day in days if month_start <= day.date < next_month]
-    has_more_older = any(day.date < month_start for day in days)
-    return PatientGalleryMonthBundle(month=month_key, days=month_days, has_more_older=has_more_older)
+    _, _, created_from, _ = _resolve_month_window_bounds(
+        month_key,
+        month_key,
+        timezone_name=timezone_name,
+    )
+    days = summarize_patient_upload_history_with_metrics(
+        session,
+        patient_id=patient_id,
+        timezone_name=timezone_name,
+        month_start=month_key,
+        month_end=month_key,
+        include_metrics=False,
+    ).days
+    return PatientGalleryMonthBundle(
+        month=month_key,
+        days=days,
+        has_more_older=_has_qualifying_upload_before(
+            session,
+            patient_id=patient_id,
+            before_created_at=created_from,
+        ),
+    )
 
 
 def list_patient_uploads_by_local_day(

@@ -44,6 +44,31 @@ describe("upload-history month window contract", () => {
     });
   });
 
+  test("fetchUploadHistoryByMonthWindow can omit lifetime summary on prefetch", async () => {
+    const getMock = apiClient.get as jest.Mock;
+    getMock.mockResolvedValueOnce({
+      data: {
+        status: "matched",
+        patient_id: 1,
+        can_upload: true,
+        days: [],
+        summary: {
+          continuous_upload_streak_days: 0,
+        },
+      },
+    });
+
+    await fetchUploadHistoryByMonthWindow("2026-05", { includeSummary: false });
+
+    expect(getMock).toHaveBeenCalledWith("/v1/patient/upload-history", {
+      params: {
+        month_start: "2026-03",
+        month_end: "2026-05",
+        include_summary: false,
+      },
+    });
+  });
+
   test("mergeUploadHistoryDays deduplicates by date and keeps latest record", () => {
     const previous: UploadHistoryDay[] = [
       { date: "2026-05-04", upload_count: 1, has_suspected_risk: false },

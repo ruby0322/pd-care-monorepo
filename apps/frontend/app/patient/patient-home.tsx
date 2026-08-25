@@ -116,12 +116,16 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
       setInitialHistoryLoading(true);
     }
     try {
-      const history = await fetchUploadHistoryByMonthWindow(monthEnd);
+      const history = isInitialMode
+        ? await fetchUploadHistoryByMonthWindow(monthEnd)
+        : await fetchUploadHistoryByMonthWindow(monthEnd, { includeSummary: false });
       if (!mountedRef.current) {
         return;
       }
       setHistoryDays((current) => (replace ? history.days : mergeUploadHistoryDays(current, history.days)));
-      setStreakDays(history.summary.continuous_upload_streak_days);
+      if (isInitialMode) {
+        setStreakDays(history.summary.continuous_upload_streak_days);
+      }
       setHistoryError(null);
       loadedMonthWindowsRef.current.add(monthEnd);
       const monthStart = getRelativeMonthKey(monthEnd, -2);

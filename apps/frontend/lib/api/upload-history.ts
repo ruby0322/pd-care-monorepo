@@ -97,12 +97,17 @@ export function getWindowStartMonthKey(monthEnd: string): string {
   return getRelativeMonthKey(monthEnd, -2);
 }
 
-export async function fetchUploadHistoryByMonthWindow(monthEnd: string): Promise<UploadHistoryResponse> {
+export async function fetchUploadHistoryByMonthWindow(
+  monthEnd: string,
+  options?: { includeSummary?: boolean }
+): Promise<UploadHistoryResponse> {
   const monthStart = getWindowStartMonthKey(monthEnd);
+  const includeSummary = options?.includeSummary ?? true;
   const { data } = await apiClient.get<UploadHistoryResponse>("/v1/patient/upload-history", {
     params: {
       month_start: monthStart,
       month_end: monthEnd,
+      ...(includeSummary ? {} : { include_summary: false }),
     },
   });
   return data;

@@ -305,6 +305,62 @@ def test_upload_history_window_filters_days_and_keeps_lifetime_streak(tmp_path: 
         )
 
 
+def test_upload_history_window_can_omit_lifetime_summary(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-month-window-no-summary.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_WINDOW_NO_SUMMARY")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_WINDOW_NO_SUMMARY")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            march = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/mar.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 3, 10, 4, 0, tzinfo=timezone.utc),
+            )
+            today_upload = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/today.jpg",
+                content_type="image/jpeg",
+                created_at=datetime.now(tz=timezone.utc) - timedelta(minutes=5),
+            )
+            session.add_all([march, today_upload])
+            session.flush()
+            session.add_all(
+                [
+                    AIResult(upload_id=march.id, screening_result="normal"),
+                    AIResult(upload_id=today_upload.id, screening_result="normal"),
+                ]
+            )
+            session.commit()
+            march_id = march.id
+
+        _attach_storage(client)
+        omitted = client.get(
+            "/v1/patient/upload-history",
+            params={
+                "month_start": "2026-03",
+                "month_end": "2026-03",
+                "include_summary": "false",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        included = client.get(
+            "/v1/patient/upload-history",
+            params={"month_start": "2026-03", "month_end": "2026-03"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert omitted.status_code == 200
+        assert included.status_code == 200
+        omitted_payload = omitted.json()
+        assert [day["date"] for day in omitted_payload["days"]] == ["2026-03-10"]
+        assert omitted_payload["days"][0]["representative_upload_id"] == march_id
+        assert omitted_payload["summary"]["continuous_upload_streak_days"] == 0
+        assert included.json()["summary"]["continuous_upload_streak_days"] == 1
+
+
 def test_upload_history_rejects_invalid_month_window(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "history-month-window-invalid.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
