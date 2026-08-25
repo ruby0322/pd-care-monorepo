@@ -7,11 +7,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import sqlite
 
 from app.config import Settings
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, PendingBinding, StaffPatientAssignment, Upload
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
+from app.services.upload_history import _patient_upload_date_counts_stmt
 from tests.db_test_utils import migrated_sqlite_database_url
 
 
@@ -238,6 +240,91 @@ def test_upload_history_returns_aggregated_days_for_matched_patient(tmp_path: Pa
             ),
         ]
         assert payload["summary"]["continuous_upload_streak_days"] >= 0
+
+
+def test_upload_history_window_filters_days_and_keeps_lifetime_streak(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-month-window.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_WINDOW")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_WINDOW")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            january = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/jan.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 1, 15, 4, 0, tzinfo=timezone.utc),
+            )
+            march = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/mar.jpg",
+                content_type="image/jpeg",
+                created_at=datetime(2026, 3, 10, 4, 0, tzinfo=timezone.utc),
+            )
+            today_upload = Upload(
+                patient_id=patient_id,
+                object_key="patients/1/uploads/today.jpg",
+                content_type="image/jpeg",
+                created_at=datetime.now(tz=timezone.utc) - timedelta(minutes=5),
+            )
+            session.add_all([january, march, today_upload])
+            session.flush()
+            session.add_all(
+                [
+                    AIResult(upload_id=january.id, screening_result="normal"),
+                    AIResult(upload_id=march.id, screening_result="normal"),
+                    AIResult(upload_id=today_upload.id, screening_result="normal"),
+                ]
+            )
+            session.commit()
+            march_id = march.id
+
+        _attach_storage(client)
+        windowed = client.get(
+            "/v1/patient/upload-history",
+            params={"month_start": "2026-03", "month_end": "2026-03"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        unwindowed = client.get(
+            "/v1/patient/upload-history",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert windowed.status_code == 200
+        assert unwindowed.status_code == 200
+        windowed_payload = windowed.json()
+        unwindowed_payload = unwindowed.json()
+        assert [day["date"] for day in windowed_payload["days"]] == ["2026-03-10"]
+        assert windowed_payload["days"][0]["representative_upload_id"] == march_id
+        assert {day["date"] for day in unwindowed_payload["days"]} >= {"2026-01-15", "2026-03-10"}
+        assert windowed_payload["summary"]["continuous_upload_streak_days"] == 1
+        assert (
+            windowed_payload["summary"]["continuous_upload_streak_days"]
+            == unwindowed_payload["summary"]["continuous_upload_streak_days"]
+        )
+
+
+def test_upload_history_rejects_invalid_month_window(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-month-window-invalid.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_matched_identity(client, line_user_id="U_LINE_WINDOW_BAD")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_WINDOW_BAD")
+
+        missing_end = client.get(
+            "/v1/patient/upload-history",
+            params={"month_start": "2026-03"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        inverted = client.get(
+            "/v1/patient/upload-history",
+            params={"month_start": "2026-05", "month_end": "2026-03"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert missing_end.status_code == 400
+        assert inverted.status_code == 400
 
 
 def test_upload_history_returns_pending_status_without_day_data(tmp_path: Path) -> None:
@@ -507,7 +594,7 @@ def test_upload_history_excludes_rejected_from_summary_and_daily_counts(tmp_path
         assert payload["summary"]["continuous_upload_streak_days"] == 1
 
 
-def test_upload_history_counts_unscored_uploads_on_calendar_but_not_in_streak(tmp_path: Path) -> None:
+def test_upload_history_counts_unscored_uploads_on_calendar_streak_and_profile_total(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "history-unscored-pending.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
@@ -526,12 +613,17 @@ def test_upload_history_counts_unscored_uploads_on_calendar_but_not_in_streak(tm
             upload_id = upload.id
 
         _attach_storage(client)
-        response = client.get(
+        history = client.get(
             "/v1/patient/upload-history",
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert response.status_code == 200
-        payload = response.json()
+        profile = client.get(
+            "/v1/patient/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert history.status_code == 200
+        assert profile.status_code == 200
+        payload = history.json()
         assert payload["days"] == [
             _signed_history_day(
                 date=datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date().isoformat(),
@@ -542,7 +634,9 @@ def test_upload_history_counts_unscored_uploads_on_calendar_but_not_in_streak(tm
                 object_key="patients/1/uploads/pending.jpg",
             )
         ]
-        assert payload["summary"]["continuous_upload_streak_days"] == 0
+        assert payload["summary"]["continuous_upload_streak_days"] == 1
+        assert profile.json()["total_upload_count"] == 1
+        assert profile.json()["longest_continuous_upload_streak_days"] == 1
 
 
 def test_patient_uploads_by_day_returns_day_scoped_records(tmp_path: Path) -> None:
@@ -1023,6 +1117,17 @@ def test_upload_history_current_streak_is_not_capped_at_28_days(tmp_path: Path) 
         )
         assert response.status_code == 200
         assert response.json()["summary"]["continuous_upload_streak_days"] == 30
+
+
+def test_lifetime_metrics_query_aggregates_counts_by_taipei_date() -> None:
+    stmt = _patient_upload_date_counts_stmt(
+        patient_id=1,
+        dialect_name="sqlite",
+        local_today=date(2026, 8, 25),
+    )
+    sql = str(stmt.compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": True})).lower()
+    assert "group by" in sql
+    assert "datetime" in sql
 
 
 def test_patient_profile_reports_longest_streak_and_total_upload_count(tmp_path: Path) -> None:

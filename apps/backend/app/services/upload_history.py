@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
@@ -14,6 +14,11 @@ from app.services.attention_triage import (
     select_day_cover_upload,
 )
 from app.services.symptoms import calendar_risk_tier
+from app.services.taipei_dates import (
+    coerce_sql_local_date,
+    resolve_taipei_day_bounds_for_date,
+    upload_taipei_local_date_expr,
+)
 
 
 @dataclass(frozen=True)
@@ -136,12 +141,18 @@ def _normalize_datetime(raw_dt: datetime) -> datetime:
     return raw_dt.replace(tzinfo=timezone.utc)
 
 
-def _load_latest_annotation_by_upload(session: Session, *, patient_id: int) -> dict[int, Annotation]:
-    rows = session.execute(
-        select(Annotation)
-        .where(Annotation.patient_id == patient_id)
-        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc())
-    ).scalars()
+def _load_latest_annotation_by_upload(
+    session: Session,
+    *,
+    patient_id: int,
+    upload_ids: Sequence[int] | None = None,
+) -> dict[int, Annotation]:
+    if upload_ids is not None and len(upload_ids) == 0:
+        return {}
+    stmt = select(Annotation).where(Annotation.patient_id == patient_id)
+    if upload_ids is not None:
+        stmt = stmt.where(Annotation.upload_id.in_(upload_ids))
+    rows = session.execute(stmt.order_by(Annotation.upload_id.asc(), Annotation.created_at.desc())).scalars()
     latest_by_upload: dict[int, Annotation] = {}
     for item in rows:
         if item.upload_id not in latest_by_upload:
@@ -149,8 +160,14 @@ def _load_latest_annotation_by_upload(session: Session, *, patient_id: int) -> d
     return latest_by_upload
 
 
-def _load_patient_upload_history_rows(session: Session, *, patient_id: int) -> Sequence[tuple]:
-    return session.execute(
+def _load_patient_upload_history_rows(
+    session: Session,
+    *,
+    patient_id: int,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+) -> Sequence[tuple]:
+    stmt = (
         select(
             Upload.id,
             Upload.created_at,
@@ -162,8 +179,64 @@ def _load_patient_upload_history_rows(session: Session, *, patient_id: int) -> S
         )
         .outerjoin(AIResult, AIResult.upload_id == Upload.id)
         .where(Upload.patient_id == patient_id)
-        .order_by(Upload.created_at.asc())
+    )
+    if created_from is not None:
+        stmt = stmt.where(Upload.created_at >= created_from)
+    if created_to is not None:
+        stmt = stmt.where(Upload.created_at < created_to)
+    return session.execute(stmt.order_by(Upload.created_at.asc())).all()
+
+
+def _qualifies_as_upload(screening_result: str | None) -> bool:
+    """Shared patient-facing count rule: any non-rejected upload counts.
+
+    Unscored rows (`screening_result is None`) count toward calendar days,
+    streak, longest streak, and profile `total_upload_count`. Rejected rows
+    never count. SQL callers cannot use `!= 'rejected'` alone (NULL is unknown);
+    use `_gallery_qualifying_clause()` instead.
+    """
+    return screening_result != "rejected"
+
+
+def _gallery_qualifying_clause():
+    # Matches `_qualifies_as_upload`: keep unscored rows, drop rejected.
+    return or_(AIResult.screening_result.is_(None), AIResult.screening_result != "rejected")
+
+
+def _patient_upload_date_counts_stmt(
+    *,
+    patient_id: int,
+    dialect_name: str,
+    local_today: date,
+):
+    local_date_col = upload_taipei_local_date_expr(Upload.created_at, dialect_name=dialect_name)
+    return (
+        select(local_date_col.label("local_date"), func.count(Upload.id))
+        .select_from(Upload)
+        .outerjoin(AIResult, AIResult.upload_id == Upload.id)
+        .where(Upload.patient_id == patient_id)
+        .where(_gallery_qualifying_clause())
+        .where(local_date_col <= local_today)
+        .group_by(local_date_col)
+    )
+
+
+def _load_patient_upload_date_counts(
+    session: Session,
+    *,
+    patient_id: int,
+    local_today: date,
+) -> dict[date, int]:
+    bind = session.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else "postgresql"
+    rows = session.execute(
+        _patient_upload_date_counts_stmt(
+            patient_id=patient_id,
+            dialect_name=dialect_name,
+            local_today=local_today,
+        )
     ).all()
+    return {coerce_sql_local_date(day): int(count) for day, count in rows}
 
 
 def _lifetime_metrics_from_date_counts(
@@ -201,13 +274,37 @@ def summarize_patient_upload_history_with_metrics(
     patient_id: int,
     timezone_name: str = "Asia/Taipei",
     today: date | None = None,
+    month_start: str | None = None,
+    month_end: str | None = None,
 ) -> PatientUploadHistoryBundle:
-    rows = _load_patient_upload_history_rows(session, patient_id=patient_id)
+    if (month_start is None) != (month_end is None):
+        raise ValueError("month_start and month_end must be provided together")
+
+    created_from: datetime | None = None
+    created_to: datetime | None = None
+    window_start_date: date | None = None
+    window_end_exclusive: date | None = None
+    if month_start is not None and month_end is not None:
+        window_start_date, window_end_exclusive, created_from, created_to = _resolve_month_window_bounds(
+            month_start,
+            month_end,
+            timezone_name=timezone_name,
+        )
+
+    rows = _load_patient_upload_history_rows(
+        session,
+        patient_id=patient_id,
+        created_from=created_from,
+        created_to=created_to,
+    )
     local_timezone = _resolve_local_timezone(timezone_name)
     local_today = today or datetime.now(tz=timezone.utc).astimezone(local_timezone).date()
-    latest_annotation_by_upload = _load_latest_annotation_by_upload(session, patient_id=patient_id)
+    latest_annotation_by_upload = _load_latest_annotation_by_upload(
+        session,
+        patient_id=patient_id,
+        upload_ids=[row[0] for row in rows],
+    )
     by_day: dict[date, _UploadHistoryDayBucket] = {}
-    uploads_by_date: dict[date, int] = {}
 
     for (
         upload_id,
@@ -218,7 +315,7 @@ def summarize_patient_upload_history_with_metrics(
         symptom_pus,
         symptom_cloudy_dialysate,
     ) in rows:
-        if screening_result == "rejected":
+        if not _qualifies_as_upload(screening_result):
             continue
         normalized = _normalize_datetime(created_at)
         day_key = normalized.astimezone(local_timezone).date()
@@ -243,12 +340,12 @@ def summarize_patient_upload_history_with_metrics(
             )
         )
         bucket.object_key_by_upload_id[upload_id] = object_key
-        # Lifetime metrics keep the previous inner-join rule: only scored (non-rejected) uploads.
-        if screening_result is not None and day_key <= local_today:
-            uploads_by_date[day_key] = uploads_by_date.get(day_key, 0) + 1
 
     days: list[UploadHistoryDay] = []
     for day_key in sorted(by_day.keys()):
+        if window_start_date is not None and window_end_exclusive is not None:
+            if day_key < window_start_date or day_key >= window_end_exclusive:
+                continue
         bucket = by_day[day_key]
         cover = select_day_cover_upload(bucket.refs)
         cover_id = cover.upload_id if cover is not None else None
@@ -262,9 +359,25 @@ def summarize_patient_upload_history_with_metrics(
                 representative_object_key=bucket.object_key_by_upload_id.get(cover_id) if cover_id is not None else None,
             )
         )
+    if window_start_date is not None:
+        metrics = summarize_patient_upload_lifetime_metrics(
+            session,
+            patient_id=patient_id,
+            timezone_name=timezone_name,
+            today=local_today,
+        )
+    else:
+        metrics = _lifetime_metrics_from_date_counts(
+            {
+                day_key: bucket.upload_count
+                for day_key, bucket in by_day.items()
+                if day_key <= local_today
+            },
+            today=local_today,
+        )
     return PatientUploadHistoryBundle(
         days=days,
-        metrics=_lifetime_metrics_from_date_counts(uploads_by_date, today=local_today),
+        metrics=metrics,
     )
 
 
@@ -289,26 +402,11 @@ def summarize_patient_upload_lifetime_metrics(
     today: date | None = None,
 ) -> PatientUploadLifetimeMetrics:
     local_timezone = _resolve_local_timezone(timezone_name)
-    rows: Sequence[tuple] = session.execute(
-        select(Upload.created_at, AIResult.screening_result)
-        .join(AIResult, AIResult.upload_id == Upload.id)
-        .where(Upload.patient_id == patient_id)
-        .order_by(Upload.created_at.asc())
-    ).all()
-
     local_today = today or datetime.now(tz=timezone.utc).astimezone(local_timezone).date()
-    uploads_by_date: dict[date, int] = {}
-
-    for created_at, screening_result in rows:
-        if screening_result == "rejected":
-            continue
-        normalized = _normalize_datetime(created_at)
-        local_date = normalized.astimezone(local_timezone).date()
-        if local_date > local_today:
-            continue
-        uploads_by_date[local_date] = uploads_by_date.get(local_date, 0) + 1
-
-    return _lifetime_metrics_from_date_counts(uploads_by_date, today=local_today)
+    return _lifetime_metrics_from_date_counts(
+        _load_patient_upload_date_counts(session, patient_id=patient_id, local_today=local_today),
+        today=local_today,
+    )
 
 
 def _parse_gallery_month_key(month_key: str) -> date:
@@ -323,8 +421,24 @@ def _parse_gallery_month_key(month_key: str) -> date:
         raise ValueError("month must be in YYYY-MM format") from exc
 
 
-def _gallery_qualifying_clause():
-    return or_(AIResult.screening_result.is_(None), AIResult.screening_result != "rejected")
+def _resolve_month_window_bounds(
+    month_start: str,
+    month_end: str,
+    *,
+    timezone_name: str,
+) -> tuple[date, date, datetime, datetime]:
+    start_month = _parse_gallery_month_key(month_start)
+    end_month = _parse_gallery_month_key(month_end)
+    if start_month > end_month:
+        raise ValueError("month_start must be on or before month_end")
+    next_month = (end_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    if timezone_name == "Asia/Taipei":
+        _, created_from, _ = resolve_taipei_day_bounds_for_date(start_month)
+        _, created_to, _ = resolve_taipei_day_bounds_for_date(next_month)
+    else:
+        created_from = datetime.combine(start_month, time.min, tzinfo=timezone.utc)
+        created_to = datetime.combine(next_month, time.min, tzinfo=timezone.utc)
+    return start_month, next_month, created_from, created_to
 
 
 def list_patient_gallery_uploads(

@@ -134,6 +134,8 @@ def _reject_legacy_line_user_id(request: Request) -> None:
 async def patient_upload_history(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    month_start: str | None = Query(default=None, min_length=7, max_length=7, pattern=r"^\d{4}-\d{2}$"),
+    month_end: str | None = Query(default=None, min_length=7, max_length=7, pattern=r"^\d{4}-\d{2}$"),
 ) -> UploadHistoryResponse:
     _reject_legacy_line_user_id(request)
     principal = get_current_principal(request, credentials)
@@ -151,7 +153,15 @@ async def patient_upload_history(
                 ),
             )
 
-        history = summarize_patient_upload_history_with_metrics(session, patient_id=patient_id)
+        try:
+            history = summarize_patient_upload_history_with_metrics(
+                session,
+                patient_id=patient_id,
+                month_start=month_start,
+                month_end=month_end,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         storage_service = _get_storage_service(request)
         ttl_seconds = int(request.app.state.settings.image_access_token_ttl_seconds)
         day_responses: list[UploadHistoryDayResponse] = []
