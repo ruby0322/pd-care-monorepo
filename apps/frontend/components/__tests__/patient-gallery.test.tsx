@@ -183,6 +183,67 @@ describe("PatientGalleryView", () => {
     );
   });
 
+  test("calendar mode stays on the current month instead of auto-loading older months", async () => {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return 2000;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return 600;
+      },
+    });
+    Object.defineProperty(window, "IntersectionObserver", {
+      writable: true,
+      value: jest.fn().mockImplementation((callback: (entries: Array<{ isIntersecting: boolean }>) => void) => {
+        return {
+          observe: () => {
+            callback([{ isIntersecting: true }]);
+          },
+          unobserve: jest.fn(),
+          disconnect: jest.fn(),
+          takeRecords: jest.fn(() => []),
+        };
+      }),
+    });
+
+    const fetchMonth = jest.fn().mockImplementation(async (month: string) => ({
+      month,
+      has_more_older: month > "2026-01",
+      days: [
+        {
+          date: `${month}-03`,
+          upload_count: 1,
+          has_suspected_risk: false,
+          representative_image_url: "/cover.jpg",
+        },
+      ],
+    }));
+
+    render(
+      <PatientGalleryView
+        fetchUploads={jest.fn().mockResolvedValue(makeUploads())}
+        fetchMonth={fetchMonth}
+        onUploadClick={jest.fn()}
+        onDayClick={jest.fn()}
+      />
+    );
+
+    await screen.findByTestId("gallery-grid");
+    fireEvent.click(screen.getByRole("tab", { name: "日曆" }));
+
+    expect(await screen.findByRole("heading", { name: "2026 年 5 月" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMonth).toHaveBeenCalled();
+    });
+    expect(fetchMonth.mock.calls.map((call) => call[0])).toEqual(["2026-05"]);
+    expect(screen.queryByRole("heading", { name: "2026 年 4 月" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("gallery-scroller").scrollTop).toBeGreaterThan(0);
+  });
+
   test("shows a month skeleton while calendar mode loads", async () => {
     let resolveMonth: ((value: GalleryMonthResponse) => void) | null = null;
     const fetchMonth = jest.fn().mockImplementation(

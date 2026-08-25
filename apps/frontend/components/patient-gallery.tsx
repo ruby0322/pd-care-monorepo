@@ -101,7 +101,7 @@ export function PatientGalleryView({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prependScrollRef = useRef<{ height: number; top: number } | null>(null);
-  const readyForOlderRef = useRef(false);
+  const olderLoadArmedRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const olderInFlightRef = useRef(false);
   const todayKey = getTaipeiTodayKey();
@@ -109,7 +109,7 @@ export function PatientGalleryView({
 
   useEffect(() => {
     let cancelled = false;
-    readyForOlderRef.current = false;
+    olderLoadArmedRef.current = false;
     stickToBottomRef.current = true;
 
     async function load() {
@@ -160,8 +160,9 @@ export function PatientGalleryView({
     }
     if (stickToBottomRef.current) {
       scroller.scrollTop = scroller.scrollHeight;
-      stickToBottomRef.current = false;
-      readyForOlderRef.current = true;
+      if (scroller.scrollTop > 0) {
+        stickToBottomRef.current = false;
+      }
     }
   }, [initialLoading, mode, months, uploads]);
 
@@ -220,7 +221,12 @@ export function PatientGalleryView({
     }
     const observer = new IntersectionObserver(
       (entries) => {
-        if (!readyForOlderRef.current || !entries.some((entry) => entry.isIntersecting)) {
+        const intersecting = entries.some((entry) => entry.isIntersecting);
+        if (!intersecting) {
+          olderLoadArmedRef.current = true;
+          return;
+        }
+        if (!olderLoadArmedRef.current) {
           return;
         }
         if (mode === "grid") {
@@ -229,7 +235,7 @@ export function PatientGalleryView({
         }
         void loadOlderMonth();
       },
-      { root: scroller, rootMargin: "80px" }
+      { root: scroller, rootMargin: "0px" }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -376,47 +382,52 @@ export function PatientGalleryView({
 
       <div
         ref={scrollerRef}
+        data-testid="gallery-scroller"
         className="mt-4 min-h-0 flex-1 overflow-y-auto"
         aria-busy={initialLoading || olderLoading}
       >
-        <div ref={sentinelRef} data-testid="gallery-older-sentinel" className="h-1" />
-        {olderLoading ? (
-          mode === "grid" ? (
-            <GalleryGridSkeleton count={GRID_OLDER_SKELETON_CELLS} testId="gallery-older-grid-skeleton" />
-          ) : (
-            <GalleryCalendarSkeleton monthKey={months[0] ? getRelativeMonthKey(months[0].month, -1) : currentMonthKey} />
-          )
-        ) : null}
-        {error ? <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-        {initialLoading ? (
-          mode === "grid" ? (
-            <GalleryGridSkeleton count={GRID_SKELETON_CELLS} testId="gallery-grid-skeleton" />
-          ) : (
-            <GalleryCalendarSkeleton monthKey={currentMonthKey} />
-          )
-        ) : null}
-        {isEmpty ? <p className="py-8 text-sm text-zinc-500">尚無相片</p> : null}
+        <div className="flex min-h-[calc(100%+1px)] flex-col">
+          <div ref={sentinelRef} data-testid="gallery-older-sentinel" className="h-px shrink-0" />
+          <div className="mt-auto">
+            {olderLoading ? (
+              mode === "grid" ? (
+                <GalleryGridSkeleton count={GRID_OLDER_SKELETON_CELLS} testId="gallery-older-grid-skeleton" />
+              ) : (
+                <GalleryCalendarSkeleton monthKey={months[0] ? getRelativeMonthKey(months[0].month, -1) : currentMonthKey} />
+              )
+            ) : null}
+            {error ? <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+            {initialLoading ? (
+              mode === "grid" ? (
+                <GalleryGridSkeleton count={GRID_SKELETON_CELLS} testId="gallery-grid-skeleton" />
+              ) : (
+                <GalleryCalendarSkeleton monthKey={currentMonthKey} />
+              )
+            ) : null}
+            {isEmpty ? <p className="py-8 text-sm text-zinc-500">尚無相片</p> : null}
 
-        {!initialLoading && mode === "grid" && uploads.length > 0 ? (
-          <div data-testid="gallery-grid" className="grid grid-cols-3 gap-0.5">
-            {uploads.map((item) => (
-              <button
-                type="button"
-                key={item.upload_id}
-                data-testid="gallery-grid-cell"
-                className="relative aspect-square overflow-hidden bg-zinc-200"
-                aria-label={`上傳 ${item.date}`}
-                onClick={() => onUploadClick(item)}
-              >
-                <Image src={item.image_url} alt="" fill unoptimized className="object-cover" />
-              </button>
-            ))}
+            {!initialLoading && mode === "grid" && uploads.length > 0 ? (
+              <div data-testid="gallery-grid" className="grid grid-cols-3 gap-0.5">
+                {uploads.map((item) => (
+                  <button
+                    type="button"
+                    key={item.upload_id}
+                    data-testid="gallery-grid-cell"
+                    className="relative aspect-square overflow-hidden bg-zinc-200"
+                    aria-label={`上傳 ${item.date}`}
+                    onClick={() => onUploadClick(item)}
+                  >
+                    <Image src={item.image_url} alt="" fill unoptimized className="object-cover" />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {!initialLoading && mode === "calendar"
+              ? months.map((bundle) => renderPhotoMonth(bundle))
+              : null}
           </div>
-        ) : null}
-
-        {!initialLoading && mode === "calendar"
-          ? months.map((bundle) => renderPhotoMonth(bundle))
-          : null}
+        </div>
       </div>
     </div>
   );
