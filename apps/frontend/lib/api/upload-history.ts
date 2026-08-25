@@ -6,9 +6,12 @@ export type UploadHistoryDay = {
   upload_count: number;
   has_suspected_risk: boolean;
   has_symptom_elevated_risk?: boolean;
+  representative_upload_id?: number | null;
+  representative_image_url?: string | null;
+  representative_image_expires_in?: number | null;
 };
 
-export type UploadHistorySummary28d = {
+export type UploadHistorySummary = {
   continuous_upload_streak_days: number;
 };
 
@@ -17,7 +20,7 @@ export type UploadHistoryResponse = {
   patient_id: number | null;
   can_upload: boolean;
   days: UploadHistoryDay[];
-  summary_28d: UploadHistorySummary28d;
+  summary: UploadHistorySummary;
 };
 
 export type PatientDayUploadItem = {

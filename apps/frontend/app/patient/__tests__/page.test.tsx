@@ -32,16 +32,19 @@ jest.mock("@/components/patient-daily-calendar", () => ({
     onMonthChange,
     overlayLoading,
     streakDays,
+    showCalendarModeTabs,
   }: {
     onMonthChange?: (monthKey: string) => void;
     overlayLoading?: boolean;
     streakDays?: number;
+    showCalendarModeTabs?: boolean;
   }) => (
     <div>
       <div
         data-testid="patient-calendar"
         data-overlay-loading={overlayLoading ? "true" : "false"}
         data-streak-days={streakDays ?? ""}
+        data-show-calendar-mode-tabs={showCalendarModeTabs ? "true" : "false"}
       />
       <button type="button" onClick={() => onMonthChange?.("2026-02")}>
         change-month
@@ -81,7 +84,7 @@ describe("PatientPage month window prefetch flow", () => {
     patient_id: 1,
     can_upload: true,
     days: [],
-    summary_28d: {
+    summary: {
       continuous_upload_streak_days: 0,
     },
   };
@@ -319,5 +322,6 @@ describe("PatientPage month window prefetch flow", () => {
     expect(screen.queryByText("疑似感染率")).not.toBeInTheDocument();
     expect(screen.queryByText("上傳次數")).not.toBeInTheDocument();
     expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-streak-days", "0");
+    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-show-calendar-mode-tabs", "true");
   });
 });

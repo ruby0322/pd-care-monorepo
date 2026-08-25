@@ -88,6 +88,7 @@ describe("Admin patient detail calendar", () => {
         loadedOldestMonthKey: "2026-05",
         loadedNewestMonthKey: "2026-06",
       }));
+      expect(calendarProps.showCalendarModeTabs).toBeUndefined();
     });
   });
 

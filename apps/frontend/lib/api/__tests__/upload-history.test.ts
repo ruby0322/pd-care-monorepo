@@ -26,7 +26,7 @@ describe("upload-history month window contract", () => {
         patient_id: 1,
         can_upload: true,
         days: [],
-        summary_28d: {
+        summary: {
           continuous_upload_streak_days: 0,
         },
       },

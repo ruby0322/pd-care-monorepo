@@ -121,7 +121,7 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
         return;
       }
       setHistoryDays((current) => (replace ? history.days : mergeUploadHistoryDays(current, history.days)));
-      setStreakDays(history.summary_28d.continuous_upload_streak_days);
+      setStreakDays(history.summary.continuous_upload_streak_days);
       setHistoryError(null);
       loadedMonthWindowsRef.current.add(monthEnd);
       const monthStart = getRelativeMonthKey(monthEnd, -2);
@@ -335,6 +335,7 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
               <PatientDailyCalendar
                 days={historyDays}
                 streakDays={streakDays}
+                showCalendarModeTabs
                 initialMonthKey={visibleCalendarMonth ?? undefined}
                 loadedOldestMonthKey={loadedCalendarBounds.oldestMonthKey ?? undefined}
                 loadedNewestMonthKey={loadedCalendarBounds.newestMonthKey ?? currentMonthKey}

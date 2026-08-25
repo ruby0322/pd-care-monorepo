@@ -66,15 +66,24 @@ jest.mock("@/components/ui/carousel", () => {
 
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
 
+jest.mock("next/image", () => ({
+  __esModule: true,
+  default: ({ alt, src }: { alt: string; src: string }) => (
+    // eslint-disable-next-line @next/next/no-img-element -- test stub
+    <img alt={alt} src={src} />
+  ),
+}));
+
 const days = [
-  { date: "2026-05-03", upload_count: 1, has_suspected_risk: false },
+  { date: "2026-05-03", upload_count: 1, has_suspected_risk: false, representative_image_url: "/covers/normal.jpg" },
   { date: "2026-05-04", upload_count: 2, has_suspected_risk: false },
-  { date: "2026-05-05", upload_count: 1, has_suspected_risk: true },
+  { date: "2026-05-05", upload_count: 1, has_suspected_risk: true, representative_image_url: "/covers/suspected.jpg" },
   {
     date: "2026-05-06",
     upload_count: 1,
     has_suspected_risk: false,
     has_symptom_elevated_risk: true,
+    representative_image_url: "/covers/elevated.jpg",
   },
 ];
 
@@ -385,5 +394,47 @@ describe("PatientDailyCalendar month paging UI", () => {
     render(<PatientDailyCalendar days={days} />);
 
     expect(screen.queryByTestId("calendar-streak-tab")).not.toBeInTheDocument();
+  });
+
+  test("hides calendar mode tabs unless showCalendarModeTabs is set", () => {
+    render(<PatientDailyCalendar days={days} />);
+
+    expect(screen.queryByRole("tab", { name: "日曆" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "相片" })).not.toBeInTheDocument();
+  });
+
+  test("renders mode tabs flush with the calendar top-left when enabled", () => {
+    render(<PatientDailyCalendar days={days} showCalendarModeTabs streakDays={7} />);
+
+    expect(screen.getByRole("tab", { name: "日曆" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "相片" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("region", { name: "每日上傳日曆" })).toHaveClass("rounded-tl-none");
+    expect(screen.getByRole("region", { name: "每日上傳日曆" })).toHaveClass("rounded-tr-none");
+  });
+
+  test("keeps color cells in calendar-days mode even when covers exist", () => {
+    render(<PatientDailyCalendar days={days} showCalendarModeTabs initialMonthKey="2026-05" />);
+
+    const suspectedCell = screen.getByRole("button", { name: "2026-05-05 1 uploads" });
+    expect(suspectedCell.className).toContain("bg-red-400");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByText("顏色深淺代表當日上傳次數")).toBeInTheDocument();
+  });
+
+  test("photo mode uses representative covers and risk borders", () => {
+    render(<PatientDailyCalendar days={days} showCalendarModeTabs initialMonthKey="2026-05" />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "相片" }));
+
+    expect(screen.getByRole("tab", { name: "相片" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "2026-05-03 1 uploads" }).querySelector("img")).toHaveAttribute(
+      "src",
+      "/covers/normal.jpg"
+    );
+    expect(screen.getByRole("button", { name: "2026-05-05 1 uploads" }).className).toContain("border-red-500");
+    expect(screen.getByRole("button", { name: "2026-05-06 1 uploads" }).className).toContain("border-orange-500");
+    expect(screen.getByRole("button", { name: "2026-05-05 1 uploads" }).className).not.toContain("bg-red-400");
+    expect(screen.queryByText("顏色深淺代表當日上傳次數")).not.toBeInTheDocument();
+    expect(screen.getByText("一般（相片、無框）")).toBeInTheDocument();
   });
 });
