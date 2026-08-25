@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { PatientGalleryView } from "@/components/patient-gallery";
 import type { GalleryMonthResponse, GalleryUploadsResponse } from "@/lib/api/upload-history";
@@ -58,13 +58,13 @@ function makeUploads(): GalleryUploadsResponse {
   };
 }
 
-function makeMonth(): GalleryMonthResponse {
+function makeMonth(month = "2026-05", hasMoreOlder = false): GalleryMonthResponse {
   return {
-    month: "2026-05",
-    has_more_older: false,
+    month,
+    has_more_older: hasMoreOlder,
     days: [
       {
-        date: "2026-05-03",
+        date: `${month}-03`,
         upload_count: 1,
         has_suspected_risk: true,
         representative_image_url: "/cover.jpg",
@@ -73,18 +73,75 @@ function makeMonth(): GalleryMonthResponse {
   };
 }
 
+type IoCallback = (entries: Array<{ isIntersecting: boolean }>) => void;
+
+const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+
+function stubScrollerOverflow(): void {
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get() {
+      return 2000;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get() {
+      return 600;
+    },
+  });
+}
+
+function restoreScrollerOverflow(): void {
+  if (originalScrollHeight) {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", originalScrollHeight);
+  }
+  if (originalClientHeight) {
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
+  }
+}
+
+function installIntersectionObserver(options?: { emitOnObserve?: boolean }) {
+  const instances: Array<{ callback: IoCallback; init?: IntersectionObserverInit }> = [];
+  const Mock = jest.fn().mockImplementation((callback: IoCallback, init?: IntersectionObserverInit) => {
+    const instance = { callback, init };
+    instances.push(instance);
+    return {
+      observe: () => {
+        if (options?.emitOnObserve) {
+          callback([{ isIntersecting: true }]);
+        }
+      },
+      unobserve: jest.fn(),
+      disconnect: jest.fn(),
+      takeRecords: jest.fn(() => []),
+    };
+  });
+  Object.defineProperty(window, "IntersectionObserver", {
+    writable: true,
+    configurable: true,
+    value: Mock,
+  });
+  return {
+    emit(isIntersecting: boolean) {
+      const latest = instances[instances.length - 1];
+      latest?.callback([{ isIntersecting }]);
+    },
+    latestInit() {
+      return instances[instances.length - 1]?.init;
+    },
+  };
+}
+
 describe("PatientGalleryView", () => {
   beforeEach(() => {
     mockBack.mockClear();
-    Object.defineProperty(window, "IntersectionObserver", {
-      writable: true,
-      value: jest.fn().mockImplementation(() => ({
-        observe: jest.fn(),
-        unobserve: jest.fn(),
-        disconnect: jest.fn(),
-        takeRecords: jest.fn(() => []),
-      })),
-    });
+    installIntersectionObserver();
+  });
+
+  afterEach(() => {
+    restoreScrollerOverflow();
   });
 
   test("renders a 3-column grid of uploads with newest last", async () => {
@@ -181,6 +238,119 @@ describe("PatientGalleryView", () => {
       "src",
       "/cover.jpg"
     );
+  });
+
+  test("calendar mode stays on the current month instead of auto-loading older months", async () => {
+    stubScrollerOverflow();
+    const observer = installIntersectionObserver({ emitOnObserve: true });
+
+    const fetchMonth = jest.fn().mockImplementation(async (month: string) => makeMonth(month, month > "2026-01"));
+
+    render(
+      <PatientGalleryView
+        fetchUploads={jest.fn().mockResolvedValue(makeUploads())}
+        fetchMonth={fetchMonth}
+        onUploadClick={jest.fn()}
+        onDayClick={jest.fn()}
+      />
+    );
+
+    await screen.findByTestId("gallery-grid");
+    fireEvent.click(screen.getByRole("tab", { name: "日曆" }));
+
+    expect(await screen.findByRole("heading", { name: "2026 年 5 月" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMonth).toHaveBeenCalled();
+    });
+    expect(fetchMonth.mock.calls.map((call) => call[0])).toEqual(["2026-05"]);
+    expect(screen.queryByRole("heading", { name: "2026 年 4 月" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("gallery-scroller").scrollTop).toBeGreaterThan(0);
+    expect(observer.latestInit()?.rootMargin).toBe("80px");
+  });
+
+  test("grid reverse-scroll loads older uploads after the sentinel leaves then returns", async () => {
+    const observer = installIntersectionObserver();
+    const olderPage: GalleryUploadsResponse = {
+      has_more_older: false,
+      limit: 30,
+      items: [
+        {
+          upload_id: 0,
+          created_at: "2026-04-30T00:00:00Z",
+          date: "2026-04-30",
+          image_url: "/u0.jpg",
+          image_expires_in: 300,
+          has_suspected_risk: false,
+        },
+      ],
+    };
+    const fetchUploads = jest
+      .fn()
+      .mockResolvedValueOnce({ ...makeUploads(), has_more_older: true })
+      .mockResolvedValueOnce(olderPage);
+
+    render(
+      <PatientGalleryView
+        fetchUploads={fetchUploads}
+        fetchMonth={jest.fn().mockResolvedValue(makeMonth())}
+        onUploadClick={jest.fn()}
+        onDayClick={jest.fn()}
+      />
+    );
+
+    await screen.findByTestId("gallery-grid");
+    expect(fetchUploads).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      observer.emit(true);
+    });
+    expect(fetchUploads).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      observer.emit(false);
+      observer.emit(true);
+    });
+
+    await waitFor(() => {
+      expect(fetchUploads).toHaveBeenCalledWith({ beforeId: 1, limit: 30 });
+    });
+    expect(await screen.findByRole("button", { name: "上傳 2026-04-30" })).toBeInTheDocument();
+    expect(observer.latestInit()?.rootMargin).toBe("80px");
+  });
+
+  test("calendar scroll-up loads an older month after the sentinel leaves then returns", async () => {
+    const observer = installIntersectionObserver();
+    const fetchMonth = jest.fn().mockImplementation(async (month: string) => makeMonth(month, month > "2026-01"));
+
+    render(
+      <PatientGalleryView
+        fetchUploads={jest.fn().mockResolvedValue(makeUploads())}
+        fetchMonth={fetchMonth}
+        onUploadClick={jest.fn()}
+        onDayClick={jest.fn()}
+      />
+    );
+
+    await screen.findByTestId("gallery-grid");
+    fireEvent.click(screen.getByRole("tab", { name: "日曆" }));
+    expect(await screen.findByRole("heading", { name: "2026 年 5 月" })).toBeInTheDocument();
+
+    await act(async () => {
+      observer.emit(true);
+    });
+    expect(fetchMonth.mock.calls.map((call) => call[0])).toEqual(["2026-05"]);
+
+    await act(async () => {
+      observer.emit(false);
+      observer.emit(true);
+    });
+
+    await waitFor(() => {
+      expect(fetchMonth).toHaveBeenCalledWith("2026-04");
+    });
+    expect(await screen.findByRole("heading", { name: "2026 年 4 月" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "2026 年 5 月" })).toBeInTheDocument();
+    expect(observer.latestInit()?.rootMargin).toBe("80px");
   });
 
   test("shows a month skeleton while calendar mode loads", async () => {
