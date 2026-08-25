@@ -11,7 +11,6 @@ import {
     mergeUploadHistoryDays,
     PatientMessageItem,
     UploadHistoryDay,
-    UploadHistorySummary28d,
 } from "@/lib/api/upload-history";
 import { getLiffLoginProof } from "@/lib/auth/liff";
 import { buildPatientOnboardingPath } from "@/lib/auth/patient-onboarding-intent";
@@ -63,11 +62,7 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
   const [profile, setProfile] = useState<LiffProfileState | null>(null);
   const [status, setStatus] = useState<IdentityStatus | null>(null);
   const [historyDays, setHistoryDays] = useState<UploadHistoryDay[]>([]);
-  const [summary28d, setSummary28d] = useState<UploadHistorySummary28d>({
-    all_upload_count_28d: 0,
-    suspected_upload_count_28d: 0,
-    continuous_upload_streak_days: 0,
-  });
+  const [streakDays, setStreakDays] = useState(0);
   const [caseNumber, setCaseNumber] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -126,7 +121,7 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
         return;
       }
       setHistoryDays((current) => (replace ? history.days : mergeUploadHistoryDays(current, history.days)));
-      setSummary28d(history.summary_28d);
+      setStreakDays(history.summary_28d.continuous_upload_streak_days);
       setHistoryError(null);
       loadedMonthWindowsRef.current.add(monthEnd);
       const monthStart = getRelativeMonthKey(monthEnd, -2);
@@ -299,11 +294,6 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
 
   if (status === "matched") {
     const currentMonthKey = getMonthKeyFromDateKey(getTaipeiTodayKey());
-    const suspectedRate =
-      summary28d.all_upload_count_28d > 0
-        ? Math.round((summary28d.suspected_upload_count_28d / summary28d.all_upload_count_28d) * 100)
-        : 0;
-
     const onboardingGuideVisible = !onboardingGuideDismissed;
     const homeNewsPost = resolveMatchedHomeNews({
       latestPost: latestNewsPost,
@@ -313,7 +303,6 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
     return (
       <div className="h-[100dvh] overflow-hidden bg-white px-6 pt-8 pb-[calc(env(safe-area-inset-bottom)+1rem)] flex flex-col">
         <h1 className="text-xl font-semibold text-zinc-900">{profile?.displayName ?? "使用者"}，歡迎回來！</h1>
-        <p className="mt-2 text-sm text-zinc-600 leading-relaxed">最近 28 天上傳狀態摘要與每日追蹤紀錄。</p>
 
         <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
           {onboardingGuideVisible ? (
@@ -337,29 +326,15 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
               <LatestNewsStrip post={homeNewsPost} />
             </div>
           ) : null}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
-              <p className="text-[11px] text-zinc-500">疑似感染率</p>
-              <p className="mt-1 text-base font-semibold text-zinc-900">{suspectedRate}%</p>
-            </div>
-            <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
-              <p className="text-[11px] text-zinc-500">連續上傳</p>
-              <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.continuous_upload_streak_days} 天</p>
-            </div>
-            <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-3 py-3">
-              <p className="text-[11px] text-zinc-500">上傳次數</p>
-              <p className="mt-1 text-base font-semibold text-zinc-900">{summary28d.all_upload_count_28d}</p>
-            </div>
-          </div>
 
-          <div className="mt-6">
-            {initialHistoryLoading && historyDays.length === 0 ? (
+          {initialHistoryLoading && historyDays.length === 0 ? (
               <div className="rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-6 text-sm text-zinc-500">
                 正在載入上傳日曆...
               </div>
             ) : (
               <PatientDailyCalendar
                 days={historyDays}
+                streakDays={streakDays}
                 initialMonthKey={visibleCalendarMonth ?? undefined}
                 loadedOldestMonthKey={loadedCalendarBounds.oldestMonthKey ?? undefined}
                 loadedNewestMonthKey={loadedCalendarBounds.newestMonthKey ?? currentMonthKey}
@@ -380,7 +355,6 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
                 }}
               />
             )}
-          </div>
 
           {historyError && <p className="mt-3 text-sm text-amber-700">{historyError}</p>}
           {messagePreviewError && <p className="mt-3 text-sm text-amber-700">{messagePreviewError}</p>}

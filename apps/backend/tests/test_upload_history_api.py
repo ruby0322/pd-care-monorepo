@@ -2,14 +2,14 @@ from __future__ import annotations
 # pyright: reportMissingImports=false
 
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import AIResult, Annotation, LiffIdentity, Patient, PendingBinding, Upload
+from app.db.models import AIResult, Annotation, LiffIdentity, Patient, PendingBinding, StaffPatientAssignment, Upload
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
 from tests.db_test_utils import migrated_sqlite_database_url
@@ -203,8 +203,6 @@ def test_upload_history_returns_aggregated_days_for_matched_patient(tmp_path: Pa
                 "has_symptom_elevated_risk": False,
             },
         ]
-        assert payload["summary_28d"]["all_upload_count_28d"] >= 0
-        assert payload["summary_28d"]["suspected_upload_count_28d"] >= 0
         assert payload["summary_28d"]["continuous_upload_streak_days"] >= 0
 
 
@@ -227,8 +225,6 @@ def test_upload_history_returns_pending_status_without_day_data(tmp_path: Path) 
         assert payload["can_upload"] is False
         assert payload["days"] == []
         assert payload["summary_28d"] == {
-            "all_upload_count_28d": 0,
-            "suspected_upload_count_28d": 0,
             "continuous_upload_streak_days": 0,
         }
 
@@ -304,6 +300,67 @@ def test_patient_profile_returns_basic_profile_and_line_avatar(tmp_path: Path) -
         assert payload["patient_id"] == patient_id
         assert payload["case_number"] == "P111111"
         assert payload["birth_date"] == "1981-01-01"
+        assert payload["longest_continuous_upload_streak_days"] == 0
+        assert payload["total_upload_count"] == 0
+        assert payload["primary_nurse_name"] is None
+
+
+def test_patient_profile_returns_assigned_nurse_real_name_not_line_display_name(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "patient-profile-nurse.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_PROFILE_NURSE")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_PROFILE_NURSE")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            nurse = LiffIdentity(
+                line_user_id="U_LINE_NURSE_ASSIGNEE",
+                display_name="LINE Nickname",
+                real_name="鄭靜誼",
+                picture_url=None,
+                patient_id=None,
+                role="staff",
+            )
+            session.add(nurse)
+            session.flush()
+            session.add(StaffPatientAssignment(staff_identity_id=nurse.id, patient_id=patient_id))
+            session.commit()
+
+        response = client.get(
+            "/v1/patient/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["primary_nurse_name"] == "鄭靜誼"
+
+
+def test_patient_profile_omits_nurse_name_when_assignee_has_only_line_display_name(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "patient-profile-nurse-line-only.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_PROFILE_NURSE_LINE")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_PROFILE_NURSE_LINE")
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            nurse = LiffIdentity(
+                line_user_id="U_LINE_NURSE_LINE_ONLY",
+                display_name="LINE Nickname",
+                real_name=None,
+                picture_url=None,
+                patient_id=None,
+                role="staff",
+            )
+            session.add(nurse)
+            session.flush()
+            session.add(StaffPatientAssignment(staff_identity_id=nurse.id, patient_id=patient_id))
+            session.commit()
+
+        response = client.get(
+            "/v1/patient/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["primary_nurse_name"] is None
 
 
 def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: Path) -> None:
@@ -355,8 +412,6 @@ def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: P
                 "has_symptom_elevated_risk": False,
             }
         ]
-        assert payload["summary_28d"]["all_upload_count_28d"] == 1
-        assert payload["summary_28d"]["suspected_upload_count_28d"] == 1
         assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
 
 
@@ -401,8 +456,7 @@ def test_upload_history_excludes_rejected_from_summary_and_daily_counts(tmp_path
         assert payload["days"][0]["upload_count"] == 1
         assert payload["days"][0]["has_suspected_risk"] is True
         assert payload["days"][0]["has_symptom_elevated_risk"] is False
-        assert payload["summary_28d"]["all_upload_count_28d"] == 1
-        assert payload["summary_28d"]["suspected_upload_count_28d"] == 1
+        assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
 
 
 def test_patient_uploads_by_day_returns_day_scoped_records(tmp_path: Path) -> None:
@@ -767,8 +821,7 @@ def test_upload_history_marks_symptom_elevated_day_and_counts_rate(tmp_path: Pat
                 "has_symptom_elevated_risk": True,
             }
         ]
-        assert payload["summary_28d"]["all_upload_count_28d"] == 1
-        assert payload["summary_28d"]["suspected_upload_count_28d"] == 1
+        assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
 
 
 def test_upload_history_elevated_cleared_when_annotated_normal(tmp_path: Path) -> None:
@@ -821,4 +874,104 @@ def test_upload_history_elevated_cleared_when_annotated_normal(tmp_path: Path) -
                 "has_symptom_elevated_risk": False,
             }
         ]
-        assert payload["summary_28d"]["suspected_upload_count_28d"] == 0
+        assert payload["summary_28d"]["continuous_upload_streak_days"] == 1
+
+
+def _taipei_today() -> date:
+    return datetime.now(tz=timezone.utc).astimezone(timezone(timedelta(hours=8))).date()
+
+
+def _taipei_noon(day: date) -> datetime:
+    return datetime(day.year, day.month, day.day, 12, 0, tzinfo=timezone(timedelta(hours=8)))
+
+
+def _add_qualified_upload(
+    session,
+    *,
+    patient_id: int,
+    day: date,
+    suffix: str,
+    screening_result: str = "normal",
+) -> None:
+    upload = Upload(
+        patient_id=patient_id,
+        object_key=f"patients/{patient_id}/uploads/{suffix}.jpg",
+        content_type="image/jpeg",
+        created_at=_taipei_noon(day),
+    )
+    session.add(upload)
+    session.flush()
+    session.add(AIResult(upload_id=upload.id, screening_result=screening_result))
+
+
+def test_upload_history_current_streak_is_not_capped_at_28_days(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-streak-uncapped.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_STREAK_30")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_STREAK_30")
+        today = _taipei_today()
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            for offset in range(30):
+                _add_qualified_upload(
+                    session,
+                    patient_id=patient_id,
+                    day=today - timedelta(days=offset),
+                    suffix=f"streak-{offset}",
+                )
+            session.commit()
+
+        response = client.get(
+            "/v1/patient/upload-history",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["summary_28d"]["continuous_upload_streak_days"] == 30
+
+
+def test_patient_profile_reports_longest_streak_and_total_upload_count(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "profile-lifetime-metrics.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_PROFILE_METRICS")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_PROFILE_METRICS")
+        today = _taipei_today()
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            for offset in range(10):
+                _add_qualified_upload(
+                    session,
+                    patient_id=patient_id,
+                    day=today - timedelta(days=15 + offset),
+                    suffix=f"long-{offset}",
+                )
+            for offset in range(3):
+                _add_qualified_upload(
+                    session,
+                    patient_id=patient_id,
+                    day=today - timedelta(days=offset),
+                    suffix=f"current-{offset}",
+                )
+            _add_qualified_upload(
+                session,
+                patient_id=patient_id,
+                day=today,
+                suffix="rejected-today",
+                screening_result="rejected",
+            )
+            session.commit()
+
+        history = client.get(
+            "/v1/patient/upload-history",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        profile = client.get(
+            "/v1/patient/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert history.status_code == 200
+        assert profile.status_code == 200
+        assert history.json()["summary_28d"]["continuous_upload_streak_days"] == 3
+        assert profile.json()["longest_continuous_upload_streak_days"] == 10
+        assert profile.json()["total_upload_count"] == 13

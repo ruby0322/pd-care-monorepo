@@ -368,4 +368,22 @@ describe("PatientDailyCalendar month paging UI", () => {
     const elevatedCell = screen.getByRole("button", { name: "2026-05-06 1 uploads" });
     expect(elevatedCell.className).toContain("bg-orange-400");
   });
+
+  test("renders folder-tab streak badge flush with the calendar top-right corner", () => {
+    render(<PatientDailyCalendar days={days} streakDays={7} />);
+
+    const tab = screen.getByTestId("calendar-streak-tab");
+    expect(tab).toHaveAttribute("aria-label", "連續上傳 7 天");
+    expect(tab).toHaveTextContent("連續 7 天");
+    expect(tab).toHaveTextContent("😯");
+    expect(tab.className).toContain("rounded-t-xl");
+    expect(tab.className).toContain("border-b-0");
+    expect(screen.getByRole("region", { name: "每日上傳日曆" })).toHaveClass("rounded-tr-none");
+  });
+
+  test("hides streak badge when streakDays is omitted", () => {
+    render(<PatientDailyCalendar days={days} />);
+
+    expect(screen.queryByTestId("calendar-streak-tab")).not.toBeInTheDocument();
+  });
 });

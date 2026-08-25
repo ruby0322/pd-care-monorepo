@@ -48,7 +48,7 @@ export default function PatientProfilePage() {
   }, [router]);
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-white px-6 pt-10 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-white px-6 pt-10 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -63,61 +63,75 @@ export default function PatientProfilePage() {
         </div>
       </div>
 
-      {loading ? <div className="mt-6 text-sm text-zinc-500">載入中...</div> : null}
-      {error ? <div className="mt-6 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      <div className="mt-6 min-h-0 flex-1 overflow-y-auto">
+        {loading ? <div className="text-sm text-zinc-500">載入中...</div> : null}
+        {error ? <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
-      {profile ? (
-        <div className="mt-6 rounded-3xl border border-zinc-100 bg-white p-5">
-          <div className="flex items-center gap-4">
-            <div className="h-16 w-16 overflow-hidden rounded-full bg-zinc-100">
-              {profile.picture_url ? (
-                <Image
-                  src={profile.picture_url}
-                  alt={`${profile.display_name ?? "line-user"}-avatar`}
-                  width={64}
-                  height={64}
-                  unoptimized
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-zinc-400">
-                  <CircleUserRound className="h-7 w-7" />
-                </div>
-              )}
+        {profile ? (
+          <>
+            <div className="flex items-center gap-4">
+              <div className="h-16 w-16 overflow-hidden rounded-full bg-zinc-100">
+                {profile.picture_url ? (
+                  <Image
+                    src={profile.picture_url}
+                    alt={`${profile.display_name ?? "line-user"}-avatar`}
+                    width={64}
+                    height={64}
+                    unoptimized
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-zinc-400">
+                    <CircleUserRound className="h-7 w-7" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-base font-semibold text-zinc-900">{profile.display_name ?? "未提供名稱"}</p>
+                <p className="text-xs text-zinc-500 font-mono">{profile.line_user_id}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-base font-semibold text-zinc-900">{profile.display_name ?? "未提供名稱"}</p>
-              <p className="text-xs text-zinc-500 font-mono">{profile.line_user_id}</p>
-            </div>
-          </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-3 text-sm">
-            <div className="rounded-xl bg-zinc-50 px-3 py-2">
-              <p className="text-xs text-zinc-500">姓名</p>
-              <p className="text-zinc-900">{profile.full_name ?? "未設定"}</p>
+            <div className="mt-5 grid grid-cols-1 gap-3 text-sm">
+              <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                <p className="text-xs text-zinc-500">姓名</p>
+                <p className="text-zinc-900">{profile.full_name ?? "未設定"}</p>
+              </div>
+              <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                <p className="text-xs text-zinc-500">病歷號</p>
+                <p className="text-zinc-900">{profile.case_number ?? "未綁定"}</p>
+              </div>
+              <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                <p className="text-xs text-zinc-500">生日</p>
+                <p className="text-zinc-900">{profile.birth_date ?? "未綁定"}</p>
+              </div>
+              <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                <p className="text-xs text-zinc-500">狀態</p>
+                <p className="text-zinc-900">{profile.status}</p>
+              </div>
+              <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                <p className="text-xs text-zinc-500">主要護理師</p>
+                <p className="text-zinc-900">{profile.primary_nurse_name ?? "未設定"}</p>
+              </div>
+              <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                <p className="text-xs text-zinc-500">最長連續上傳天數</p>
+                <p className="text-zinc-900">{profile.longest_continuous_upload_streak_days} 天</p>
+              </div>
+              <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                <p className="text-xs text-zinc-500">總上傳次數</p>
+                <p className="text-zinc-900">{profile.total_upload_count}</p>
+              </div>
             </div>
-            <div className="rounded-xl bg-zinc-50 px-3 py-2">
-              <p className="text-xs text-zinc-500">病歷號</p>
-              <p className="text-zinc-900">{profile.case_number ?? "未綁定"}</p>
-            </div>
-            <div className="rounded-xl bg-zinc-50 px-3 py-2">
-              <p className="text-xs text-zinc-500">生日</p>
-              <p className="text-zinc-900">{profile.birth_date ?? "未綁定"}</p>
-            </div>
-            <div className="rounded-xl bg-zinc-50 px-3 py-2">
-              <p className="text-xs text-zinc-500">狀態</p>
-              <p className="text-zinc-900">{profile.status}</p>
-            </div>
-          </div>
-        </div>
-      ) : null}
+          </>
+        ) : null}
 
-      <Link
-        href="/patient"
-        className="mt-6 inline-flex items-center text-sm text-zinc-600 underline underline-offset-4"
-      >
-        返回追蹤首頁
-      </Link>
+        <Link
+          href="/patient"
+          className="mt-6 inline-flex items-center text-sm text-zinc-600 underline underline-offset-4"
+        >
+          返回追蹤首頁
+        </Link>
+      </div>
     </div>
   );
 }

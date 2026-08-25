@@ -36,6 +36,9 @@ class PatientProfileResponse(BaseModel):
     case_number: str | None
     birth_date: str | None
     onboarding_guide_dismissed: bool = False
+    longest_continuous_upload_streak_days: int = Field(ge=0, default=0)
+    total_upload_count: int = Field(ge=0, default=0)
+    primary_nurse_name: str | None = None
 
 
 class PatientUiPreferencesRequest(BaseModel):

@@ -9,8 +9,6 @@ export type UploadHistoryDay = {
 };
 
 export type UploadHistorySummary28d = {
-  all_upload_count_28d: number;
-  suspected_upload_count_28d: number;
   continuous_upload_streak_days: number;
 };
 

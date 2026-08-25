@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, Upload
-from app.services.symptoms import calendar_risk_tier, counts_toward_suspected_rate
+from app.services.symptoms import calendar_risk_tier
 
 
 @dataclass(frozen=True)
@@ -20,10 +20,10 @@ class UploadHistoryDay:
 
 
 @dataclass(frozen=True)
-class UploadHistorySummary28d:
-    all_upload_count_28d: int
-    suspected_upload_count_28d: int
+class PatientUploadLifetimeMetrics:
     continuous_upload_streak_days: int
+    longest_continuous_upload_streak_days: int
+    total_upload_count: int
 
 
 @dataclass(frozen=True)
@@ -169,75 +169,56 @@ def summarize_patient_upload_history(
     return [by_day[current] for current in sorted(by_day.keys())]
 
 
-def summarize_patient_upload_metrics_28d(
+def summarize_patient_upload_lifetime_metrics(
     session: Session,
     *,
     patient_id: int,
     timezone_name: str = "Asia/Taipei",
     today: date | None = None,
-) -> UploadHistorySummary28d:
+) -> PatientUploadLifetimeMetrics:
     local_timezone = _resolve_local_timezone(timezone_name)
-    latest_annotation_by_upload = _load_latest_annotation_by_upload(session, patient_id=patient_id)
     rows: Sequence[tuple] = session.execute(
-        select(
-            Upload.id,
-            Upload.created_at,
-            AIResult.screening_result,
-            Upload.symptom_pain,
-            Upload.symptom_pus,
-            Upload.symptom_cloudy_dialysate,
-        )
+        select(Upload.created_at, AIResult.screening_result)
         .join(AIResult, AIResult.upload_id == Upload.id)
         .where(Upload.patient_id == patient_id)
         .order_by(Upload.created_at.asc())
     ).all()
 
     local_today = today or datetime.now(tz=timezone.utc).astimezone(local_timezone).date()
-    window_start = local_today - timedelta(days=27)
     uploads_by_date: dict[date, int] = {}
-    all_upload_count_28d = 0
-    suspected_upload_count_28d = 0
+    total_upload_count = 0
 
-    for (
-        upload_id,
-        created_at,
-        screening_result,
-        symptom_pain,
-        symptom_pus,
-        symptom_cloudy_dialysate,
-    ) in rows:
+    for created_at, screening_result in rows:
         if screening_result == "rejected":
             continue
         normalized = _normalize_datetime(created_at)
         local_date = normalized.astimezone(local_timezone).date()
-        if local_date < window_start or local_date > local_today:
+        if local_date > local_today:
             continue
-
         uploads_by_date[local_date] = uploads_by_date.get(local_date, 0) + 1
-        all_upload_count_28d += 1
-
-        latest_annotation = latest_annotation_by_upload.get(upload_id)
-        tier = calendar_risk_tier(
-            screening_result=screening_result,
-            annotation_label=latest_annotation.label if latest_annotation else None,
-            symptom_pain=bool(symptom_pain),
-            symptom_pus=bool(symptom_pus),
-            symptom_cloudy_dialysate=bool(symptom_cloudy_dialysate),
-        )
-        if counts_toward_suspected_rate(tier):
-            suspected_upload_count_28d += 1
+        total_upload_count += 1
 
     streak = 0
-    for offset in range(28):
-        checking = local_today - timedelta(days=offset)
-        if uploads_by_date.get(checking, 0) <= 0:
-            break
+    checking = local_today
+    while uploads_by_date.get(checking, 0) > 0:
         streak += 1
+        checking -= timedelta(days=1)
 
-    return UploadHistorySummary28d(
-        all_upload_count_28d=all_upload_count_28d,
-        suspected_upload_count_28d=suspected_upload_count_28d,
+    longest = 0
+    run = 0
+    previous_day: date | None = None
+    for current_day in sorted(uploads_by_date):
+        if previous_day is not None and current_day == previous_day + timedelta(days=1):
+            run += 1
+        else:
+            run = 1
+        longest = max(longest, run)
+        previous_day = current_day
+
+    return PatientUploadLifetimeMetrics(
         continuous_upload_streak_days=streak,
+        longest_continuous_upload_streak_days=longest,
+        total_upload_count=total_upload_count,
     )
 
 

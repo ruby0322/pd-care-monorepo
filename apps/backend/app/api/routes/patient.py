@@ -30,6 +30,7 @@ from app.services.identity import (
     dismiss_onboarding_guide,
     get_identity_profile_by_identity_id,
     get_identity_status_for_principal,
+    get_primary_nurse_real_name,
 )
 from app.services.model_loader import LoadedModel
 from app.services.prescreen import (
@@ -53,7 +54,7 @@ from app.services.upload_history import (
     mark_all_patient_annotation_messages_read,
     mark_patient_annotation_message_read,
     summarize_patient_upload_history,
-    summarize_patient_upload_metrics_28d,
+    summarize_patient_upload_lifetime_metrics,
 )
 
 
@@ -141,14 +142,12 @@ async def patient_upload_history(
                 can_upload=can_upload,
                 days=[],
                 summary_28d=UploadHistorySummary28dResponse(
-                    all_upload_count_28d=0,
-                    suspected_upload_count_28d=0,
                     continuous_upload_streak_days=0,
                 ),
             )
 
         days = summarize_patient_upload_history(session, patient_id=patient_id)
-        summary_28d = summarize_patient_upload_metrics_28d(session, patient_id=patient_id)
+        summary_28d = summarize_patient_upload_lifetime_metrics(session, patient_id=patient_id)
         return UploadHistoryResponse(
             status=status,
             patient_id=patient_id,
@@ -163,8 +162,6 @@ async def patient_upload_history(
                 for entry in days
             ],
             summary_28d=UploadHistorySummary28dResponse(
-                all_upload_count_28d=summary_28d.all_upload_count_28d,
-                suspected_upload_count_28d=summary_28d.suspected_upload_count_28d,
                 continuous_upload_streak_days=summary_28d.continuous_upload_streak_days,
             ),
         )
@@ -187,6 +184,15 @@ async def patient_profile(
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+        longest_streak = 0
+        total_upload_count = 0
+        primary_nurse_name = None
+        if status == "matched" and patient_id is not None:
+            lifetime = summarize_patient_upload_lifetime_metrics(session, patient_id=patient_id)
+            longest_streak = lifetime.longest_continuous_upload_streak_days
+            total_upload_count = lifetime.total_upload_count
+            primary_nurse_name = get_primary_nurse_real_name(session, patient_id=patient_id)
+
         return PatientProfileResponse(
             status=status,
             can_upload=can_upload,
@@ -198,6 +204,9 @@ async def patient_profile(
             case_number=profile.case_number,
             birth_date=profile.birth_date,
             onboarding_guide_dismissed=profile.onboarding_guide_dismissed,
+            longest_continuous_upload_streak_days=longest_streak,
+            total_upload_count=total_upload_count,
+            primary_nurse_name=primary_nurse_name,
         )
     finally:
         session.close()

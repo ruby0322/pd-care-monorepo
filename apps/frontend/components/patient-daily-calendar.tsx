@@ -10,6 +10,7 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel";
 
+import { streakEmoji } from "@/lib/utils/streak-emoji";
 import {
   buildTaipeiMonthGrid,
   getMonthKeyFromDateKey,
@@ -34,6 +35,7 @@ type PatientDailyCalendarProps = {
   oldestEdgeLoading?: boolean;
   overlayLoading?: boolean;
   onReachOldestEdge?: (oldestMonthKey: string) => void | Promise<void>;
+  streakDays?: number;
 };
 
 function dayStyle(uploadCount: number, hasSuspectedRisk: boolean, hasSymptomElevatedRisk: boolean): string {
@@ -93,6 +95,7 @@ export function PatientDailyCalendar({
   oldestEdgeLoading = false,
   overlayLoading = false,
   onReachOldestEdge,
+  streakDays,
 }: PatientDailyCalendarProps) {
   const dayMap = new Map(days.map((entry) => [entry.date, entry]));
   const todayKey = getTaipeiTodayKey();
@@ -298,16 +301,37 @@ export function PatientDailyCalendar({
     ));
   }
 
+  const showStreakTab = typeof streakDays === "number";
+
   return (
-    <section
-      aria-label="每日上傳日曆"
-      aria-busy={isCalendarOverlayVisible}
-      className="rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-4"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
-    >
-      <div className="flex items-center justify-between">
+    <div>
+      {showStreakTab ? (
+        <div className="flex justify-end">
+          <div
+            data-testid="calendar-streak-tab"
+            role="status"
+            aria-label={`連續上傳 ${streakDays} 天`}
+            className="relative z-10 -mb-px rounded-t-xl border border-b-0 border-zinc-100 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-800"
+          >
+            連續 {streakDays} 天
+            <span aria-hidden="true" className="ml-1">
+              {streakEmoji(streakDays)}
+            </span>
+          </div>
+        </div>
+      ) : null}
+      <section
+        aria-label="每日上傳日曆"
+        aria-busy={isCalendarOverlayVisible}
+        className={clsx(
+          "rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-4",
+          showStreakTab && "rounded-tr-none"
+        )}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      >
+        <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-zinc-900">每日上傳日曆</h2>
         <span className="text-xs text-zinc-500">{monthLabel}</span>
       </div>
@@ -398,6 +422,7 @@ export function PatientDailyCalendar({
           下個月
         </button>
       </div>
-    </section>
+      </section>
+    </div>
   );
 }

@@ -27,8 +27,6 @@ describe("upload-history month window contract", () => {
         can_upload: true,
         days: [],
         summary_28d: {
-          all_upload_count_28d: 0,
-          suspected_upload_count_28d: 0,
           continuous_upload_streak_days: 0,
         },
       },

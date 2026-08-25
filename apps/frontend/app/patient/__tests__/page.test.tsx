@@ -31,12 +31,18 @@ jest.mock("@/components/patient-daily-calendar", () => ({
   PatientDailyCalendar: ({
     onMonthChange,
     overlayLoading,
+    streakDays,
   }: {
     onMonthChange?: (monthKey: string) => void;
     overlayLoading?: boolean;
+    streakDays?: number;
   }) => (
     <div>
-      <div data-testid="patient-calendar" data-overlay-loading={overlayLoading ? "true" : "false"} />
+      <div
+        data-testid="patient-calendar"
+        data-overlay-loading={overlayLoading ? "true" : "false"}
+        data-streak-days={streakDays ?? ""}
+      />
       <button type="button" onClick={() => onMonthChange?.("2026-02")}>
         change-month
       </button>
@@ -76,8 +82,6 @@ describe("PatientPage month window prefetch flow", () => {
     can_upload: true,
     days: [],
     summary_28d: {
-      all_upload_count_28d: 0,
-      suspected_upload_count_28d: 0,
       continuous_upload_streak_days: 0,
     },
   };
@@ -311,5 +315,9 @@ describe("PatientPage month window prefetch flow", () => {
     expect(await screen.findByText("還沒拍過？三步驟學會上傳出口照")).toBeInTheDocument();
     expect(screen.getByText("最新消息")).toBeInTheDocument();
     expect(screen.getByText("每天拍一張，讓感染風險離你遠一點")).toBeInTheDocument();
+    expect(screen.queryByText("最近 28 天上傳狀態摘要與每日追蹤紀錄。")).not.toBeInTheDocument();
+    expect(screen.queryByText("疑似感染率")).not.toBeInTheDocument();
+    expect(screen.queryByText("上傳次數")).not.toBeInTheDocument();
+    expect(screen.getByTestId("patient-calendar")).toHaveAttribute("data-streak-days", "0");
   });
 });

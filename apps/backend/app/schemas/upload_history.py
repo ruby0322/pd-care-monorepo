@@ -14,9 +14,7 @@ class UploadHistoryDayResponse(BaseModel):
 
 
 class UploadHistorySummary28dResponse(BaseModel):
-    all_upload_count_28d: int = Field(ge=0)
-    suspected_upload_count_28d: int = Field(ge=0)
-    continuous_upload_streak_days: int = Field(ge=0, le=28)
+    continuous_upload_streak_days: int = Field(ge=0)
 
 
 class UploadHistoryResponse(BaseModel):
