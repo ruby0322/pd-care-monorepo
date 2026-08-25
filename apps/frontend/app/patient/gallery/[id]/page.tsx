@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { PatientGalleryView } from "@/components/patient-gallery";
-import { fetchIdentityStatus } from "@/lib/api/identity";
+import { fetchPatientProfile } from "@/lib/api/identity";
 import { fetchStaffPatientGalleryMonth, fetchStaffPatientGalleryUploads } from "@/lib/api/staff";
 import {
   fetchPatientGalleryMonth,
@@ -35,11 +35,11 @@ export default function PatientGalleryByIdPage() {
       }
       if (patientSession) {
         try {
-          const status = await fetchIdentityStatus();
+          const profile = await fetchPatientProfile();
           if (cancelled) {
             return;
           }
-          if (status.patient_id === patientId) {
+          if (profile.patient_id === patientId) {
             setViewer("patient");
             return;
           }
