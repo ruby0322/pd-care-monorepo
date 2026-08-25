@@ -66,6 +66,22 @@ jest.mock("@/components/ui/carousel", () => {
 
 import { PatientDailyCalendar } from "@/components/patient-daily-calendar";
 
+jest.mock("next/link", () => ({
+  __esModule: true,
+  default: ({
+    href,
+    children,
+    ...props
+  }: {
+    href: string;
+    children: React.ReactNode;
+  } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 jest.mock("next/image", () => ({
   __esModule: true,
   default: ({ alt, src }: { alt: string; src: string }) => (
@@ -387,6 +403,7 @@ describe("PatientDailyCalendar month paging UI", () => {
     expect(tab).toHaveTextContent("😯");
     expect(tab.className).toContain("rounded-t-xl");
     expect(tab.className).toContain("border-b-0");
+    expect(tab.className).toContain("text-sm");
     expect(screen.getByRole("region", { name: "每日上傳日曆" })).toHaveClass("rounded-tr-none");
   });
 
@@ -408,6 +425,8 @@ describe("PatientDailyCalendar month paging UI", () => {
 
     expect(screen.getByRole("tab", { name: "日曆" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "相片" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "日曆" }).querySelector("svg")).toHaveClass("h-5", "w-5");
+    expect(screen.getByRole("tab", { name: "相片" }).querySelector("svg")).toHaveClass("h-5", "w-5");
     expect(screen.getByRole("region", { name: "每日上傳日曆" })).toHaveClass("rounded-tl-none");
     expect(screen.getByRole("region", { name: "每日上傳日曆" })).toHaveClass("rounded-tr-none");
   });
@@ -418,7 +437,7 @@ describe("PatientDailyCalendar month paging UI", () => {
     const suspectedCell = screen.getByRole("button", { name: "2026-05-05 1 uploads" });
     expect(suspectedCell.className).toContain("bg-red-400");
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.getByText("顏色深淺代表當日上傳次數")).toBeInTheDocument();
+    expect(screen.queryByText("顏色深淺代表當日上傳次數")).not.toBeInTheDocument();
   });
 
   test("photo mode uses representative covers and risk borders", () => {
@@ -435,6 +454,27 @@ describe("PatientDailyCalendar month paging UI", () => {
     expect(screen.getByRole("button", { name: "2026-05-06 1 uploads" }).className).toContain("border-orange-500");
     expect(screen.getByRole("button", { name: "2026-05-05 1 uploads" }).className).not.toContain("bg-red-400");
     expect(screen.queryByText("顏色深淺代表當日上傳次數")).not.toBeInTheDocument();
-    expect(screen.getByText("一般（相片、無框）")).toBeInTheDocument();
+    expect(screen.queryByText("一般（相片、無框）")).not.toBeInTheDocument();
+  });
+
+  test("photo mode replaces streak copy with 查看相簿 when galleryHref is set", () => {
+    render(
+      <PatientDailyCalendar
+        days={days}
+        showCalendarModeTabs
+        streakDays={7}
+        galleryHref="/patient/gallery"
+        initialMonthKey="2026-05"
+      />
+    );
+
+    expect(screen.getByTestId("calendar-streak-tab")).toHaveTextContent("連續 7 天");
+    fireEvent.click(screen.getByRole("tab", { name: "相片" }));
+    expect(screen.queryByTestId("calendar-streak-tab")).not.toBeInTheDocument();
+    const galleryLink = screen.getByTestId("calendar-gallery-link");
+    expect(galleryLink).toHaveTextContent("查看相簿");
+    expect(galleryLink).toHaveAttribute("href", "/patient/gallery");
+    expect(galleryLink.className).toContain("underline");
+    expect(galleryLink.className).toContain("text-sm");
   });
 });

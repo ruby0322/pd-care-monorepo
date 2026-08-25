@@ -336,6 +336,7 @@ export default function PatientHome({ latestNewsPost }: PatientHomeProps) {
                 days={historyDays}
                 streakDays={streakDays}
                 showCalendarModeTabs
+                galleryHref="/patient/gallery"
                 initialMonthKey={visibleCalendarMonth ?? undefined}
                 loadedOldestMonthKey={loadedCalendarBounds.oldestMonthKey ?? undefined}
                 loadedNewestMonthKey={loadedCalendarBounds.newestMonthKey ?? currentMonthKey}

@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import { CalendarDays, Images } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -42,6 +43,7 @@ type PatientDailyCalendarProps = {
   onReachOldestEdge?: (oldestMonthKey: string) => void | Promise<void>;
   streakDays?: number;
   showCalendarModeTabs?: boolean;
+  galleryHref?: string;
 };
 
 function dayStyle(uploadCount: number, hasSuspectedRisk: boolean, hasSymptomElevatedRisk: boolean): string {
@@ -103,6 +105,7 @@ export function PatientDailyCalendar({
   onReachOldestEdge,
   streakDays,
   showCalendarModeTabs = false,
+  galleryHref,
 }: PatientDailyCalendarProps) {
   const dayMap = new Map(days.map((entry) => [entry.date, entry]));
   const todayKey = getTaipeiTodayKey();
@@ -339,8 +342,10 @@ export function PatientDailyCalendar({
     ));
   }
 
-  const showStreakTab = typeof streakDays === "number";
-  const showTabStrip = showCalendarModeTabs || showStreakTab;
+  const showStreakTab = typeof streakDays === "number" && !(showCalendarModeTabs && galleryHref && calendarMode === "images");
+  const showGalleryLink = Boolean(showCalendarModeTabs && galleryHref && calendarMode === "images");
+  const showRightTab = showStreakTab || showGalleryLink;
+  const showTabStrip = showCalendarModeTabs || showRightTab;
 
   return (
     <div>
@@ -348,9 +353,9 @@ export function PatientDailyCalendar({
         <div
           className={clsx(
             "flex items-end",
-            showCalendarModeTabs && showStreakTab
+            showCalendarModeTabs && showRightTab
               ? "justify-between"
-              : showStreakTab
+              : showRightTab
                 ? "justify-end"
                 : "justify-start"
           )}
@@ -363,14 +368,14 @@ export function PatientDailyCalendar({
                 aria-label="日曆"
                 aria-selected={calendarMode === "calendar-days"}
                 className={clsx(
-                  "relative z-10 -mb-px rounded-t-xl border border-b-0 px-3 py-1.5",
+                  "relative z-10 -mb-px rounded-t-xl border border-b-0 px-3 py-2",
                   calendarMode === "calendar-days"
                     ? "border-zinc-100 bg-zinc-50 text-zinc-800"
                     : "border-zinc-100 bg-zinc-100 text-zinc-400"
                 )}
                 onClick={() => setCalendarMode("calendar-days")}
               >
-                <CalendarDays className="h-4 w-4" aria-hidden="true" />
+                <CalendarDays className="h-5 w-5" aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -378,23 +383,31 @@ export function PatientDailyCalendar({
                 aria-label="相片"
                 aria-selected={calendarMode === "images"}
                 className={clsx(
-                  "relative z-10 -mb-px rounded-t-xl border border-b-0 px-3 py-1.5",
+                  "relative z-10 -mb-px rounded-t-xl border border-b-0 px-3 py-2",
                   calendarMode === "images"
                     ? "border-zinc-100 bg-zinc-50 text-zinc-800"
                     : "border-zinc-100 bg-zinc-100 text-zinc-400"
                 )}
                 onClick={() => setCalendarMode("images")}
               >
-                <Images className="h-4 w-4" aria-hidden="true" />
+                <Images className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
           ) : null}
-          {showStreakTab ? (
+          {showGalleryLink && galleryHref ? (
+            <Link
+              href={galleryHref}
+              data-testid="calendar-gallery-link"
+              className="relative z-10 -mb-px rounded-t-xl border border-b-0 border-zinc-100 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-800 underline underline-offset-2"
+            >
+              查看相簿
+            </Link>
+          ) : showStreakTab ? (
             <div
               data-testid="calendar-streak-tab"
               role="status"
               aria-label={`連續上傳 ${streakDays} 天`}
-              className="relative z-10 -mb-px rounded-t-xl border border-b-0 border-zinc-100 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-800"
+              className="relative z-10 -mb-px rounded-t-xl border border-b-0 border-zinc-100 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-800"
             >
               連續 {streakDays} 天
               <span aria-hidden="true" className="ml-1">
@@ -410,7 +423,7 @@ export function PatientDailyCalendar({
         className={clsx(
           "rounded-3xl border border-zinc-100 bg-zinc-50 px-4 py-4",
           showCalendarModeTabs && "rounded-tl-none",
-          showStreakTab && "rounded-tr-none"
+          showRightTab && "rounded-tr-none"
         )}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
@@ -477,10 +490,6 @@ export function PatientDailyCalendar({
         {calendarMode === "images" ? (
           <>
             <span className="inline-flex items-center gap-1">
-              <span className="h-3 w-3 rounded bg-zinc-300" />
-              一般（相片、無框）
-            </span>
-            <span className="inline-flex items-center gap-1">
               <span className="h-3 w-3 rounded border-2 border-orange-500 bg-zinc-50" />
               症狀高風險
             </span>
@@ -503,7 +512,6 @@ export function PatientDailyCalendar({
               <span className="h-3 w-3 rounded bg-red-500" />
               疑似風險
             </span>
-            <span className="text-zinc-400">顏色深淺代表當日上傳次數</span>
           </>
         )}
       </div>

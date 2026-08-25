@@ -12,6 +12,7 @@ import {
 
 jest.mock("next/navigation", () => ({
   useParams: () => ({ id: "42" }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock("next/image", () => ({
@@ -90,6 +91,13 @@ describe("Admin patient detail calendar", () => {
       }));
       expect(calendarProps.showCalendarModeTabs).toBeUndefined();
     });
+  });
+
+  test("shows 查看相簿 link to the patient gallery", async () => {
+    render(<PatientDetailPage />);
+
+    const galleryLink = await screen.findByRole("link", { name: "查看相簿" });
+    expect(galleryLink).toHaveAttribute("href", "/patient/gallery/42");
   });
 
   test("filters upload history by date range", async () => {

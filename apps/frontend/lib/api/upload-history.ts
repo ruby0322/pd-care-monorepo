@@ -160,3 +160,45 @@ export async function markAllPatientMessagesRead(): Promise<PatientMarkAllMessag
   const { data } = await apiClient.post<PatientMarkAllMessagesReadResponse>("/v1/patient/messages/read-all");
   return data;
 }
+
+export type GalleryUploadItem = {
+  upload_id: number;
+  created_at: string;
+  date: string;
+  image_url: string;
+  image_expires_in: number;
+  has_suspected_risk: boolean;
+  has_symptom_elevated_risk?: boolean;
+};
+
+export type GalleryUploadsResponse = {
+  items: GalleryUploadItem[];
+  has_more_older: boolean;
+  limit: number;
+};
+
+export type GalleryMonthResponse = {
+  month: string;
+  days: UploadHistoryDay[];
+  has_more_older: boolean;
+};
+
+export async function fetchPatientGalleryUploads(params?: {
+  beforeId?: number;
+  limit?: number;
+}): Promise<GalleryUploadsResponse> {
+  const { data } = await apiClient.get<GalleryUploadsResponse>("/v1/patient/gallery/uploads", {
+    params: {
+      before_id: params?.beforeId,
+      limit: params?.limit ?? 30,
+    },
+  });
+  return data;
+}
+
+export async function fetchPatientGalleryMonth(month: string): Promise<GalleryMonthResponse> {
+  const { data } = await apiClient.get<GalleryMonthResponse>("/v1/patient/gallery/months", {
+    params: { month },
+  });
+  return data;
+}

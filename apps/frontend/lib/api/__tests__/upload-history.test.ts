@@ -1,5 +1,7 @@
 import { apiClient } from "@/lib/api/client";
 import {
+  fetchPatientGalleryMonth,
+  fetchPatientGalleryUploads,
   fetchUploadHistoryByMonthWindow,
   getWindowStartMonthKey,
   mergeUploadHistoryDays,
@@ -57,5 +59,31 @@ describe("upload-history month window contract", () => {
       { date: "2026-05-05", upload_count: 3, has_suspected_risk: true },
       { date: "2026-05-06", upload_count: 1, has_suspected_risk: false },
     ]);
+  });
+
+  test("fetchPatientGalleryUploads sends before_id and limit", async () => {
+    const getMock = apiClient.get as jest.Mock;
+    getMock.mockResolvedValueOnce({
+      data: { items: [], has_more_older: false, limit: 30 },
+    });
+
+    await fetchPatientGalleryUploads({ beforeId: 12, limit: 30 });
+
+    expect(getMock).toHaveBeenCalledWith("/v1/patient/gallery/uploads", {
+      params: { before_id: 12, limit: 30 },
+    });
+  });
+
+  test("fetchPatientGalleryMonth sends month key", async () => {
+    const getMock = apiClient.get as jest.Mock;
+    getMock.mockResolvedValueOnce({
+      data: { month: "2026-05", days: [], has_more_older: false },
+    });
+
+    await fetchPatientGalleryMonth("2026-05");
+
+    expect(getMock).toHaveBeenCalledWith("/v1/patient/gallery/months", {
+      params: { month: "2026-05" },
+    });
   });
 });
