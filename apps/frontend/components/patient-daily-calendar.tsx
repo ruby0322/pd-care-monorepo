@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { CalendarDays, Images } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   Carousel,
@@ -142,6 +142,18 @@ export function PatientDailyCalendar({
     () => buildMonthRange(effectiveOldestMonthKey, getRelativeMonthKey(currentMonthKey, 1)),
     [currentMonthKey, effectiveOldestMonthKey]
   );
+  const [carouselStartIndex] = useState(() => Math.max(0, monthKeys.indexOf(initialVisibleMonth)));
+  const visibleMonthKeyRef = useRef(visibleMonthKey);
+  const monthKeysRef = useRef(monthKeys);
+  const carouselOpts = useMemo(
+    () => ({
+      align: "start" as const,
+      watchDrag: !isCalendarOverlayVisible,
+      watchSlides: false as const,
+      startIndex: carouselStartIndex,
+    }),
+    [carouselStartIndex, isCalendarOverlayVisible]
+  );
 
   const reboundToNewestAllowedMonth = useCallback(() => {
     const newestIndex = monthKeys.indexOf(effectiveNewestMonthKey);
@@ -175,18 +187,40 @@ export function PatientDailyCalendar({
     }
   }, [effectiveOldestMonthKey]);
 
+  useLayoutEffect(() => {
+    visibleMonthKeyRef.current = visibleMonthKey;
+    monthKeysRef.current = monthKeys;
+  });
+
+  useLayoutEffect(() => {
+    if (!carouselApi) {
+      return;
+    }
+    const targetIndex = monthKeys.indexOf(visibleMonthKeyRef.current);
+    if (targetIndex < 0) {
+      return;
+    }
+    carouselApi.reInit({ startIndex: targetIndex });
+  }, [carouselApi, monthKeys]);
+
   useEffect(() => {
     if (!carouselApi) {
       return;
     }
-    const targetIndex = monthKeys.indexOf(visibleMonthKey);
-    if (targetIndex < 0) {
-      return;
-    }
-    if (carouselApi.selectedScrollSnap() !== targetIndex) {
-      carouselApi.scrollTo(targetIndex, true);
-    }
-  }, [carouselApi, monthKeys, visibleMonthKey]);
+    const restoreVisibleMonth = () => {
+      const targetIndex = monthKeysRef.current.indexOf(visibleMonthKeyRef.current);
+      if (targetIndex < 0) {
+        return;
+      }
+      if (carouselApi.selectedScrollSnap() !== targetIndex) {
+        carouselApi.scrollTo(targetIndex, true);
+      }
+    };
+    carouselApi.on("reInit", restoreVisibleMonth);
+    return () => {
+      carouselApi.off("reInit", restoreVisibleMonth);
+    };
+  }, [carouselApi]);
 
   useEffect(() => {
     if (!carouselApi) {
@@ -202,17 +236,14 @@ export function PatientDailyCalendar({
         reboundToNewestAllowedMonth();
         return;
       }
-      if (selectedMonthKey !== visibleMonthKeyState) {
-        setVisibleMonthKeyState(selectedMonthKey);
-      }
+      setVisibleMonthKeyState(selectedMonthKey);
       requestLoadOlderAtEdge(selectedMonthKey);
     };
     carouselApi.on("select", onSelect);
-    onSelect();
     return () => {
       carouselApi.off("select", onSelect);
     };
-  }, [carouselApi, effectiveNewestMonthKey, monthKeys, reboundToNewestAllowedMonth, requestLoadOlderAtEdge, visibleMonthKeyState]);
+  }, [carouselApi, effectiveNewestMonthKey, monthKeys, reboundToNewestAllowedMonth, requestLoadOlderAtEdge]);
 
   useEffect(() => {
     if (visibleMonthKey <= effectiveNewestMonthKey) {
@@ -443,7 +474,7 @@ export function PatientDailyCalendar({
 
         <Carousel
           setApi={setCarouselApi}
-          opts={{ align: "start", watchDrag: !isCalendarOverlayVisible }}
+          opts={carouselOpts}
           withGutter={false}
           data-testid="calendar-carousel"
           className="mt-2"

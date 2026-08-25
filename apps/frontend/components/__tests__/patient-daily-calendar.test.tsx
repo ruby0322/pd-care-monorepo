@@ -7,26 +7,78 @@ jest.mock("@/components/ui/carousel", () => {
 
   type FakeApi = {
     selectedScrollSnap: () => number;
-    scrollTo: (index: number) => void;
-    on: (_event: string, listener: Listener) => void;
-    off: (_event: string, listener: Listener) => void;
+    scrollTo: (index: number, _jump?: boolean) => void;
+    reInit: (options?: { startIndex?: number }) => void;
+    on: (event: string, listener: Listener) => void;
+    off: (event: string, listener: Listener) => void;
   };
 
-  const createApi = (setIndex: React.Dispatch<React.SetStateAction<number>>): FakeApi => {
-    const listeners = new Set<Listener>();
-    const selectedRef = { current: 0 };
+  function countCarouselItems(node: React.ReactNode): number {
+    let count = 0;
+    ReactLocal.Children.forEach(node, (child) => {
+      if (!ReactLocal.isValidElement(child)) {
+        return;
+      }
+      const props = child.props as { "data-testid"?: string; children?: React.ReactNode };
+      if (props["data-testid"] === "calendar-carousel-item") {
+        count += 1;
+        return;
+      }
+      if (props.children) {
+        count += countCarouselItems(props.children);
+      }
+    });
+    return count;
+  }
+
+  const createApi = (
+    setIndex: React.Dispatch<React.SetStateAction<number>>,
+    startIndex: number,
+    engineCountRef: React.MutableRefObject<number>,
+    slideCountRef: React.MutableRefObject<number>
+  ): FakeApi => {
+    const listeners = new Map<string, Set<Listener>>();
+    const selectedRef = { current: startIndex };
+    const listenersFor = (event: string): Set<Listener> => {
+      const existing = listeners.get(event);
+      if (existing) {
+        return existing;
+      }
+      const created = new Set<Listener>();
+      listeners.set(event, created);
+      return created;
+    };
+    const emit = (event: string) => {
+      listenersFor(event).forEach((listener) => listener());
+    };
+    const applyIndex = (index: number, event: "select" | "reInit") => {
+      const max = Math.max(0, engineCountRef.current - 1);
+      const next = Math.max(0, Math.min(index, max));
+      const changed = next !== selectedRef.current;
+      selectedRef.current = next;
+      setIndex(next);
+      if (event === "reInit") {
+        emit("reInit");
+        return;
+      }
+      if (changed) {
+        emit("select");
+      }
+    };
     return {
       selectedScrollSnap: () => selectedRef.current,
       scrollTo: (index: number) => {
-        selectedRef.current = index;
-        setIndex(index);
-        listeners.forEach((listener) => listener());
+        applyIndex(index, "select");
       },
-      on: (_event: string, listener: Listener) => {
-        listeners.add(listener);
+      reInit: (options) => {
+        engineCountRef.current = slideCountRef.current;
+        applyIndex(options?.startIndex ?? selectedRef.current, "reInit");
       },
-      off: (_event: string, listener: Listener) => {
-        listeners.delete(listener);
+      on: (event, listener) => {
+        listenersFor(event).add(listener);
+      },
+      off: (event, listener) => {
+        listenersFor(event).delete(listener);
       },
     };
   };
@@ -36,23 +88,45 @@ jest.mock("@/components/ui/carousel", () => {
       children,
       setApi,
       withGutter,
+      opts,
       ...props
     }: {
       children: React.ReactNode;
       setApi?: (api: FakeApi) => void;
       withGutter?: boolean;
+      opts?: { startIndex?: number; watchSlides?: boolean };
     }) => {
       void withGutter;
-      const [index, setIndex] = ReactLocal.useState(0);
+      const startIndex = opts?.startIndex ?? 0;
+      const slideCount = Math.max(countCarouselItems(children), 1);
+      const slideCountRef = ReactLocal.useRef(slideCount);
+      slideCountRef.current = slideCount;
+      const engineCountRef = ReactLocal.useRef(slideCount);
+      const [index, setIndex] = ReactLocal.useState(startIndex);
       const apiRef = ReactLocal.useRef<FakeApi | null>(null);
       if (!apiRef.current) {
-        apiRef.current = createApi(setIndex);
+        apiRef.current = createApi(setIndex, startIndex, engineCountRef, slideCountRef);
       }
       ReactLocal.useEffect(() => {
         setApi?.(apiRef.current as FakeApi);
       }, [setApi]);
+      ReactLocal.useEffect(() => {
+        if (opts?.watchSlides === false) {
+          return;
+        }
+        if (engineCountRef.current === slideCount) {
+          return;
+        }
+        apiRef.current?.reInit();
+      }, [opts?.watchSlides, slideCount]);
       return (
-        <div role="region" aria-roledescription="carousel" data-carousel-index={index} {...props}>
+        <div
+          role="region"
+          aria-roledescription="carousel"
+          data-carousel-index={index}
+          data-initial-index={startIndex}
+          {...props}
+        >
           {children}
         </div>
       );
@@ -376,6 +450,132 @@ describe("PatientDailyCalendar month paging UI", () => {
     );
 
     expect(screen.getByText("4 月")).toBeInTheDocument();
+  });
+
+  test("opens on the visible month instead of the oldest loaded month", () => {
+    render(
+      <PatientDailyCalendar
+        days={[
+          ...days,
+          { date: "2026-03-10", upload_count: 1, has_suspected_risk: true },
+        ]}
+        initialMonthKey="2026-05"
+        loadedOldestMonthKey="2026-03"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    expect(screen.getByTestId("calendar-carousel")).toHaveAttribute("data-initial-index", "2");
+    expect(screen.getByText("5 月")).toBeInTheDocument();
+    expect(screen.queryByText("3 月")).not.toBeInTheDocument();
+  });
+
+  test("does not retarget startIndex after scrolling to a previous month", () => {
+    render(
+      <PatientDailyCalendar
+        days={days}
+        initialMonthKey="2026-05"
+        loadedOldestMonthKey="2026-03"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "上個月" }));
+    act(() => {
+      jest.advanceTimersByTime(240);
+    });
+
+    expect(screen.getByText("4 月")).toBeInTheDocument();
+    expect(screen.getByTestId("calendar-carousel")).toHaveAttribute("data-initial-index", "2");
+    expect(screen.getByTestId("calendar-carousel")).toHaveAttribute("data-carousel-index", "1");
+  });
+
+  test("keeps the navigated month when older months are prepended", () => {
+    const { rerender } = render(
+      <PatientDailyCalendar
+        days={days}
+        initialMonthKey="2026-05"
+        loadedOldestMonthKey="2026-03"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "上個月" }));
+    act(() => {
+      jest.advanceTimersByTime(240);
+    });
+    expect(screen.getByText("4 月")).toBeInTheDocument();
+
+    rerender(
+      <PatientDailyCalendar
+        days={days}
+        initialMonthKey="2026-05"
+        loadedOldestMonthKey="2025-12"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    expect(screen.getByText("4 月")).toBeInTheDocument();
+    expect(screen.queryByText("5 月")).not.toBeInTheDocument();
+  });
+
+  test("stays on the current month slide after older months are prepended", () => {
+    const { rerender } = render(
+      <PatientDailyCalendar
+        days={days}
+        showCalendarModeTabs
+        initialMonthKey="2026-05"
+        loadedOldestMonthKey="2026-03"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    expect(screen.getByText("5 月")).toBeInTheDocument();
+    expect(screen.getByTestId("calendar-carousel")).toHaveAttribute("data-carousel-index", "2");
+
+    rerender(
+      <PatientDailyCalendar
+        days={days}
+        showCalendarModeTabs
+        initialMonthKey="2026-05"
+        loadedOldestMonthKey="2025-12"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    expect(screen.getByText("5 月")).toBeInTheDocument();
+    expect(screen.queryByText("2 月")).not.toBeInTheDocument();
+    expect(screen.getByTestId("calendar-carousel")).toHaveAttribute("data-carousel-index", "5");
+  });
+
+  test("photo tab does not change the visible month after older months are prepended", () => {
+    const { rerender } = render(
+      <PatientDailyCalendar
+        days={days}
+        showCalendarModeTabs
+        galleryHref="/patient/gallery"
+        initialMonthKey="2026-05"
+        loadedOldestMonthKey="2026-03"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    rerender(
+      <PatientDailyCalendar
+        days={days}
+        showCalendarModeTabs
+        galleryHref="/patient/gallery"
+        initialMonthKey="2026-05"
+        loadedOldestMonthKey="2025-12"
+        loadedNewestMonthKey="2026-05"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "相片" }));
+
+    expect(screen.getByRole("tab", { name: "相片" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("5 月")).toBeInTheDocument();
+    expect(screen.getByTestId("calendar-carousel")).toHaveAttribute("data-carousel-index", "5");
   });
 
   test("calendar no longer applies conflicting gutter override classes", () => {
