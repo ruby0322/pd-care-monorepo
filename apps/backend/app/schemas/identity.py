@@ -39,6 +39,7 @@ class PatientProfileResponse(BaseModel):
     longest_continuous_upload_streak_days: int = Field(ge=0, default=0)
     total_upload_count: int = Field(ge=0, default=0)
     primary_nurse_name: str | None = None
+    primary_nurse_assigned: bool = False
 
 
 class PatientUiPreferencesRequest(BaseModel):

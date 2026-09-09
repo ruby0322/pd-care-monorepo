@@ -484,6 +484,7 @@ def test_patient_profile_returns_basic_profile_and_line_avatar(tmp_path: Path) -
         assert payload["longest_continuous_upload_streak_days"] == 0
         assert payload["total_upload_count"] == 0
         assert payload["primary_nurse_name"] is None
+        assert payload["primary_nurse_assigned"] is False
 
 
 def test_patient_profile_returns_assigned_nurse_real_name_not_line_display_name(tmp_path: Path) -> None:
@@ -512,7 +513,9 @@ def test_patient_profile_returns_assigned_nurse_real_name_not_line_display_name(
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
-        assert response.json()["primary_nurse_name"] == "鄭靜誼"
+        payload = response.json()
+        assert payload["primary_nurse_name"] == "鄭靜誼"
+        assert payload["primary_nurse_assigned"] is True
 
 
 def test_patient_profile_omits_nurse_name_when_assignee_has_only_line_display_name(tmp_path: Path) -> None:
@@ -541,7 +544,9 @@ def test_patient_profile_omits_nurse_name_when_assignee_has_only_line_display_na
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
-        assert response.json()["primary_nurse_name"] is None
+        payload = response.json()
+        assert payload["primary_nurse_name"] is None
+        assert payload["primary_nurse_assigned"] is True
 
 
 def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: Path) -> None:
