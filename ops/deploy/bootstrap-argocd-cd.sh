@@ -89,18 +89,24 @@ kubectl apply -f k8s/argocd/project.yaml
 kubectl apply -f k8s/argocd/dev-application.yaml
 kubectl apply -f k8s/argocd/prod-application.yaml
 
-echo "==> Argo CD server ingress (Phase 2 UI)"
+echo "==> Argo CD server (UI stays on port-forward unless explicitly published)"
 if [[ -f k8s/argocd/cmd-params-patch.yaml ]]; then
   kubectl apply -f k8s/argocd/cmd-params-patch.yaml
   kubectl -n "${ARGOCD_NAMESPACE}" rollout restart deploy/argocd-server
   kubectl -n "${ARGOCD_NAMESPACE}" rollout status deploy/argocd-server --timeout=300s
 fi
-if [[ -f k8s/argocd/ingress.yaml ]]; then
-  kubectl apply -f k8s/argocd/ingress.yaml
-  if ! kubectl -n "${ARGOCD_NAMESPACE}" get secret argocd-pd-lu-im-ntu-edu-tw-tls >/dev/null 2>&1; then
-    echo "WARN: TLS secret argocd-pd-lu-im-ntu-edu-tw-tls missing in ${ARGOCD_NAMESPACE}"
-    echo "      Waiting for cert-manager Certificate/argocd-pd-lu-im-ntu-edu-tw to become Ready"
+if [[ "${ARGOCD_EXPOSE_PUBLIC_UI:-}" == "true" ]]; then
+  if [[ -f k8s/argocd/ingress.yaml ]]; then
+    echo "==> Publishing Argo CD ingress (ARGOCD_EXPOSE_PUBLIC_UI=true)"
+    kubectl apply -f k8s/argocd/ingress.yaml
+    if ! kubectl -n "${ARGOCD_NAMESPACE}" get secret argocd-pd-lu-im-ntu-edu-tw-tls >/dev/null 2>&1; then
+      echo "WARN: TLS secret argocd-pd-lu-im-ntu-edu-tw-tls missing in ${ARGOCD_NAMESPACE}"
+      echo "      Waiting for cert-manager Certificate/argocd-pd-lu-im-ntu-edu-tw to become Ready"
+    fi
   fi
+else
+  echo "SKIP: public Argo CD ingress (set ARGOCD_EXPOSE_PUBLIC_UI=true only on a private network)"
+  echo "      To remove an existing public UI: bash ops/security/unpublish_argocd_ui.sh"
 fi
 
 for ns in pd-care-dev pd-care-prod; do
@@ -136,4 +142,4 @@ echo
 echo "Bootstrap complete."
 echo "Next: run ops/deploy/verify-argocd-cd.sh"
 echo "UI:   bash ops/deploy/argocd-ui-portforward.sh  (see docs/deploy/argocd-dashboard.md)"
-echo "      or https://argocd.pd.lu.im.ntu.edu.tw when TLS secret is configured"
+echo "      Public https://argocd.pd.lu.im.ntu.edu.tw is opt-in (ARGOCD_EXPOSE_PUBLIC_UI=true)"

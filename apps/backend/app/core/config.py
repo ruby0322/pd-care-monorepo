@@ -102,6 +102,12 @@ class Settings:
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
 
+    def api_docs_enabled(self) -> bool:
+        override = os.getenv("ENABLE_API_DOCS")
+        if override is not None:
+            return override.strip().lower() in {"1", "true", "yes", "on"}
+        return self.app_env.strip().lower() in {"test", "local"}
+
 
 def _default_model_path() -> Path:
     """User-writable location for local dev. Docker/production should set MODEL_PATH (e.g. /models/...)."""
@@ -141,7 +147,6 @@ def get_settings() -> Settings:
             (
                 "http://localhost:3000",
                 "http://127.0.0.1:3000",
-                "https://1910-140-112-106-204.ngrok-free.app",
             ),
         ),
         cors_allowed_origin_regex=os.getenv(

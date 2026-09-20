@@ -10,7 +10,7 @@ services:
       - ./ops/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     depends_on:
       - backend
     restart: unless-stopped
@@ -23,7 +23,7 @@ services:
       - ./ops/observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki-data:/loki
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     restart: unless-stopped
 
   promtail:
@@ -56,7 +56,7 @@ services:
       - ./ops/observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./ops/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     depends_on:
       - prometheus
       - loki

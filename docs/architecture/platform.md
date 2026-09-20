@@ -133,8 +133,8 @@ by the pd-care Argo Applications:
 | `k8s/cert-manager/` CRs | `kubectl apply -k` | Git truth; no Argo sync yet |
 | Argo CD ingress + cmd-params | Bootstrap apply | Same |
 
-Argo CD UI: `https://argocd.pd.lu.im.ntu.edu.tw` or local port-forward
-([`argocd-dashboard.md`](../deploy/argocd-dashboard.md)).
+Argo CD UI: local port-forward ([`argocd-dashboard.md`](../deploy/argocd-dashboard.md));
+public `https://argocd.pd.lu.im.ntu.edu.tw` is opt-in only (`ARGOCD_EXPOSE_PUBLIC_UI=true`).
 
 Future GitOps for platform manifests: [PLAT-001](../backlog/platform-gitops.md#plat-001-pd-care-platform-argo-application).
 
