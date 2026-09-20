@@ -2,8 +2,10 @@ from __future__ import annotations
 # pyright: reportMissingImports=false
 
 import io
+from dataclasses import replace
 from pathlib import Path
 
+import pytest
 import torch
 import torchvision.transforms as transforms
 from fastapi.testclient import TestClient
@@ -95,7 +97,8 @@ def test_reference_style_backend_modules_exist() -> None:
     assert ServiceLoadedModel is LoadedModel
 
 
-def test_openapi_and_swagger_ui_available(tmp_path: Path) -> None:
+def test_openapi_and_swagger_ui_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ENABLE_API_DOCS", raising=False)
     settings = make_settings(tmp_path / "test-openapi.db")
     app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
     client = TestClient(app)
@@ -108,6 +111,19 @@ def test_openapi_and_swagger_ui_available(tmp_path: Path) -> None:
 
     assert client.get("/docs").status_code == 200
     assert client.get("/redoc").status_code == 200
+
+
+def test_openapi_and_swagger_ui_disabled_outside_test_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("ENABLE_API_DOCS", raising=False)
+    settings = replace(make_settings(tmp_path / "test-openapi-prod.db"), app_env="prod")
+    app = create_app(settings=settings, loaded_model=make_loaded_model(settings))
+    client = TestClient(app)
+
+    assert client.get("/openapi.json").status_code == 404
+    assert client.get("/docs").status_code == 404
+    assert client.get("/redoc").status_code == 404
 
 
 def test_health_and_ready_endpoints(tmp_path: Path) -> None:

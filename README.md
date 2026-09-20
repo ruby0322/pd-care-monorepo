@@ -291,9 +291,9 @@ Important backend environment variables:
 The root `docker-compose.yml` starts:
 
 - `frontend` on `https://localhost` (host port `443`) — requires Let's Encrypt certs on the host (not zero-config)
-- `backend` on `http://localhost:8000`
+- `backend` on `127.0.0.1:8000` by default (override bind/port with `PDCARE_BACKEND_PORT_BIND`)
 - `postgres` on `127.0.0.1:5432` by default (override bind/port with `PDCARE_POSTGRES_PORT_BIND`)
-- SeaweedFS S3 on `http://localhost:8333`
+- SeaweedFS (S3/filer/master/volume) on `127.0.0.1` only — not published on the public NIC
 
 If Kubernetes is active on Minikube (docker driver) and production DNS points at the host, use the ingress bridge to forward host `:443` and `:80` to Minikube ingress NodePorts:
 

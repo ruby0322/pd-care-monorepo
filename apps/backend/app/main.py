@@ -113,17 +113,22 @@ def create_app(
             LOGGER.warning("Pre-screen status: enabled=%s loaded=%s (gate bypassed)", False, False)
         yield
 
+    docs_enabled = settings.api_docs_enabled()
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
         description=(
             "HTTP API for exit-site image classification. "
-            "Interactive docs: [Swagger UI](/docs), [ReDoc](/redoc), OpenAPI JSON at `/openapi.json`."
+            + (
+                "Interactive docs: [Swagger UI](/docs), [ReDoc](/redoc), OpenAPI JSON at `/openapi.json`."
+                if docs_enabled
+                else "Interactive docs are disabled in this environment."
+            )
         ),
         openapi_tags=OPENAPI_TAGS,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
         lifespan=lifespan,
     )
     app.state.settings = settings

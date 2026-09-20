@@ -20,7 +20,7 @@ npm run docker:down:obs
 
 ## Access
 
-- Grafana direct (host port mapped): `http://<host>:3001` (plain HTTP; bypasses ingress)
+- Grafana direct (localhost only): `http://127.0.0.1:3001` (plain HTTP; bypasses ingress; not published on the public NIC)
 - Grafana through frontend subpath: `https://<your-domain>/grafana`
 - Admin monitoring page: `https://<your-domain>/admin/monitoring`
 

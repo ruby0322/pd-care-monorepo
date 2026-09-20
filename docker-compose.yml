@@ -29,7 +29,7 @@ services:
     volumes:
       - seaweed-master-data:/data
     ports:
-      - "9333:9333"
+      - "127.0.0.1:9333:9333"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:9333/cluster/status >/dev/null"]
       interval: 10s
@@ -46,7 +46,7 @@ services:
     volumes:
       - seaweed-volume-data:/data
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/status >/dev/null"]
       interval: 10s
@@ -66,7 +66,7 @@ services:
     volumes:
       - seaweed-filer-data:/data
     ports:
-      - "8888:8888"
+      - "127.0.0.1:8888:8888"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8888/ >/dev/null"]
       interval: 10s
@@ -82,7 +82,7 @@ services:
       seaweedfs-filer:
         condition: service_healthy
     ports:
-      - "8333:8333"
+      - "127.0.0.1:8333:8333"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8333/ >/dev/null"]
       interval: 10s
@@ -144,7 +144,7 @@ services:
       HF_TOKEN: ${PDCARE_HF_TOKEN:-}
       DEVICE: ${PDCARE_DEVICE:-cpu}
     ports:
-      - "8000:8000"
+      - "${PDCARE_BACKEND_PORT_BIND:-127.0.0.1:8000}:8000"
     volumes:
       - model-cache:/models
     depends_on:

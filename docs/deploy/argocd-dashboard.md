@@ -86,12 +86,25 @@ for scripts and automation.
 
 ---
 
-## Phase 2 — Ingress + TLS (external)
+## Phase 2 — Ingress + TLS (external, opt-in)
 
-**Hostname:** `https://argocd.pd.lu.im.ntu.edu.tw`
+**Do not publish this UI on a campus-public IP.** NTU CERT 攻防演練 treats
+Argo CD as a management console (`管理介面暴露在公開網路`). The 2026-09-18
+block of `140.112.106.204` (`pd.lu.im.ntu.edu.tw` / `argocd.pd.lu.im.ntu.edu.tw`)
+is consistent with that category.
+
+Default access is Phase 1 port-forward (or an SSH tunnel). To remove a live
+public Ingress:
+
+```bash
+bash ops/security/unpublish_argocd_ui.sh
+```
+
+**Hostname (private networks only):** `https://argocd.pd.lu.im.ntu.edu.tw`
 
 Uses the same nginx ingress + ingress-bridge stack as prod/dev ([`k8s-minikube.md`](k8s-minikube.md) §2.1).
 Manifests live in [`k8s/argocd/`](../../k8s/argocd/) (platform layer, not dev/prod overlays).
+Bootstrap applies this Ingress only when `ARGOCD_EXPOSE_PUBLIC_UI=true`.
 
 ```mermaid
 flowchart LR
@@ -136,7 +149,7 @@ flowchart LR
    kubectl -n argocd rollout status deploy/argocd-server --timeout=300s
    ```
 
-   Or: `bash ops/deploy/bootstrap-argocd-cd.sh` (installs cert-manager, applies certificates, cmd-params, and ingress).
+   Or: `ARGOCD_EXPOSE_PUBLIC_UI=true bash ops/deploy/bootstrap-argocd-cd.sh` (installs cert-manager, applies certificates, cmd-params, and ingress). Default bootstrap skips the public Ingress.
 
 5. **Verify**:
 
@@ -163,7 +176,8 @@ kubectl describe certificate argocd-pd-lu-im-ntu-edu-tw -n argocd
 
 ### Security
 
-- Rotate `admin` password before sharing the external URL (Phase 1 login flow).
+- Prefer Phase 1. Public Ingress on TANet/campus IPs is a CERT finding.
+- Rotate `admin` password before sharing any URL (Phase 1 login flow).
 - Do not expose the UI with the default `argocd-initial-admin-secret` password.
 - Optional later: OIDC / GitHub SSO via `argocd-cm`.
 
