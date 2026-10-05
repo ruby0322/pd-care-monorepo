@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import LiffIdentity, Patient, StaffPatientAssignment
+from app.db.models import AIResult, Annotation, LiffIdentity, Patient, StaffPatientAssignment, Upload
 from app.main import create_app
 from tests.db_test_utils import migrated_sqlite_database_url
 
@@ -304,6 +304,83 @@ def test_admin_user_list_sorts_by_assigned_patient_count_before_pagination(tmp_p
         assert response.status_code == 200
         assert response.json()["total"] == 2
         assert [item["line_user_id"] for item in response.json()["items"]] == ["U_STAFF_ASSIGNMENT_HIGH"]
+
+
+def test_admin_user_list_includes_labeling_workload_for_staff_and_admin(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-workload.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_WORKLOAD", role="admin")
+        staff_id = _seed_identity(client, line_user_id="U_STAFF_WORKLOAD", role="staff")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            active_patient = Patient(case_number="WL-ACTIVE", birth_date="1990-01-01")
+            inactive_patient = Patient(case_number="WL-INACTIVE", birth_date="1990-01-01", is_active=False)
+            session.add_all([active_patient, inactive_patient])
+            session.flush()
+            session.add_all(
+                [
+                    StaffPatientAssignment(staff_identity_id=staff_id, patient_id=active_patient.id),
+                    StaffPatientAssignment(staff_identity_id=staff_id, patient_id=inactive_patient.id),
+                ]
+            )
+            uploads = []
+            for patient_id, screening_result in (
+                (active_patient.id, "normal"),
+                (active_patient.id, "suspected"),
+                (active_patient.id, "rejected"),
+                (inactive_patient.id, "normal"),
+            ):
+                upload = Upload(patient_id=patient_id, object_key="k", content_type="image/jpeg")
+                session.add(upload)
+                session.flush()
+                session.add(AIResult(upload_id=upload.id, screening_result=screening_result))
+                uploads.append(upload)
+            session.add(
+                Annotation(
+                    patient_id=active_patient.id,
+                    upload_id=uploads[0].id,
+                    reviewer_identity_id=staff_id,
+                    label="normal",
+                )
+            )
+            session.commit()
+
+        token = _login_token(client, "U_ADMIN_WORKLOAD")
+        response = client.get("/v1/staff/admin/users?exclude_patient=true", headers={"Authorization": f"Bearer {token}"})
+
+        assert response.status_code == 200
+        items = response.json()["items"]
+        staff_item = next(item for item in items if item["line_user_id"] == "U_STAFF_WORKLOAD")
+        workload = staff_item["workload"]
+        assert workload["assigned_patient_count"] == 2
+        # Rejected uploads and uploads of inactive patients are outside the review queue.
+        assert workload["assigned_upload_count"] == 2
+        assert workload["labeled_assigned_upload_count"] == 1
+        assert workload["labeled_assigned_ratio"] == 0.5
+        assert workload["reviewed_upload_count"] == 1
+        assert workload["last_reviewed_at"] is not None
+
+        admin_item = next(item for item in items if item["line_user_id"] == "U_ADMIN_WORKLOAD")
+        assert admin_item["workload"]["assigned_patient_count"] == 0
+        assert admin_item["workload"]["labeled_assigned_ratio"] == 0.0
+
+
+def test_admin_user_list_omits_workload_for_patient_identities(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-workload-patient.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_WORKLOAD_PATIENT", role="admin")
+        _seed_identity(client, line_user_id="U_PATIENT_WORKLOAD", role="patient")
+
+        token = _login_token(client, "U_ADMIN_WORKLOAD_PATIENT")
+        response = client.get("/v1/staff/admin/users", headers={"Authorization": f"Bearer {token}"})
+
+        assert response.status_code == 200
+        items = response.json()["items"]
+        patient_item = next(item for item in items if item["line_user_id"] == "U_PATIENT_WORKLOAD")
+        assert patient_item["workload"] is None
 
 
 def test_admin_user_list_includes_real_name_field_with_null_default(tmp_path: Path) -> None:

@@ -23,6 +23,7 @@ from app.services.taipei_dates import (
 class WorkbenchWeekDayMetrics:
     local_date: date
     upload_count: int
+    labeled_upload_count: int
     uploaded_users: int
     risky_patient_count: int
     unhandled_patient_count: int
@@ -90,6 +91,7 @@ def aggregate_workbench_week(
                 WorkbenchWeekDayMetrics(
                     local_date=day,
                     upload_count=0,
+                    labeled_upload_count=0,
                     uploaded_users=0,
                     risky_patient_count=0,
                     unhandled_patient_count=0,
@@ -100,6 +102,7 @@ def aggregate_workbench_week(
                 WorkbenchWeekDayMetrics(
                     local_date=summary.local_date,
                     upload_count=summary.upload_count,
+                    labeled_upload_count=summary.labeled_upload_count,
                     uploaded_users=summary.uploaded_users,
                     risky_patient_count=summary.risky_patient_count,
                     unhandled_patient_count=summary.unhandled_patient_count,
