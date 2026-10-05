@@ -306,6 +306,38 @@ def test_admin_user_list_sorts_by_assigned_patient_count_before_pagination(tmp_p
         assert [item["line_user_id"] for item in response.json()["items"]] == ["U_STAFF_ASSIGNMENT_HIGH"]
 
 
+def test_admin_user_list_assigned_count_sort_ignores_inactive_patients(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-assignment-sort-inactive.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_ASSIGNMENT_SORT_INACTIVE", role="admin")
+        active_staff_id = _seed_identity(client, line_user_id="U_STAFF_ASSIGNMENT_ACTIVE_ONLY", role="staff")
+        inactive_only_staff_id = _seed_identity(client, line_user_id="U_STAFF_ASSIGNMENT_INACTIVE_ONLY", role="staff")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            active_patient = Patient(case_number="SORT-ACTIVE", birth_date="1990-01-01")
+            inactive_patient = Patient(case_number="SORT-INACTIVE", birth_date="1990-01-01", is_active=False)
+            session.add_all([active_patient, inactive_patient])
+            session.flush()
+            session.add_all(
+                [
+                    StaffPatientAssignment(staff_identity_id=active_staff_id, patient_id=active_patient.id),
+                    StaffPatientAssignment(staff_identity_id=inactive_only_staff_id, patient_id=inactive_patient.id),
+                ]
+            )
+            session.commit()
+
+        token = _login_token(client, "U_ADMIN_ASSIGNMENT_SORT_INACTIVE")
+        response = client.get(
+            "/v1/staff/admin/users?role=staff&sort=assigned_count_desc&limit=1&offset=0",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert [item["line_user_id"] for item in response.json()["items"]] == ["U_STAFF_ASSIGNMENT_ACTIVE_ONLY"]
+
+
 def test_admin_user_list_includes_labeling_workload_for_staff_and_admin(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "admin-user-management-workload.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

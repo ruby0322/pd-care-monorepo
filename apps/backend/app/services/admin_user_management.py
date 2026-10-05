@@ -320,8 +320,13 @@ def list_identities(
     total = int(session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one() or 0)
     if sort == "assigned_count_desc":
         assigned_count = (
-            select(func.count(StaffPatientAssignment.id))
-            .where(StaffPatientAssignment.staff_identity_id == LiffIdentity.id)
+            select(func.count(StaffPatientAssignment.patient_id))
+            .select_from(StaffPatientAssignment)
+            .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+            .where(
+                StaffPatientAssignment.staff_identity_id == LiffIdentity.id,
+                Patient.is_active.is_(True),
+            )
             .correlate(LiffIdentity)
             .scalar_subquery()
         )

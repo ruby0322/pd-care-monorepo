@@ -115,6 +115,18 @@ describe("AdminUsersPage", () => {
     });
     expect(screen.getByText("已標註 / 指派上傳")).toBeInTheDocument();
     expect(screen.getByText("本人標註數")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /指派病患/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("停用病患不計")
+    );
+    expect(screen.getByRole("button", { name: /已標註 \/ 指派上傳/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("由任何人標註皆計入")
+    );
+    expect(screen.getByRole("button", { name: /本人標註數/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("不在其負責佇列")
+    );
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(screen.getByText("12 / 30")).toBeInTheDocument();
     expect(screen.getByText("（40%）")).toBeInTheDocument();
