@@ -31,10 +31,24 @@ import {
 
 const DEFAULT_PAGE_SIZE = 10;
 
-function SortableHeaderButton({ label, onClick }: { label: string; onClick: () => void }) {
+function SortableHeaderButton({
+  label,
+  hint,
+  onClick,
+}: {
+  label: string;
+  hint?: string;
+  onClick: () => void;
+}) {
   return (
-    <button type="button" className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500" onClick={onClick}>
+    <button
+      type="button"
+      title={hint ? `${hint}\n（排序僅作用於當前頁面）` : undefined}
+      className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+      onClick={onClick}
+    >
       {label}
+      {hint ? <span className="text-zinc-400">ⓘ</span> : null}
       <ArrowUpDown className="h-3.5 w-3.5" />
     </button>
   );
@@ -396,7 +410,11 @@ export default function AdminUsersPage() {
       {
         id: "assigned_patients",
         header: ({ column }) => (
-          <SortableHeaderButton label="指派病患" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
+          <SortableHeaderButton
+            label="指派病患"
+            hint="指派給此人且仍在追蹤中的病患數（停用病患不計）"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          />
         ),
         cell: ({ row }) => {
           const workload = row.original.workload;
@@ -414,6 +432,7 @@ export default function AdminUsersPage() {
         header: ({ column }) => (
           <SortableHeaderButton
             label="已標註 / 指派上傳"
+            hint="此人負責佇列的完成度：由任何人標註皆計入"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
         ),
@@ -431,7 +450,11 @@ export default function AdminUsersPage() {
       {
         id: "reviewed_uploads",
         header: ({ column }) => (
-          <SortableHeaderButton label="本人標註數" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
+          <SortableHeaderButton
+            label="本人標註數"
+            hint="此人親自標註過的上傳數：含不在其負責佇列的上傳"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          />
         ),
         cell: ({ row }) => {
           const workload = row.original.workload;

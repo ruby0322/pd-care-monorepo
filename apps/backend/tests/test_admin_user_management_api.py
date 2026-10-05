@@ -354,7 +354,9 @@ def test_admin_user_list_includes_labeling_workload_for_staff_and_admin(tmp_path
         items = response.json()["items"]
         staff_item = next(item for item in items if item["line_user_id"] == "U_STAFF_WORKLOAD")
         workload = staff_item["workload"]
-        assert workload["assigned_patient_count"] == 2
+        # Both counts share one universe: the inactive patient is assigned but excluded
+        # from the patient count and from the upload denominator alike.
+        assert workload["assigned_patient_count"] == 1
         # Rejected uploads and uploads of inactive patients are outside the review queue.
         assert workload["assigned_upload_count"] == 2
         assert workload["labeled_assigned_upload_count"] == 1

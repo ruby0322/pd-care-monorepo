@@ -24,8 +24,11 @@ from app.services.identity_validation import assert_valid_line_user_id
 class StaffWorkloadStats:
     """Labeling workload for one staff/admin identity.
 
-    Assigned uploads use the same eligibility rules as the review workbench, so the
-    denominator matches what the reviewer actually sees in their queue.
+    Every field is scoped to live work: assigned patients are limited to active
+    patients and assigned uploads reuse the review workbench's eligibility rules,
+    so the counts share one universe and the ratio matches the queue the reviewer
+    actually sees. Counting assignments to deactivated patients here would read as
+    "7 assigned patients / 0 assigned uploads", which looks like a bug.
     """
 
     assigned_patient_count: int
@@ -47,7 +50,8 @@ def load_staff_workload_stats(
     assigned_patients = dict(
         session.execute(
             select(StaffPatientAssignment.staff_identity_id, func.count(StaffPatientAssignment.patient_id))
-            .where(StaffPatientAssignment.staff_identity_id.in_(normalized_ids))
+            .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+            .where(StaffPatientAssignment.staff_identity_id.in_(normalized_ids), Patient.is_active.is_(True))
             .group_by(StaffPatientAssignment.staff_identity_id)
         ).all()
     )

@@ -34,13 +34,11 @@ type DashboardDayCalendarProps = {
 function MetricChip({
   icon,
   value,
-  outOf,
   selected,
   risk,
 }: {
   icon: ReactNode;
   value: number;
-  outOf?: number;
   selected: boolean;
   risk?: boolean;
 }) {
@@ -57,21 +55,22 @@ function MetricChip({
       <span className={cn("shrink-0", risk && !muted ? "text-red-600" : muted ? "text-zinc-300" : "text-zinc-400")}>
         {icon}
       </span>
-      <span className="text-xs font-semibold tabular-nums leading-none">
-        {value}
-        {outOf != null ? <span className="font-normal text-zinc-400">/{outOf}</span> : null}
-      </span>
+      <span className="text-xs font-semibold tabular-nums leading-none">{value}</span>
     </div>
   );
 }
 
 function LabeledProgressBar({ labeled, total }: { labeled: number; total: number }) {
   const percent = total > 0 ? Math.round((labeled / total) * 100) : 0;
+  const complete = total > 0 && labeled >= total;
   return (
     <div className="mt-1.5 w-full">
+      <p className="mb-0.5 truncate text-[9px] leading-none tabular-nums text-zinc-400">
+        已標註 {labeled}/{total}
+      </p>
       <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-200">
         <div
-          className={cn("h-full rounded-full", labeled >= total ? "bg-emerald-500" : "bg-cyan-500")}
+          className={cn("h-full rounded-full", complete ? "bg-emerald-500" : "bg-cyan-500")}
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -144,12 +143,7 @@ function DayCellButton({
       {isAvailable ? (
         <div className="mt-auto w-full pt-2">
           <div className="grid w-full grid-cols-3 gap-1">
-            <MetricChip
-              selected={selected}
-              icon={<ImageIcon className="h-3.5 w-3.5" />}
-              value={labeledUploads}
-              outOf={uploadCount}
-            />
+            <MetricChip selected={selected} icon={<ImageIcon className="h-3.5 w-3.5" />} value={uploadCount} />
             <MetricChip selected={selected} icon={<Users className="h-3.5 w-3.5" />} value={uploadedUsers} />
             <MetricChip selected={selected} risk icon={<TriangleAlert className="h-3.5 w-3.5" />} value={riskyPatients} />
           </div>
@@ -326,7 +320,7 @@ export function DashboardDayCalendar({
       <p className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-zinc-400">
         <span className="inline-flex items-center gap-1">
           <ImageIcon className="h-3 w-3" />
-          已標註 / 總上傳
+          上傳數
         </span>
         <span className="inline-flex items-center gap-1">
           <Users className="h-3 w-3" />
@@ -336,6 +330,7 @@ export function DashboardDayCalendar({
           <TriangleAlert className="h-3 w-3" />
           風險病患
         </span>
+        <span>底部進度條：已標註 / 總上傳</span>
       </p>
 
       <div className="md:hidden">

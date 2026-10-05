@@ -41,9 +41,10 @@ describe("DashboardDayCalendar", () => {
       />
     );
 
-    expect(screen.getAllByText("3").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("/8").length).toBeGreaterThan(0);
-    expect(screen.getByText("已標註 / 總上傳")).toBeInTheDocument();
+    // The chip keeps a single count so it cannot clip; the fraction sits on the progress row.
+    expect(screen.getAllByText("8").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("已標註 3/8").length).toBeGreaterThan(0);
+    expect(screen.getByText("底部進度條：已標註 / 總上傳")).toBeInTheDocument();
     expect(
       screen.getAllByTitle(`${today} · 已標註 3/8（38%） · 人數 5 · 風險 1`).length
     ).toBeGreaterThan(0);
