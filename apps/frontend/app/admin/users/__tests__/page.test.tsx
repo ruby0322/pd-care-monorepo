@@ -70,6 +70,71 @@ describe("AdminUsersPage", () => {
     });
   });
 
+  test("shows assignment and labeling stats for staff rows", async () => {
+    (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          line_user_id: "U_STAFF_1",
+          display_name: "LINE Name 1",
+          real_name: "Dr. Chen",
+          role: "staff",
+          is_active: true,
+          patient_id: null,
+          created_at: "2026-05-01T00:00:00Z",
+          workload: {
+            assigned_patient_count: 7,
+            assigned_upload_count: 30,
+            labeled_assigned_upload_count: 12,
+            labeled_assigned_ratio: 0.4,
+            reviewed_upload_count: 9,
+            last_reviewed_at: "2026-05-20T00:00:00Z",
+          },
+        },
+        {
+          id: 2,
+          line_user_id: "U_PATIENT_1",
+          display_name: "Patient",
+          real_name: null,
+          role: "patient",
+          is_active: true,
+          patient_id: 5,
+          created_at: "2026-05-02T00:00:00Z",
+          workload: null,
+        },
+      ],
+      total: 2,
+      limit: 10,
+      offset: 0,
+    });
+
+    render(<AdminUsersPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("指派病患")).toBeInTheDocument();
+    });
+    expect(screen.getByText("已標註 / 指派上傳")).toBeInTheDocument();
+    expect(screen.getByText("本人標註數")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /指派病患/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("停用病患不計")
+    );
+    expect(screen.getByRole("button", { name: /已標註 \/ 指派上傳/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("由任何人標註皆計入")
+    );
+    expect(screen.getByRole("button", { name: /本人標註數/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("不在其負責佇列")
+    );
+    expect(screen.getByText("7")).toBeInTheDocument();
+    expect(screen.getByText("12 / 30")).toBeInTheDocument();
+    expect(screen.getByText("（40%）")).toBeInTheDocument();
+    expect(screen.getByText("9")).toBeInTheDocument();
+    // Patient rows have no labeling workload.
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(3);
+  });
+
   test("renders separate LINE display name and real name columns", async () => {
     render(<AdminUsersPage />);
 

@@ -10,11 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getReadableApiError } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
 import { AdminActiveFilter, AdminRoleFilter, parseUsersFilters, usersFiltersToSearchParams } from "@/lib/admin/filters";
 import {
   AdminInactiveIdentityDeletePreview,
   AdminAccessRequestItem,
   AdminIdentityItem,
+  AdminIdentityWorkloadStats,
   approveAdminAccessRequest,
   deleteInactiveAdminUsers,
   fetchAdminAccessRequests,
@@ -28,6 +30,52 @@ import {
 } from "@/lib/api/staff";
 
 const DEFAULT_PAGE_SIZE = 10;
+
+function SortableHeaderButton({
+  label,
+  hint,
+  onClick,
+}: {
+  label: string;
+  hint?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={hint ? `${hint}\n（排序僅作用於當前頁面）` : undefined}
+      className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+      onClick={onClick}
+    >
+      {label}
+      {hint ? <span className="text-zinc-400">ⓘ</span> : null}
+      <ArrowUpDown className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+function LabelProgressCell({ workload }: { workload: AdminIdentityWorkloadStats | null }) {
+  if (!workload) {
+    return <span className="text-sm text-zinc-400">—</span>;
+  }
+  const labeled = workload.labeled_assigned_upload_count;
+  const total = workload.assigned_upload_count;
+  const percent = Math.round(workload.labeled_assigned_ratio * 100);
+  return (
+    <div className="min-w-[112px]">
+      <p className="text-sm tabular-nums text-zinc-900">
+        {labeled} / {total}
+        <span className="ml-1 text-xs text-zinc-500">（{percent}%）</span>
+      </p>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
+        <div
+          className={cn("h-full rounded-full", total > 0 && labeled >= total ? "bg-emerald-500" : "bg-cyan-500")}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -308,14 +356,7 @@ export default function AdminUsersPage() {
       {
         accessorKey: "display_name",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            LINE 顯示名稱
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="LINE 顯示名稱" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => {
           const user = row.original;
@@ -335,14 +376,7 @@ export default function AdminUsersPage() {
       {
         accessorKey: "real_name",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            真實姓名
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="真實姓名" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => <span className="text-sm text-zinc-900">{row.original.real_name ?? "—"}</span>,
         sortingFn: (rowA, rowB) => {
@@ -354,28 +388,14 @@ export default function AdminUsersPage() {
       {
         accessorKey: "role",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            角色
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="角色" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">{row.original.role}</span>,
       },
       {
         accessorKey: "is_active",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            狀態
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="狀態" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => (
           <span
@@ -388,16 +408,77 @@ export default function AdminUsersPage() {
         ),
       },
       {
+        id: "assigned_patients",
+        header: ({ column }) => (
+          <SortableHeaderButton
+            label="指派病患"
+            hint="指派給此人且仍在追蹤中的病患數（停用病患不計）"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          />
+        ),
+        cell: ({ row }) => {
+          const workload = row.original.workload;
+          return workload ? (
+            <span className="text-sm tabular-nums text-zinc-900">{workload.assigned_patient_count}</span>
+          ) : (
+            <span className="text-sm text-zinc-400">—</span>
+          );
+        },
+        sortingFn: (rowA, rowB) =>
+          (rowA.original.workload?.assigned_patient_count ?? -1) - (rowB.original.workload?.assigned_patient_count ?? -1),
+      },
+      {
+        id: "label_progress",
+        header: ({ column }) => (
+          <SortableHeaderButton
+            label="已標註 / 指派上傳"
+            hint="此人負責佇列的完成度：由任何人標註皆計入"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          />
+        ),
+        cell: ({ row }) => <LabelProgressCell workload={row.original.workload} />,
+        sortingFn: (rowA, rowB) => {
+          const a = rowA.original.workload;
+          const b = rowB.original.workload;
+          const ratioDiff = (a?.labeled_assigned_ratio ?? -1) - (b?.labeled_assigned_ratio ?? -1);
+          if (ratioDiff !== 0) {
+            return ratioDiff;
+          }
+          return (a?.assigned_upload_count ?? -1) - (b?.assigned_upload_count ?? -1);
+        },
+      },
+      {
+        id: "reviewed_uploads",
+        header: ({ column }) => (
+          <SortableHeaderButton
+            label="本人標註數"
+            hint="此人親自標註過的上傳數：含不在其負責佇列的上傳"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          />
+        ),
+        cell: ({ row }) => {
+          const workload = row.original.workload;
+          if (!workload) {
+            return <span className="text-sm text-zinc-400">—</span>;
+          }
+          return (
+            <div>
+              <p className="text-sm tabular-nums text-zinc-900">{workload.reviewed_upload_count}</p>
+              <p className="text-xs text-zinc-500">
+                {workload.last_reviewed_at
+                  ? `最後標註 ${new Date(workload.last_reviewed_at).toLocaleDateString("zh-TW")}`
+                  : "尚未標註"}
+              </p>
+            </div>
+          );
+        },
+        sortingFn: (rowA, rowB) =>
+          (rowA.original.workload?.reviewed_upload_count ?? -1) - (rowB.original.workload?.reviewed_upload_count ?? -1),
+      },
+      {
         accessorKey: "created_at",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            建立時間
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="建立時間" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => (
           <span className="text-xs text-zinc-500">{new Date(row.original.created_at).toLocaleString("zh-TW", { hour12: false })}</span>
@@ -486,7 +567,7 @@ export default function AdminUsersPage() {
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <header>
         <h1 className="text-lg font-semibold text-zinc-900">用戶管理</h1>
-        <p className="text-xs text-zinc-500">admin 專用：角色授權、停用/啟用、醫護權限申請審核</p>
+        <p className="text-xs text-zinc-500">admin 專用：角色授權、停用/啟用、醫護權限申請審核、標註工作量</p>
       </header>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
@@ -597,7 +678,7 @@ export default function AdminUsersPage() {
           <TableBody>
             {usersTable.getRowModel().rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-sm text-zinc-500">
+                <TableCell colSpan={9} className="py-8 text-center text-sm text-zinc-500">
                   沒有符合條件的用戶
                 </TableCell>
               </TableRow>

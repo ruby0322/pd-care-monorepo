@@ -25,6 +25,7 @@ function metricsFromWeekDays(weekDays: StaffWorkbenchWeekDayItem[]): Record<stri
   for (const day of weekDays) {
     next[day.local_date] = {
       uploadCount: day.upload_count ?? 0,
+      labeledUploads: day.labeled_upload_count ?? 0,
       uploadedUsers: day.uploaded_users ?? 0,
       riskyPatients: day.risky_patient_count ?? 0,
       unhandledPatients: day.unhandled_patient_count ?? 0,

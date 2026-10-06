@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import AIResult, LiffIdentity, Patient, StaffPatientAssignment, Upload
+from app.db.models import AIResult, Annotation, LiffIdentity, Patient, StaffPatientAssignment, Upload
 from app.main import create_app
 from tests.db_test_utils import migrated_sqlite_database_url
 
@@ -257,8 +257,55 @@ def test_workbench_aligns_week_metrics_with_attention(tmp_path: Path) -> None:
         assert day_item["upload_count"] == 3
         assert day_item["uploaded_users"] == 2
         assert day_item["risky_patient_count"] == 1
+        assert day_item["labeled_upload_count"] == 0
         assert "2026-07-16" in payload["available_dates"]
         assert "2026-05-01" in payload["available_dates"]
+
+
+def test_workbench_week_days_count_labeled_uploads(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "workbench-labeled.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        day_start = _taipei_day_start_utc(datetime(2026, 7, 16, 12, 0, tzinfo=timezone(timedelta(hours=8))))
+        patient_id, upload_ids = _seed_patient_uploads(
+            client,
+            case_number="P-LABELED",
+            line_user_id="U_LABELED",
+            uploads=[
+                (day_start + timedelta(hours=1), "normal"),
+                (day_start + timedelta(hours=2), "suspected"),
+                (day_start + timedelta(hours=3), "normal"),
+            ],
+        )
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=patient_id)
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            for upload_id in upload_ids[:2]:
+                session.add(
+                    Annotation(
+                        patient_id=patient_id,
+                        upload_id=upload_id,
+                        reviewer_identity_id=staff_identity_id,
+                        label="normal",
+                    )
+                )
+            session.commit()
+
+        token = _login_staff_token(client)
+        workbench = client.get(
+            "/v1/staff/dashboard/workbench",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"local_date": "2026-07-16", "week_start": "2026-07-12"},
+        )
+        assert workbench.status_code == 200
+        week_days = workbench.json()["week_days"]
+        day_item = next(item for item in week_days if item["local_date"] == "2026-07-16")
+        assert day_item["upload_count"] == 3
+        assert day_item["labeled_upload_count"] == 2
+        empty_day = next(item for item in week_days if item["local_date"] == "2026-07-14")
+        assert empty_day["labeled_upload_count"] == 0
 
 
 def test_workbench_available_dates_sql_distinct_and_utc_boundary(tmp_path: Path) -> None:

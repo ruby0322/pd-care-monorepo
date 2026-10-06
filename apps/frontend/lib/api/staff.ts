@@ -158,6 +158,7 @@ export type StaffTodayAttentionResponse = {
 export type StaffWorkbenchWeekDayItem = {
   local_date: string;
   upload_count: number;
+  labeled_upload_count: number;
   uploaded_users: number;
   risky_patient_count: number;
   unhandled_patient_count: number;
@@ -386,6 +387,7 @@ export type AdminActiveUsersSeriesResponse = {
 export type AdminDailySuspectedSeriesPoint = {
   date: string;
   total_uploads: number;
+  labeled_uploads: number;
   suspected_uploads: number;
   symptom_elevated_uploads: number;
   suspected_ratio: number;
@@ -394,6 +396,15 @@ export type AdminDailySuspectedSeriesPoint = {
 export type AdminDailySuspectedSeriesResponse = {
   lookback_days: number;
   items: AdminDailySuspectedSeriesPoint[];
+};
+
+export type AdminIdentityWorkloadStats = {
+  assigned_patient_count: number;
+  assigned_upload_count: number;
+  labeled_assigned_upload_count: number;
+  labeled_assigned_ratio: number;
+  reviewed_upload_count: number;
+  last_reviewed_at: string | null;
 };
 
 export type AdminIdentityItem = {
@@ -406,6 +417,7 @@ export type AdminIdentityItem = {
   is_active: boolean;
   patient_id: number | null;
   created_at: string;
+  workload: AdminIdentityWorkloadStats | null;
 };
 
 export type AdminIdentityListResponse = {
