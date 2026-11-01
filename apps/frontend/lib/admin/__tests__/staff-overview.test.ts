@@ -34,6 +34,8 @@ describe("staffOverviewKpis", () => {
   test("flags coverage gaps as warnings and leaves healthy counts neutral", () => {
     const kpis = staffOverviewKpis({
       staff_count: 5,
+      staff_total: 5,
+      truncated: false,
       active_staff_count: 4,
       pending_access_request_count: 0,
       zero_assignment_staff_count: 2,

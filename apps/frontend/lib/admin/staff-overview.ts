@@ -16,7 +16,7 @@ export function staffOverviewKpis(summary: AdminStaffOverviewSummary | null): St
       key: "active_staff",
       label: "在職醫護",
       value: summary?.active_staff_count ?? 0,
-      hint: `共 ${summary?.staff_count ?? 0} 個 staff/admin 帳號`,
+      hint: `共 ${summary?.staff_total ?? 0} 個 staff/admin 帳號`,
       tone: "neutral",
     },
     {
@@ -30,14 +30,14 @@ export function staffOverviewKpis(summary: AdminStaffOverviewSummary | null): St
       key: "zero_assignment",
       label: "零指派醫護",
       value: summary?.zero_assignment_staff_count ?? 0,
-      hint: "在職但未負責任何病患",
+      hint: "在職 staff 但未負責任何病患（admin 不計）",
       tone: (summary?.zero_assignment_staff_count ?? 0) > 0 ? "warning" : "neutral",
     },
     {
       key: "unassigned_patients",
       label: "未分配病患",
       value: summary?.unassigned_patient_count ?? 0,
-      hint: "尚未指派負責醫護",
+      hint: "無在職醫護負責（含僅指派給已停用帳號）",
       tone: (summary?.unassigned_patient_count ?? 0) > 0 ? "warning" : "neutral",
     },
   ];

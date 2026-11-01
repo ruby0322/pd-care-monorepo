@@ -86,6 +86,8 @@ describe("AdminUsersPage", () => {
       ],
       summary: {
         staff_count: 2,
+        staff_total: 2,
+        truncated: false,
         active_staff_count: 2,
         pending_access_request_count: 0,
         zero_assignment_staff_count: 1,
@@ -147,6 +149,8 @@ describe("AdminUsersPage", () => {
       ],
       summary: {
         staff_count: 1,
+        staff_total: 1,
+        truncated: false,
         active_staff_count: 1,
         pending_access_request_count: 0,
         zero_assignment_staff_count: 0,
@@ -405,6 +409,66 @@ describe("AdminUsersPage", () => {
     expect(within(roster).getByRole("button", { name: "降為 staff" })).toBeDisabled();
     // The other staff row stays actionable.
     expect(within(roster).getByRole("button", { name: "升為 admin" })).toBeEnabled();
+  });
+
+  test("disables 停用 on the signed-in admin's own row in the identity table too", async () => {
+    (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
+      items: [
+        {
+          id: 2,
+          line_user_id: "U_ADMIN",
+          display_name: "Admin Lin",
+          real_name: null,
+          role: "admin",
+          is_active: true,
+          patient_id: null,
+          created_at: "2026-04-01T00:00:00Z",
+        },
+        {
+          id: 1,
+          line_user_id: "U_STAFF_1",
+          display_name: "LINE Name 1",
+          real_name: "Dr. Chen",
+          role: "staff",
+          is_active: true,
+          patient_id: null,
+          created_at: "2026-05-01T00:00:00Z",
+        },
+      ],
+      total: 2,
+      limit: 10,
+      offset: 0,
+    });
+
+    render(<AdminUsersPage />);
+
+    const identityTable = await screen.findByRole("region", { name: "用戶清單" });
+    const toggles = within(identityTable).getAllByRole("button", { name: "停用" });
+    // fetchStaffMe resolves as U_ADMIN, the first row.
+    expect(toggles[0]).toBeDisabled();
+    expect(toggles[1]).toBeEnabled();
+  });
+
+  test("warns when the roster is truncated so the KPIs are not read as totals", async () => {
+    (fetchAdminStaffOverview as jest.Mock).mockResolvedValue({
+      items: [],
+      summary: {
+        staff_count: 500,
+        staff_total: 640,
+        truncated: true,
+        active_staff_count: 480,
+        pending_access_request_count: 0,
+        zero_assignment_staff_count: 3,
+        unassigned_patient_count: 0,
+      },
+    });
+
+    render(<AdminUsersPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/名單僅顯示前 500 位（共 640 位）/)).toBeInTheDocument();
+    });
+    expect(screen.getByText("共 640 個 staff/admin 帳號")).toBeInTheDocument();
   });
 
   test("promotes a staff member to admin from the roster", async () => {

@@ -20,6 +20,11 @@ from app.services.attention_triage import workbench_upload_where_clauses
 from app.services.identity_validation import assert_valid_line_user_id
 
 
+# Re-labelling an upload updates the annotation in place, so review recency and the rolling
+# windows must prefer updated_at and fall back to created_at for rows written before it existed.
+ANNOTATION_REVIEWED_AT = func.coalesce(Annotation.updated_at, Annotation.created_at)
+
+
 @dataclass(frozen=True)
 class StaffWorkloadStats:
     """Labeling workload for one staff/admin identity.
@@ -76,7 +81,7 @@ def load_staff_workload_stats(
         select(
             Annotation.reviewer_identity_id,
             func.count(distinct(Annotation.upload_id)),
-            func.max(Annotation.created_at),
+            func.max(ANNOTATION_REVIEWED_AT),
         )
         .where(Annotation.reviewer_identity_id.in_(normalized_ids))
         .group_by(Annotation.reviewer_identity_id)
@@ -413,6 +418,8 @@ def update_identity_role(
 ) -> LiffIdentity:
     if actor_role != "admin":
         raise PermissionError("不可踰越階級：僅 admin 可調整角色")
+    if actor_identity_id == target_identity_id:
+        raise PermissionError("無法調整自己的角色，避免最後一位 admin 自我降權")
     identity = session.get(LiffIdentity, target_identity_id)
     if identity is None:
         raise LookupError("Identity not found")
@@ -446,6 +453,8 @@ def update_identity_status(
 ) -> LiffIdentity:
     if actor_role != "admin":
         raise PermissionError("不可踰越階級：僅 admin 可調整帳號狀態")
+    if actor_identity_id == target_identity_id:
+        raise PermissionError("無法停用自己的帳號，避免最後一位 admin 自我鎖出")
     identity = session.get(LiffIdentity, target_identity_id)
     if identity is None:
         raise LookupError("Identity not found")
@@ -517,7 +526,7 @@ def get_staff_overview(
     *,
     now: datetime | None = None,
     limit: int = STAFF_OVERVIEW_MAX_ROWS,
-) -> tuple[list[dict[str, object]], dict[str, int]]:
+) -> tuple[list[dict[str, object]], dict[str, object]]:
     """Per-staff workload aggregates plus clinic-wide counters for the admin dashboard.
 
     Aggregates are fetched as a handful of grouped queries and merged in Python so the
@@ -527,6 +536,12 @@ def get_staff_overview(
     cutoff_7d = reference_time - timedelta(days=7)
     cutoff_30d = reference_time - timedelta(days=30)
 
+    staff_total = int(
+        session.execute(
+            select(func.count(LiffIdentity.id)).where(LiffIdentity.role.in_(("staff", "admin")))
+        ).scalar_one()
+        or 0
+    )
     identities = (
         session.execute(
             select(LiffIdentity)
@@ -551,8 +566,8 @@ def get_staff_overview(
             for reviewer_identity_id, count_7d, count_30d in session.execute(
                 select(
                     Annotation.reviewer_identity_id,
-                    func.count(distinct(case((Annotation.created_at >= cutoff_7d, Annotation.upload_id)))),
-                    func.count(distinct(case((Annotation.created_at >= cutoff_30d, Annotation.upload_id)))),
+                    func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_7d, Annotation.upload_id)))),
+                    func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_30d, Annotation.upload_id)))),
                 )
                 .where(Annotation.reviewer_identity_id.in_(identity_ids))
                 .group_by(Annotation.reviewer_identity_id)
@@ -595,21 +610,39 @@ def get_staff_overview(
         ).scalar_one()
         or 0
     )
+    # "Unassigned" means nobody active is responsible. An assignment row pointing at a
+    # deactivated account is not coverage, and inactive staff are excluded from the
+    # zero-assignment tile, so counting only missing rows would hide those patients twice.
+    has_active_assignee = (
+        select(StaffPatientAssignment.id)
+        .join(LiffIdentity, LiffIdentity.id == StaffPatientAssignment.staff_identity_id)
+        .where(
+            StaffPatientAssignment.patient_id == Patient.id,
+            LiffIdentity.is_active.is_(True),
+            LiffIdentity.role.in_(("staff", "admin")),
+        )
+        .correlate(Patient)
+        .exists()
+    )
     unassigned_patient_count = int(
         session.execute(
-            select(func.count(Patient.id))
-            .outerjoin(StaffPatientAssignment, StaffPatientAssignment.patient_id == Patient.id)
-            .where(Patient.is_active.is_(True), StaffPatientAssignment.id.is_(None))
+            select(func.count(Patient.id)).where(Patient.is_active.is_(True), ~has_active_assignee)
         ).scalar_one()
         or 0
     )
 
     summary = {
         "staff_count": len(items),
+        # Surfaced so the KPIs stay honest if a clinic ever exceeds the cap.
+        "staff_total": staff_total,
+        "truncated": staff_total > len(items),
         "active_staff_count": len(active_items),
         "pending_access_request_count": pending_access_request_count,
-        # Only active staff count as a coverage gap; deactivated accounts are expected to carry nobody.
-        "zero_assignment_staff_count": sum(1 for item in active_items if item["assigned_patient_count"] == 0),
+        # Only active staff count as a coverage gap: deactivated accounts are expected to carry
+        # nobody, and admins routinely operate without a panel of their own.
+        "zero_assignment_staff_count": sum(
+            1 for item in active_items if item["role"] == "staff" and item["assigned_patient_count"] == 0
+        ),
         "unassigned_patient_count": unassigned_patient_count,
     }
     return items, summary

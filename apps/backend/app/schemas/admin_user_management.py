@@ -138,6 +138,8 @@ class AdminStaffOverviewItem(BaseModel):
 
 class AdminStaffOverviewSummary(BaseModel):
     staff_count: int
+    staff_total: int
+    truncated: bool
     active_staff_count: int
     pending_access_request_count: int
     zero_assignment_staff_count: int

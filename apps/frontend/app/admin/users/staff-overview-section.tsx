@@ -263,6 +263,12 @@ export function StaffOverviewSection({
         ))}
       </section>
 
+      {summary?.truncated ? (
+        <p className="text-xs text-amber-700">
+          名單僅顯示前 {summary.staff_count} 位（共 {summary.staff_total} 位），上方統計以顯示範圍計算。
+        </p>
+      ) : null}
+
       <section aria-label="醫護團隊" className="rounded-2xl border border-zinc-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 px-4 py-3">
           <div className="text-sm font-medium text-zinc-900">醫護團隊</div>

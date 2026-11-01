@@ -650,6 +650,7 @@ def upsert_annotation_for_upload(
     if upload is None:
         raise LookupError("Upload not found")
 
+    reviewed_at = datetime.now(tz=timezone.utc)
     annotation = session.execute(
         select(Annotation)
         .where(
@@ -667,12 +668,14 @@ def upsert_annotation_for_upload(
             label=label,
             comment=comment,
             patient_read_at=None,
+            updated_at=reviewed_at,
         )
         session.add(annotation)
     else:
         annotation.label = label
         annotation.comment = comment
         annotation.patient_read_at = None
+        annotation.updated_at = reviewed_at
     session.commit()
     session.refresh(annotation)
     return annotation

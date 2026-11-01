@@ -744,8 +744,10 @@ def test_staff_overview_returns_workload_aggregates_per_staff(tmp_path: Path) ->
 
         summary = payload["summary"]
         assert summary["staff_count"] == 3
+        assert summary["staff_total"] == 3
+        assert summary["truncated"] is False
         assert summary["active_staff_count"] == 3
-        assert summary["zero_assignment_staff_count"] == 2, "admin and idle nurse both carry nobody"
+        assert summary["zero_assignment_staff_count"] == 1, "only the idle nurse counts; admins carry no panel"
         assert summary["unassigned_patient_count"] == 1
         assert unassigned_patient_id != patient_id
 
@@ -766,7 +768,7 @@ def test_staff_overview_excludes_inactive_staff_from_coverage_gap_count(tmp_path
         summary = payload["summary"]
         assert summary["staff_count"] == 2
         assert summary["active_staff_count"] == 1
-        assert summary["zero_assignment_staff_count"] == 1, "only the active admin counts as a gap"
+        assert summary["zero_assignment_staff_count"] == 0, "the lone active account is an admin, not a gap"
 
 
 def test_authorization_audit_event_records_target_line_user_id(tmp_path: Path) -> None:
@@ -900,5 +902,89 @@ def test_staff_overview_matches_shared_workload_semantics(tmp_path: Path) -> Non
 
         assert staff_row["assigned_patient_count"] == 1, "deactivated patients must not count toward workload"
         assert staff_row["review_count_7d"] == 1, "two annotations on one upload is one reviewed upload"
+        assert staff_row["review_count_30d"] == 1
+        assert staff_row["last_review_at"] is not None
+
+
+def test_admin_cannot_demote_or_deactivate_their_own_account(tmp_path: Path) -> None:
+    """Frontend disables these, but a crafted POST must not leave a clinic without an admin."""
+    settings = make_settings(tmp_path / "admin-self-lockout.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        self_id = _seed_identity(client, line_user_id="U_ADMIN_SELF", role="admin")
+        token = _login_token(client, "U_ADMIN_SELF")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        demote = client.post(f"/v1/staff/admin/users/{self_id}/role", headers=headers, json={"role": "staff"})
+        assert demote.status_code == 403
+
+        deactivate = client.post(f"/v1/staff/admin/users/{self_id}/status", headers=headers, json={"is_active": False})
+        assert deactivate.status_code == 403
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            identity = session.get(LiffIdentity, self_id)
+            assert identity is not None
+            assert identity.role == "admin", "self-demotion must not apply"
+            assert identity.is_active is True, "self-deactivation must not apply"
+
+
+def test_patient_assigned_only_to_deactivated_staff_counts_as_unassigned(tmp_path: Path) -> None:
+    """An assignment row pointing at a disabled account is not coverage."""
+    settings = make_settings(tmp_path / "admin-unassigned-universe.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_UNASSIGNED", role="admin")
+        retired_staff_id = _seed_identity(client, line_user_id="U_STAFF_RETIRED", role="staff", is_active=False)
+        active_staff_id = _seed_identity(client, line_user_id="U_STAFF_ON_DUTY", role="staff")
+
+        orphaned_patient_id = _seed_patient(client, case_number="CASE_ORPHANED")
+        covered_patient_id = _seed_patient(client, case_number="CASE_COVERED")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            session.add_all(
+                [
+                    StaffPatientAssignment(staff_identity_id=retired_staff_id, patient_id=orphaned_patient_id),
+                    StaffPatientAssignment(staff_identity_id=active_staff_id, patient_id=covered_patient_id),
+                ]
+            )
+            session.commit()
+
+        token = _login_token(client, "U_ADMIN_UNASSIGNED")
+        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        summary = response.json()["summary"]
+        assert summary["unassigned_patient_count"] == 1, "the patient whose only nurse was disabled is a gap"
+
+
+def test_relabelled_annotation_counts_as_recent_review_activity(tmp_path: Path) -> None:
+    """upsert updates the row in place, so recency must read updated_at, not created_at."""
+    settings = make_settings(tmp_path / "admin-relabel-recency.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_RELABEL", role="admin")
+        staff_id = _seed_identity(client, line_user_id="U_STAFF_RELABEL", role="staff")
+        patient_id = _seed_patient(client, case_number="CASE_RELABEL")
+
+        now = datetime.now(tz=timezone.utc)
+        # Annotation was first written long outside the 30 day window...
+        _seed_reviews(client, reviewer_identity_id=staff_id, patient_id=patient_id, created_ats=[now - timedelta(days=90)])
+        # ...then re-labelled today, which updates the row in place.
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            annotation = session.execute(
+                select(Annotation).where(Annotation.reviewer_identity_id == staff_id)
+            ).scalar_one()
+            annotation.label = "suspected_infection"
+            annotation.updated_at = now - timedelta(hours=1)
+            session.commit()
+
+        token = _login_token(client, "U_ADMIN_RELABEL")
+        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        staff_row = next(item for item in response.json()["items"] if item["identity_id"] == staff_id)
+
+        assert staff_row["review_count_7d"] == 1, "re-labelling is review activity"
         assert staff_row["review_count_30d"] == 1
         assert staff_row["last_review_at"] is not None

@@ -112,6 +112,9 @@ class Annotation(Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     patient_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Re-labelling an upload updates this row in place, so created_at alone understates review
+    # activity. Null on rows written before this column existed; read via COALESCE.
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class HealthcareAccessRequest(Base):

@@ -419,6 +419,8 @@ export type AdminStaffOverviewItem = {
 
 export type AdminStaffOverviewSummary = {
   staff_count: number;
+  staff_total: number;
+  truncated: boolean;
   active_staff_count: number;
   pending_access_request_count: number;
   zero_assignment_staff_count: number;

@@ -445,6 +445,8 @@ export default function AdminUsersPage() {
         header: () => <span className="text-xs font-medium text-zinc-500">操作</span>,
         cell: ({ row }) => {
           const user = row.original;
+          // Same invariant the roster enforces: the operator cannot lock themselves out.
+          const isSelf = currentLineUserId !== null && user.line_user_id === currentLineUserId;
           return (
             <div className="flex items-center justify-end gap-2">
               {user.role !== "patient" ? (
@@ -473,7 +475,8 @@ export default function AdminUsersPage() {
                 size="sm"
                 variant="outline"
                 className="whitespace-nowrap"
-                disabled={workingId === user.id}
+                disabled={workingId === user.id || isSelf}
+                title={isSelf ? "無法停用自己的帳號" : undefined}
                 onClick={() => void handleToggleStatus(user)}
               >
                 {user.is_active ? "停用" : "啟用"}
