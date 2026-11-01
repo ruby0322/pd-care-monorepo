@@ -196,6 +196,7 @@ def _record_patient_binding_audit(
             actor_identity_id=identity.id,
             actor_role=identity.role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="identity_patient_binding_update",
             before_value=str(before_patient_id) if before_patient_id is not None else None,
             after_value=str(after_patient_id) if after_patient_id is not None else None,

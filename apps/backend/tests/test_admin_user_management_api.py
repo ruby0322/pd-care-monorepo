@@ -6,9 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, inspect, select
 
 from app.config import Settings
-from app.db.models import LiffIdentity, Patient, StaffPatientAssignment
+from app.db.models import AuthorizationAuditEvent, LiffIdentity, Patient, StaffPatientAssignment
 from app.main import create_app
 from tests.db_test_utils import migrated_sqlite_database_url
 
@@ -508,3 +509,87 @@ def test_admin_single_delete_path_blocks_active_identity(tmp_path: Path) -> None
         with session_factory() as session:
             assert session.get(LiffIdentity, active_id) is not None
             assert session.get(LiffIdentity, inactive_id) is None
+
+
+def test_authorization_audit_event_records_target_line_user_id(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-audit-target-line-user-id.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_AUDIT", role="admin")
+        target_id = _seed_identity(client, line_user_id="U_TARGET_AUDIT", role="patient")
+        token = _login_token(client, "U_ADMIN_AUDIT")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        role_response = client.post(f"/v1/staff/admin/users/{target_id}/role", headers=headers, json={"role": "staff"})
+        assert role_response.status_code == 200
+        status_response = client.post(
+            f"/v1/staff/admin/users/{target_id}/status", headers=headers, json={"is_active": False}
+        )
+        assert status_response.status_code == 200
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            events = (
+                session.execute(
+                    select(AuthorizationAuditEvent).where(AuthorizationAuditEvent.target_identity_id == target_id)
+                )
+                .scalars()
+                .all()
+            )
+        assert len(events) == 2
+        assert {event.action for event in events} == {"identity_role_update", "identity_status_update"}
+        assert all(event.target_line_user_id == "U_TARGET_AUDIT" for event in events)
+
+
+def test_deleting_identity_preserves_its_authorization_audit_history(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-audit-survives-delete.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_AUDIT_DELETE", role="admin")
+        target_id = _seed_identity(client, line_user_id="U_TARGET_AUDIT_DELETE", role="patient")
+        token = _login_token(client, "U_ADMIN_AUDIT_DELETE")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        assert (
+            client.post(f"/v1/staff/admin/users/{target_id}/status", headers=headers, json={"is_active": False}).status_code
+            == 200
+        )
+        delete_response = client.post("/v1/staff/admin/users/delete", headers=headers, json={"identity_ids": [target_id]})
+        assert delete_response.status_code == 200
+        assert delete_response.json()["deleted_count"] == 1
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            assert session.get(LiffIdentity, target_id) is None
+            events = (
+                session.execute(
+                    select(AuthorizationAuditEvent).where(
+                        AuthorizationAuditEvent.target_line_user_id == "U_TARGET_AUDIT_DELETE"
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        assert len(events) == 1, "audit history must outlive the deleted identity"
+        assert events[0].action == "identity_status_update"
+
+
+def test_audit_target_identity_fk_nulls_out_instead_of_cascading(tmp_path: Path) -> None:
+    """Schema-level guard: the migration must leave target_identity_id nullable with ON DELETE SET NULL."""
+    db_path = tmp_path / "admin-audit-fk-shape.db"
+    engine = create_engine(migrated_sqlite_database_url(db_path))
+    try:
+        inspector = inspect(engine)
+        columns = {column["name"]: column for column in inspector.get_columns("authorization_audit_events")}
+        assert "target_line_user_id" in columns
+        assert columns["target_identity_id"]["nullable"] is True
+
+        target_fks = [
+            fk
+            for fk in inspector.get_foreign_keys("authorization_audit_events")
+            if fk.get("constrained_columns") == ["target_identity_id"]
+        ]
+        assert len(target_fks) == 1
+        assert target_fks[0]["options"].get("ondelete", "").upper() == "SET NULL"
+    finally:
+        engine.dispose()
