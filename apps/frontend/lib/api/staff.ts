@@ -396,6 +396,34 @@ export type AdminDailySuspectedSeriesResponse = {
   items: AdminDailySuspectedSeriesPoint[];
 };
 
+export type AdminStaffOverviewItem = {
+  identity_id: number;
+  line_user_id: string;
+  display_name: string | null;
+  real_name: string | null;
+  picture_url: string | null;
+  role: "staff" | "admin";
+  is_active: boolean;
+  assigned_patient_count: number;
+  review_count_7d: number;
+  review_count_30d: number;
+  last_review_at: string | null;
+  created_at: string;
+};
+
+export type AdminStaffOverviewSummary = {
+  staff_count: number;
+  active_staff_count: number;
+  pending_access_request_count: number;
+  zero_assignment_staff_count: number;
+  unassigned_patient_count: number;
+};
+
+export type AdminStaffOverviewResponse = {
+  items: AdminStaffOverviewItem[];
+  summary: AdminStaffOverviewSummary;
+};
+
 export type AdminIdentityItem = {
   id: number;
   line_user_id: string;
@@ -925,6 +953,11 @@ export async function fetchAdminDailySuspectedSeries(params?: {
       },
     }
   );
+  return data;
+}
+
+export async function fetchAdminStaffOverview(): Promise<AdminStaffOverviewResponse> {
+  const { data } = await apiClient.get<AdminStaffOverviewResponse>("/v1/staff/admin/staff-overview");
   return data;
 }
 

@@ -17,6 +17,9 @@ from app.schemas.admin_user_management import (
     AdminIdentityItem,
     AdminIdentityListResponse,
     AdminRejectHealthcarePermissionRequest,
+    AdminStaffOverviewItem,
+    AdminStaffOverviewResponse,
+    AdminStaffOverviewSummary,
     AdminUpdateIdentityRealNameRequest,
     AdminUpdateIdentityRoleRequest,
     AdminUpdateIdentityStatusRequest,
@@ -24,6 +27,7 @@ from app.schemas.admin_user_management import (
 from app.services.admin_user_management import (
     approve_healthcare_permission_request,
     delete_inactive_identities,
+    get_staff_overview,
     list_healthcare_permission_requests,
     list_identities,
     preview_delete_inactive_identities,
@@ -94,6 +98,20 @@ async def list_admin_users(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/v1/staff/admin/staff-overview", response_model=AdminStaffOverviewResponse)
+async def get_admin_staff_overview(
+    request: Request,
+    credentials=Depends(bearer_scheme),
+    session: Session = Depends(get_staff_session),
+) -> AdminStaffOverviewResponse:
+    require_admin(get_current_principal(request, credentials))
+    items, summary = get_staff_overview(session)
+    return AdminStaffOverviewResponse(
+        items=[AdminStaffOverviewItem(**item) for item in items],  # type: ignore[arg-type]
+        summary=AdminStaffOverviewSummary(**summary),
     )
 
 

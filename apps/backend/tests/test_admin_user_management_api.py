@@ -1,7 +1,7 @@
 from __future__ import annotations
 # pyright: reportMissingImports=false
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,7 +9,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select
 
 from app.config import Settings
-from app.db.models import AuthorizationAuditEvent, LiffIdentity, Patient, StaffPatientAssignment
+from app.db.models import (
+    Annotation,
+    AuthorizationAuditEvent,
+    LiffIdentity,
+    Patient,
+    StaffPatientAssignment,
+    Upload,
+)
 from app.main import create_app
 from tests.db_test_utils import migrated_sqlite_database_url
 
@@ -509,6 +516,145 @@ def test_admin_single_delete_path_blocks_active_identity(tmp_path: Path) -> None
         with session_factory() as session:
             assert session.get(LiffIdentity, active_id) is not None
             assert session.get(LiffIdentity, inactive_id) is None
+
+
+def _seed_reviews(
+    client: TestClient,
+    *,
+    reviewer_identity_id: int,
+    patient_id: int,
+    created_ats: list[datetime],
+) -> None:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        for index, created_at in enumerate(created_ats):
+            upload = Upload(
+                patient_id=patient_id,
+                object_key=f"patients/{patient_id}/uploads/{reviewer_identity_id}-{index}.jpg",
+                content_type="image/jpeg",
+                created_at=created_at,
+            )
+            session.add(upload)
+            session.flush()
+            session.add(
+                Annotation(
+                    patient_id=patient_id,
+                    upload_id=upload.id,
+                    reviewer_identity_id=reviewer_identity_id,
+                    label="normal",
+                    comment=None,
+                    patient_read_at=None,
+                    created_at=created_at,
+                )
+            )
+        session.commit()
+
+
+def _seed_patient(client: TestClient, *, case_number: str, is_active: bool = True) -> int:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        patient = Patient(
+            case_number=case_number,
+            birth_date="1980-01-01",
+            full_name=case_number,
+            gender="unknown",
+            is_active=is_active,
+        )
+        session.add(patient)
+        session.commit()
+        session.refresh(patient)
+        return patient.id
+
+
+def test_staff_cannot_access_staff_overview(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-staff-overview-denied.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_STAFF_OVERVIEW_DENIED", role="staff")
+        token = _login_token(client, "U_STAFF_OVERVIEW_DENIED")
+
+        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 403
+
+
+def test_staff_overview_returns_workload_aggregates_per_staff(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-staff-overview-aggregates.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        admin_id = _seed_identity(client, line_user_id="U_ADMIN_OVERVIEW", role="admin", real_name="Admin Lin")
+        busy_id = _seed_identity(client, line_user_id="U_STAFF_BUSY", role="staff", real_name="Nurse Busy")
+        idle_id = _seed_identity(client, line_user_id="U_STAFF_IDLE", role="staff", real_name="Nurse Idle")
+        _seed_identity(client, line_user_id="U_PATIENT_EXCLUDED", role="patient")
+
+        patient_id = _seed_patient(client, case_number="CASE_OVERVIEW_1")
+        unassigned_patient_id = _seed_patient(client, case_number="CASE_OVERVIEW_2")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            session.add(StaffPatientAssignment(staff_identity_id=busy_id, patient_id=patient_id))
+            session.commit()
+
+        now = datetime.now(tz=timezone.utc)
+        _seed_reviews(
+            client,
+            reviewer_identity_id=busy_id,
+            patient_id=patient_id,
+            # Two inside 7d, one more inside 30d, one older than 30d.
+            created_ats=[
+                now - timedelta(days=1),
+                now - timedelta(days=3),
+                now - timedelta(days=20),
+                now - timedelta(days=45),
+            ],
+        )
+
+        token = _login_token(client, "U_ADMIN_OVERVIEW")
+        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        payload = response.json()
+
+        by_id = {item["identity_id"]: item for item in payload["items"]}
+        assert set(by_id) == {admin_id, busy_id, idle_id}, "patient identities must not appear in the staff roster"
+
+        busy = by_id[busy_id]
+        assert busy["assigned_patient_count"] == 1
+        assert busy["review_count_7d"] == 2
+        assert busy["review_count_30d"] == 3
+        assert busy["last_review_at"] is not None
+        assert busy["real_name"] == "Nurse Busy"
+        assert busy["role"] == "staff"
+
+        idle = by_id[idle_id]
+        assert idle["assigned_patient_count"] == 0
+        assert idle["review_count_7d"] == 0
+        assert idle["review_count_30d"] == 0
+        assert idle["last_review_at"] is None
+
+        summary = payload["summary"]
+        assert summary["staff_count"] == 3
+        assert summary["active_staff_count"] == 3
+        assert summary["zero_assignment_staff_count"] == 2, "admin and idle nurse both carry nobody"
+        assert summary["unassigned_patient_count"] == 1
+        assert unassigned_patient_id != patient_id
+
+
+def test_staff_overview_excludes_inactive_staff_from_coverage_gap_count(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-staff-overview-inactive.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_OVERVIEW_INACTIVE", role="admin")
+        inactive_id = _seed_identity(client, line_user_id="U_STAFF_DEACTIVATED", role="staff", is_active=False)
+
+        token = _login_token(client, "U_ADMIN_OVERVIEW_INACTIVE")
+        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        payload = response.json()
+
+        assert inactive_id in {item["identity_id"] for item in payload["items"]}, "roster still lists the account"
+        summary = payload["summary"]
+        assert summary["staff_count"] == 2
+        assert summary["active_staff_count"] == 1
+        assert summary["zero_assignment_staff_count"] == 1, "only the active admin counts as a gap"
 
 
 def test_authorization_audit_event_records_target_line_user_id(tmp_path: Path) -> None:
