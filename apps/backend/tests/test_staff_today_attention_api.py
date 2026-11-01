@@ -365,3 +365,186 @@ def test_today_attention_empty_day(tmp_path: Path) -> None:
         assert payload["elevated_patients"] == 0
         assert payload["other_patients"] == 0
         assert payload["items"] == []
+
+
+def _seed_reviewer(
+    client: TestClient,
+    *,
+    line_user_id: str,
+    real_name: str | None,
+    display_name: str | None = "Staff",
+) -> int:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        identity = LiffIdentity(
+            line_user_id=line_user_id,
+            display_name=display_name,
+            real_name=real_name,
+            picture_url=None,
+            patient_id=None,
+            role="staff",
+        )
+        session.add(identity)
+        session.commit()
+        session.refresh(identity)
+        return identity.id
+
+
+def _add_annotation(
+    client: TestClient,
+    *,
+    patient_id: int,
+    upload_id: int,
+    reviewer_identity_id: int,
+    created_at: datetime,
+) -> None:
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        session.add(
+            Annotation(
+                patient_id=patient_id,
+                upload_id=upload_id,
+                reviewer_identity_id=reviewer_identity_id,
+                label="suspected",
+                comment=None,
+                created_at=created_at,
+            )
+        )
+        session.commit()
+
+
+def _fetch_single_attention_item(client: TestClient, *, line_user_id: str = "U_STAFF") -> dict:
+    token = _login_staff_token(client, line_user_id)
+    response = client.get(
+        "/v1/staff/uploads/today-attention",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    return items[0]
+
+
+def test_today_attention_reports_latest_annotation_reviewer_and_count(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "today-attention-reviewer.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        viewer_id = _seed_reviewer(client, line_user_id="U_STAFF", real_name="王小美")
+        other_id = _seed_reviewer(client, line_user_id="U_OTHER_STAFF", real_name="林美玲")
+        patient_id, upload_ids = _seed_today_patient(
+            client,
+            case_number="P-REVIEWER",
+            line_user_id="U_PATIENT_REVIEWER",
+            uploads=[(timedelta(hours=1), "suspected", None)],
+        )
+        _assign_staff_patient(client, staff_identity_id=viewer_id, patient_id=patient_id)
+
+        day_start = _taipei_today_start_utc()
+        _add_annotation(
+            client,
+            patient_id=patient_id,
+            upload_id=upload_ids[0],
+            reviewer_identity_id=viewer_id,
+            created_at=day_start + timedelta(hours=1),
+        )
+        _add_annotation(
+            client,
+            patient_id=patient_id,
+            upload_id=upload_ids[0],
+            reviewer_identity_id=other_id,
+            created_at=day_start + timedelta(hours=2),
+        )
+
+        item = _fetch_single_attention_item(client)
+        assert item["annotation_reviewer_name"] == "林美玲"
+        assert item["annotation_reviewed_by_me"] is False
+        assert item["annotation_reviewer_count"] == 2
+        expected_at = (day_start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
+        assert item["annotation_reviewed_at"].startswith(expected_at)
+
+
+def test_today_attention_flags_own_annotation(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "today-attention-reviewer-self.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        viewer_id = _seed_reviewer(client, line_user_id="U_STAFF", real_name="王小美")
+        other_id = _seed_reviewer(client, line_user_id="U_OTHER_STAFF", real_name="林美玲")
+        patient_id, upload_ids = _seed_today_patient(
+            client,
+            case_number="P-REVIEWER-SELF",
+            line_user_id="U_PATIENT_REVIEWER_SELF",
+            uploads=[(timedelta(hours=1), "suspected", None)],
+        )
+        _assign_staff_patient(client, staff_identity_id=viewer_id, patient_id=patient_id)
+
+        day_start = _taipei_today_start_utc()
+        _add_annotation(
+            client,
+            patient_id=patient_id,
+            upload_id=upload_ids[0],
+            reviewer_identity_id=other_id,
+            created_at=day_start + timedelta(hours=1),
+        )
+        _add_annotation(
+            client,
+            patient_id=patient_id,
+            upload_id=upload_ids[0],
+            reviewer_identity_id=viewer_id,
+            created_at=day_start + timedelta(hours=3),
+        )
+
+        item = _fetch_single_attention_item(client)
+        assert item["annotation_reviewed_by_me"] is True
+        assert item["annotation_reviewer_name"] == "王小美"
+        assert item["annotation_reviewer_count"] == 2
+
+
+def test_today_attention_reviewer_name_falls_back_to_display_name(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "today-attention-reviewer-fallback.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        viewer_id = _seed_reviewer(client, line_user_id="U_STAFF", real_name=None, display_name=None)
+        other_id = _seed_reviewer(
+            client,
+            line_user_id="U_OTHER_STAFF",
+            real_name="   ",
+            display_name="林護理師",
+        )
+        patient_id, upload_ids = _seed_today_patient(
+            client,
+            case_number="P-REVIEWER-FALLBACK",
+            line_user_id="U_PATIENT_REVIEWER_FALLBACK",
+            uploads=[(timedelta(hours=1), "suspected", None)],
+        )
+        _assign_staff_patient(client, staff_identity_id=viewer_id, patient_id=patient_id)
+        _add_annotation(
+            client,
+            patient_id=patient_id,
+            upload_id=upload_ids[0],
+            reviewer_identity_id=other_id,
+            created_at=_taipei_today_start_utc() + timedelta(hours=2),
+        )
+
+        item = _fetch_single_attention_item(client)
+        assert item["annotation_reviewer_name"] == "林護理師"
+        assert item["annotation_reviewer_count"] == 1
+
+
+def test_today_attention_omits_reviewer_when_unannotated(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "today-attention-reviewer-absent.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        viewer_id = _seed_reviewer(client, line_user_id="U_STAFF", real_name="王小美")
+        patient_id, _ = _seed_today_patient(
+            client,
+            case_number="P-REVIEWER-NONE",
+            line_user_id="U_PATIENT_REVIEWER_NONE",
+            uploads=[(timedelta(hours=1), "suspected", None)],
+        )
+        _assign_staff_patient(client, staff_identity_id=viewer_id, patient_id=patient_id)
+
+        item = _fetch_single_attention_item(client)
+        assert item["annotation_reviewer_name"] is None
+        assert item["annotation_reviewed_by_me"] is False
+        assert item["annotation_reviewer_count"] == 0
+        assert item["annotation_reviewed_at"] is None

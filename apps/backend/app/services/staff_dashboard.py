@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Literal, cast
+from typing import Literal, NamedTuple, cast
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import Select, and_, case, delete, func, select
@@ -33,6 +33,44 @@ def _load_latest_annotation_by_upload_ids(session: Session, *, upload_ids: set[i
     for row in rows:
         if row.upload_id not in result:
             result[row.upload_id] = row
+    return result
+
+
+class AnnotationReviewerSummary(NamedTuple):
+    reviewer_identity_id: int
+    reviewer_name: str | None
+    reviewer_count: int
+    reviewed_at: datetime
+
+
+def _load_annotation_reviewer_summary(session: Session, *, upload_ids: set[int]) -> dict[int, AnnotationReviewerSummary]:
+    """Latest reviewer and reviewer count per upload, in one query."""
+    if not upload_ids:
+        return {}
+    rows = session.execute(
+        select(
+            Annotation.upload_id,
+            Annotation.reviewer_identity_id,
+            Annotation.created_at,
+            LiffIdentity.real_name,
+            LiffIdentity.display_name,
+        )
+        .join(LiffIdentity, LiffIdentity.id == Annotation.reviewer_identity_id)
+        .where(Annotation.upload_id.in_(upload_ids))
+        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc())
+    ).all()
+    result: dict[int, AnnotationReviewerSummary] = {}
+    for upload_id, reviewer_identity_id, created_at, real_name, display_name in rows:
+        existing = result.get(upload_id)
+        if existing is None:
+            result[upload_id] = AnnotationReviewerSummary(
+                reviewer_identity_id=reviewer_identity_id,
+                reviewer_name=(real_name or "").strip() or (display_name or "").strip() or None,
+                reviewer_count=1,
+                reviewed_at=created_at,
+            )
+        else:
+            result[upload_id] = existing._replace(reviewer_count=existing.reviewer_count + 1)
     return result
 
 
@@ -1022,6 +1060,10 @@ class TodayAttentionPatientRow:
     sort_upload_at: datetime
     has_annotation: bool
     annotation_label: Literal["normal", "suspected", "confirmed_infection", "rejected"] | None
+    annotation_reviewer_identity_id: int | None
+    annotation_reviewer_name: str | None
+    annotation_reviewer_count: int
+    annotation_reviewed_at: datetime | None
     picture_url: str | None
     day_upload_count: int
     preview_upload_ids: list[int]
@@ -1156,6 +1198,7 @@ def list_today_attention_patients(
 
     upload_ids = {upload.id for upload, _, _ in rows}
     latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
+    reviewer_summary_by_upload = _load_annotation_reviewer_summary(session, upload_ids=upload_ids)
     picture_by_patient = _load_patient_picture_urls(
         session,
         patient_ids={patient.id for _, _, patient in rows},
@@ -1226,6 +1269,7 @@ def list_today_attention_patients(
                 else None
             )
 
+        reviewer_summary = reviewer_summary_by_upload.get(representative.id)
         attention_rows.append(
             TodayAttentionPatientRow(
                 patient=patients_by_id[patient_id],
@@ -1234,6 +1278,10 @@ def list_today_attention_patients(
                 sort_upload_at=sort_upload_at,
                 has_annotation=has_annotation,
                 annotation_label=annotation_label,
+                annotation_reviewer_identity_id=reviewer_summary.reviewer_identity_id if reviewer_summary else None,
+                annotation_reviewer_name=reviewer_summary.reviewer_name if reviewer_summary else None,
+                annotation_reviewer_count=reviewer_summary.reviewer_count if reviewer_summary else 0,
+                annotation_reviewed_at=reviewer_summary.reviewed_at if reviewer_summary else None,
                 picture_url=picture_by_patient.get(patient_id),
                 day_upload_count=day_upload_count,
                 preview_upload_ids=preview_upload_ids,
