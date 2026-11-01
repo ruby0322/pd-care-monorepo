@@ -15,12 +15,9 @@ import {
   AdminInactiveIdentityDeletePreview,
   AdminAccessRequestItem,
   AdminIdentityItem,
-  AdminStaffOverviewItem,
-  AdminStaffOverviewSummary,
   approveAdminAccessRequest,
   deleteInactiveAdminUsers,
   fetchAdminAccessRequests,
-  fetchAdminStaffOverview,
   fetchAdminUsersPage,
   fetchStaffMe,
   previewDeleteInactiveAdminUsers,
@@ -29,7 +26,6 @@ import {
   updateAdminUserRole,
   updateAdminUserStatus,
 } from "@/lib/api/staff";
-import { StaffOverviewSection } from "./staff-overview-section";
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -85,8 +81,6 @@ export default function AdminUsersPage() {
   const [createdTo, setCreatedTo] = useState(parsedFilters.createdTo);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [requests, setRequests] = useState<AdminAccessRequestItem[]>([]);
-  const [staffOverview, setStaffOverview] = useState<AdminStaffOverviewItem[]>([]);
-  const [staffSummary, setStaffSummary] = useState<AdminStaffOverviewSummary | null>(null);
   const [workingId, setWorkingId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -130,25 +124,20 @@ export default function AdminUsersPage() {
         setUserTotal(0);
         setUserPage(1);
         setRequests([]);
-        setStaffOverview([]);
-        setStaffSummary(null);
         return;
       }
       setIsAdmin(true);
-      const [userResponse, requestItems, staffOverviewResponse] = await Promise.all([
+      const [userResponse, requestItems] = await Promise.all([
         fetchAdminUsersPage({
           ...apiQuery,
           limit: userPageSize,
           offset: (userPage - 1) * userPageSize,
         }),
         fetchAdminAccessRequests({ status: "pending" }),
-        fetchAdminStaffOverview(),
       ]);
       setUsers(userResponse.items);
       setUserTotal(userResponse.total);
       setRequests(requestItems);
-      setStaffOverview(staffOverviewResponse.items);
-      setStaffSummary(staffOverviewResponse.summary);
 
       const currentOffset = (userPage - 1) * userPageSize;
       if (userResponse.total > 0 && currentOffset >= userResponse.total) {
@@ -300,34 +289,7 @@ export default function AdminUsersPage() {
     }
   }
 
-  async function handleStaffToggleRole(staff: AdminStaffOverviewItem) {
-    const nextRole = staff.role === "admin" ? "staff" : "admin";
-    setWorkingId(staff.identity_id);
-    setError(null);
-    try {
-      await updateAdminUserRole(staff.identity_id, { role: nextRole });
-      await load();
-      toast.success(nextRole === "admin" ? "已升為 admin" : "已降為 staff");
-    } catch (requestError) {
-      toast.error(getReadableApiError(requestError));
-    } finally {
-      setWorkingId(null);
-    }
-  }
 
-  async function handleStaffToggleStatus(staff: AdminStaffOverviewItem) {
-    setWorkingId(staff.identity_id);
-    setError(null);
-    try {
-      await updateAdminUserStatus(staff.identity_id, { is_active: !staff.is_active });
-      await load();
-      toast.success(staff.is_active ? "已停用用戶" : "已啟用用戶");
-    } catch (requestError) {
-      toast.error(getReadableApiError(requestError));
-    } finally {
-      setWorkingId(null);
-    }
-  }
 
   const inactiveUserIds = useMemo(() => users.filter((user) => !user.is_active).map((user) => user.id), [users]);
 
@@ -530,23 +492,6 @@ export default function AdminUsersPage() {
       </header>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-
-      <StaffOverviewSection
-        items={staffOverview}
-        summary={staffSummary}
-        workingId={workingId}
-        currentLineUserId={currentLineUserId}
-        onEditRealName={(staff) =>
-          openRealNameDialog({
-            id: staff.identity_id,
-            line_user_id: staff.line_user_id,
-            display_name: staff.display_name,
-            real_name: staff.real_name,
-          })
-        }
-        onToggleRole={(staff) => void handleStaffToggleRole(staff)}
-        onToggleStatus={(staff) => void handleStaffToggleStatus(staff)}
-      />
 
       <section className="rounded-2xl border border-zinc-200 bg-white">
         <div className="border-b border-zinc-100 px-4 py-3 text-sm font-medium text-zinc-900">待審核醫護權限申請</div>

@@ -40,6 +40,8 @@ class StaffWorkloadStats:
     assigned_upload_count: int
     labeled_assigned_upload_count: int
     reviewed_upload_count: int
+    review_count_7d: int
+    review_count_30d: int
     last_reviewed_at: datetime | None
 
 
@@ -47,10 +49,15 @@ def load_staff_workload_stats(
     session: Session,
     *,
     staff_identity_ids: list[int],
+    now: datetime | None = None,
 ) -> dict[int, StaffWorkloadStats]:
     normalized_ids = {identity_id for identity_id in staff_identity_ids if identity_id > 0}
     if not normalized_ids:
         return {}
+
+    reference_time = now or datetime.now(tz=timezone.utc)
+    cutoff_7d = reference_time - timedelta(days=7)
+    cutoff_30d = reference_time - timedelta(days=30)
 
     assigned_patients = dict(
         session.execute(
@@ -81,22 +88,31 @@ def load_staff_workload_stats(
         select(
             Annotation.reviewer_identity_id,
             func.count(distinct(Annotation.upload_id)),
+            func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_7d, Annotation.upload_id)))),
+            func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_30d, Annotation.upload_id)))),
             func.max(ANNOTATION_REVIEWED_AT),
         )
         .where(Annotation.reviewer_identity_id.in_(normalized_ids))
         .group_by(Annotation.reviewer_identity_id)
     ).all()
-    reviewed = {int(staff_id): (int(count), last_at) for staff_id, count, last_at in reviewed_rows}
+    reviewed = {
+        int(staff_id): (int(total), int(count_7d or 0), int(count_30d or 0), last_at)
+        for staff_id, total, count_7d, count_30d, last_at in reviewed_rows
+    }
 
     result: dict[int, StaffWorkloadStats] = {}
     for identity_id in normalized_ids:
         assigned_upload_count, labeled_assigned_upload_count = assigned_uploads.get(identity_id, (0, 0))
-        reviewed_upload_count, last_reviewed_at = reviewed.get(identity_id, (0, None))
+        reviewed_upload_count, review_count_7d, review_count_30d, last_reviewed_at = reviewed.get(
+            identity_id, (0, 0, 0, None)
+        )
         result[identity_id] = StaffWorkloadStats(
             assigned_patient_count=int(assigned_patients.get(identity_id, 0)),
             assigned_upload_count=assigned_upload_count,
             labeled_assigned_upload_count=labeled_assigned_upload_count,
             reviewed_upload_count=reviewed_upload_count,
+            review_count_7d=review_count_7d,
+            review_count_30d=review_count_30d,
             last_reviewed_at=last_reviewed_at,
         )
     return result
@@ -518,101 +534,35 @@ def update_identity_real_name(
     return identity
 
 
-STAFF_OVERVIEW_MAX_ROWS = 500
+def get_staff_summary(session: Session) -> dict[str, int]:
+    """Clinic-wide staffing counters that drive assignment decisions.
 
-
-def get_staff_overview(
-    session: Session,
-    *,
-    now: datetime | None = None,
-    limit: int = STAFF_OVERVIEW_MAX_ROWS,
-) -> tuple[list[dict[str, object]], dict[str, object]]:
-    """Per-staff workload aggregates plus clinic-wide counters for the admin dashboard.
-
-    Aggregates are fetched as a handful of grouped queries and merged in Python so the
-    row count stays one per staff identity regardless of assignment or review volume.
+    Per-staff figures travel with the identity list as StaffWorkloadStats, so this returns
+    only aggregates and is not bounded by a row cap.
     """
-    reference_time = now or datetime.now(tz=timezone.utc)
-    cutoff_7d = reference_time - timedelta(days=7)
-    cutoff_30d = reference_time - timedelta(days=30)
+    staff_rows = session.execute(
+        select(LiffIdentity.id, LiffIdentity.is_active)
+        .where(LiffIdentity.role.in_(("staff", "admin")))
+    ).all()
+    active_ids = [identity_id for identity_id, is_active in staff_rows if is_active]
 
-    staff_total = int(
+    assigned_active_staff_ids = set(
         session.execute(
-            select(func.count(LiffIdentity.id)).where(LiffIdentity.role.in_(("staff", "admin")))
-        ).scalar_one()
-        or 0
-    )
-    identities = (
-        session.execute(
-            select(LiffIdentity)
-            .where(LiffIdentity.role.in_(("staff", "admin")))
-            .order_by(LiffIdentity.created_at.desc(), LiffIdentity.id.desc())
-            .limit(limit)
+            select(StaffPatientAssignment.staff_identity_id)
+            .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+            .where(
+                StaffPatientAssignment.staff_identity_id.in_(active_ids or [0]),
+                Patient.is_active.is_(True),
+            )
+            .distinct()
         )
         .scalars()
         .all()
     )
-    identity_ids = [identity.id for identity in identities]
 
-    # Assigned-patient and last-review figures come from the shared workload loader so this
-    # roster cannot disagree with the workload columns on the same page: both scope assignments
-    # to active patients and count reviews by distinct upload.
-    workload = load_staff_workload_stats(session, staff_identity_ids=identity_ids)
-
-    windowed_reviews: dict[int, tuple[int, int]] = {}
-    if identity_ids:
-        windowed_reviews = {
-            reviewer_identity_id: (int(count_7d or 0), int(count_30d or 0))
-            for reviewer_identity_id, count_7d, count_30d in session.execute(
-                select(
-                    Annotation.reviewer_identity_id,
-                    func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_7d, Annotation.upload_id)))),
-                    func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_30d, Annotation.upload_id)))),
-                )
-                .where(Annotation.reviewer_identity_id.in_(identity_ids))
-                .group_by(Annotation.reviewer_identity_id)
-            ).all()
-        }
-
-    items: list[dict[str, object]] = []
-    for identity in identities:
-        count_7d, count_30d = windowed_reviews.get(identity.id, (0, 0))
-        stats = workload.get(identity.id)
-        items.append(
-            {
-                "identity_id": identity.id,
-                "line_user_id": identity.line_user_id,
-                "display_name": identity.display_name,
-                "real_name": identity.real_name,
-                "picture_url": identity.picture_url,
-                "role": identity.role,
-                "is_active": identity.is_active,
-                "assigned_patient_count": stats.assigned_patient_count if stats else 0,
-                "assigned_upload_count": stats.assigned_upload_count if stats else 0,
-                "labeled_assigned_upload_count": stats.labeled_assigned_upload_count if stats else 0,
-                "labeled_assigned_ratio": (
-                    stats.labeled_assigned_upload_count / stats.assigned_upload_count
-                    if stats and stats.assigned_upload_count > 0
-                    else 0.0
-                ),
-                "reviewed_upload_count": stats.reviewed_upload_count if stats else 0,
-                "review_count_7d": count_7d,
-                "review_count_30d": count_30d,
-                "last_review_at": stats.last_reviewed_at if stats else None,
-                "created_at": identity.created_at,
-            }
-        )
-
-    active_items = [item for item in items if item["is_active"]]
-    pending_access_request_count = int(
-        session.execute(
-            select(func.count(HealthcareAccessRequest.id)).where(HealthcareAccessRequest.status == "pending")
-        ).scalar_one()
-        or 0
-    )
     # "Unassigned" means nobody active is responsible. An assignment row pointing at a
     # deactivated account is not coverage, and inactive staff are excluded from the
-    # zero-assignment tile, so counting only missing rows would hide those patients twice.
+    # idle-staff tile, so counting only missing rows would hide those patients twice.
     has_active_assignee = (
         select(StaffPatientAssignment.id)
         .join(LiffIdentity, LiffIdentity.id == StaffPatientAssignment.staff_identity_id)
@@ -631,17 +581,17 @@ def get_staff_overview(
         or 0
     )
 
-    summary = {
-        "staff_count": len(items),
-        # Surfaced so the KPIs stay honest if a clinic ever exceeds the cap.
-        "staff_total": staff_total,
-        "truncated": staff_total > len(items),
-        "active_staff_count": len(active_items),
-        "pending_access_request_count": pending_access_request_count,
-        # Only active accounts count as a coverage gap; deactivated accounts are expected to carry
-        # nobody. Admins are counted deliberately: 病患分配 lists staff and admin together as
-        # assignable (exclude_patient), so an admin with no panel is a real gap here, not noise.
-        "zero_assignment_staff_count": sum(1 for item in active_items if item["assigned_patient_count"] == 0),
+    return {
+        "staff_total": len(staff_rows),
+        "active_staff_count": len(active_ids),
+        "pending_access_request_count": int(
+            session.execute(
+                select(func.count(HealthcareAccessRequest.id)).where(HealthcareAccessRequest.status == "pending")
+            ).scalar_one()
+            or 0
+        ),
+        # Admins are counted deliberately: 病患分配 lists staff and admin together as
+        # assignable, so an admin with no panel is a real gap here, not noise.
+        "idle_staff_count": sum(1 for identity_id in active_ids if identity_id not in assigned_active_staff_ids),
         "unassigned_patient_count": unassigned_patient_count,
     }
-    return items, summary

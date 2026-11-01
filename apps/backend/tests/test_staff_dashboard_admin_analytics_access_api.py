@@ -747,3 +747,199 @@ def test_staff_is_denied_for_admin_analytics_endpoints(tmp_path: Path) -> None:
 
         response = client.get("/v1/staff/admin/analytics/gender-distribution", headers=headers)
         assert response.status_code == 403
+
+
+def _seed_bare_patient(client: TestClient, *, case_number: str) -> int:
+    """A patient with no uploads, so review counts come only from what the test adds."""
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        patient = Patient(case_number=case_number, birth_date="1980-01-02", full_name=case_number, is_active=True)
+        session.add(patient)
+        session.commit()
+        session.refresh(patient)
+        return patient.id
+
+
+def _seed_review(
+    client: TestClient,
+    *,
+    reviewer_identity_id: int,
+    patient_id: int,
+    object_key: str,
+    reviewed_at: datetime,
+    upload_id: int | None = None,
+) -> int:
+    """Create (or re-review) one upload and return its id."""
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        if upload_id is None:
+            upload = Upload(
+                patient_id=patient_id,
+                object_key=object_key,
+                content_type="image/jpeg",
+                created_at=reviewed_at,
+            )
+            session.add(upload)
+            session.flush()
+            upload_id = upload.id
+        session.add(
+            Annotation(
+                patient_id=patient_id,
+                upload_id=upload_id,
+                reviewer_identity_id=reviewer_identity_id,
+                label="normal",
+                created_at=reviewed_at,
+                updated_at=reviewed_at,
+            )
+        )
+        session.commit()
+        return upload_id
+
+
+def test_staff_is_denied_for_review_throughput(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "analytics-throughput-rbac.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_STAFF_THROUGHPUT", role="staff")
+        token = _login_staff_token(client, "U_STAFF_THROUGHPUT")
+
+        response = client.get(
+            "/v1/staff/admin/analytics/review-throughput",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+
+
+def test_review_throughput_counts_distinct_uploads_per_day_and_reviewer(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "analytics-throughput-counts.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        admin_id = _seed_staff(client, line_user_id="U_ADMIN_THROUGHPUT", role="admin")
+        nurse_id = _seed_staff(client, line_user_id="U_NURSE_THROUGHPUT", role="staff")
+        patient_id = _seed_bare_patient(client, case_number="T-THROUGHPUT")
+
+        taipei_tz = timezone(timedelta(hours=8))
+        now = datetime.now(tz=timezone.utc)
+        today_key = now.astimezone(taipei_tz).date().isoformat()
+
+        # Nurse reviews two uploads today; one of them is revisited, which must not double count.
+        first_upload = _seed_review(
+            client,
+            reviewer_identity_id=nurse_id,
+            patient_id=patient_id,
+            object_key="patients/t/uploads/n1.jpg",
+            reviewed_at=now - timedelta(hours=2),
+        )
+        _seed_review(
+            client,
+            reviewer_identity_id=nurse_id,
+            patient_id=patient_id,
+            object_key="patients/t/uploads/n2.jpg",
+            reviewed_at=now - timedelta(hours=3),
+        )
+        _seed_review(
+            client,
+            reviewer_identity_id=nurse_id,
+            patient_id=patient_id,
+            object_key="ignored",
+            reviewed_at=now - timedelta(hours=1),
+            upload_id=first_upload,
+        )
+        # Admin reviews the same upload the nurse did, so the clinic-wide day total stays distinct.
+        _seed_review(
+            client,
+            reviewer_identity_id=admin_id,
+            patient_id=patient_id,
+            object_key="ignored",
+            reviewed_at=now - timedelta(hours=4),
+            upload_id=first_upload,
+        )
+
+        token = _login_staff_token(client, "U_ADMIN_THROUGHPUT")
+        response = client.get(
+            "/v1/staff/admin/analytics/review-throughput?lookback_days=30",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+        assert len(payload["days"]) == 30, "the window is densely filled"
+        today = next(day for day in payload["days"] if day["date"] == today_key)
+        assert today["reviewed_uploads"] == 2, "two distinct uploads touched today"
+        assert today["reviewer_count"] == 2
+
+        assert payload["reviewed_uploads_total"] == 2
+        assert payload["reviewer_count_total"] == 2
+
+        by_id = {item["identity_id"]: item for item in payload["top_staff"]}
+        assert by_id[nurse_id]["reviewed_uploads"] == 2, "revisiting one upload is still one upload"
+        assert by_id[admin_id]["reviewed_uploads"] == 1
+        assert len(by_id[nurse_id]["daily_counts"]) == 30
+        assert sum(by_id[nurse_id]["daily_counts"]) == 2
+        assert payload["top_staff"][0]["identity_id"] == nurse_id, "ranked by reviewed uploads desc"
+
+
+def test_review_throughput_window_total_is_not_the_sum_of_days(tmp_path: Path) -> None:
+    """One upload reviewed on two different days is one upload for the window."""
+    settings = make_settings(tmp_path / "analytics-throughput-window.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_WINDOW", role="admin")
+        nurse_id = _seed_staff(client, line_user_id="U_NURSE_WINDOW", role="staff")
+        patient_id = _seed_bare_patient(client, case_number="T-WINDOW")
+
+        now = datetime.now(tz=timezone.utc)
+        upload_id = _seed_review(
+            client,
+            reviewer_identity_id=nurse_id,
+            patient_id=patient_id,
+            object_key="patients/t/uploads/w1.jpg",
+            reviewed_at=now - timedelta(days=3),
+        )
+        _seed_review(
+            client,
+            reviewer_identity_id=nurse_id,
+            patient_id=patient_id,
+            object_key="ignored",
+            reviewed_at=now - timedelta(days=1),
+            upload_id=upload_id,
+        )
+
+        token = _login_staff_token(client, "U_ADMIN_WINDOW")
+        response = client.get(
+            "/v1/staff/admin/analytics/review-throughput?lookback_days=30",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+        daily_sum = sum(day["reviewed_uploads"] for day in payload["days"])
+        assert daily_sum == 2, "the upload appears on both days it was touched"
+        assert payload["reviewed_uploads_total"] == 1, "but the window counts it once"
+
+
+def test_review_throughput_excludes_patient_reviewers(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "analytics-throughput-roles.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_staff(client, line_user_id="U_ADMIN_ROLES", role="admin")
+        patient_identity_id = _seed_staff(client, line_user_id="U_PATIENT_ROLES", role="patient")
+        patient_id = _seed_bare_patient(client, case_number="T-ROLES")
+
+        _seed_review(
+            client,
+            reviewer_identity_id=patient_identity_id,
+            patient_id=patient_id,
+            object_key="patients/t/uploads/r1.jpg",
+            reviewed_at=datetime.now(tz=timezone.utc) - timedelta(hours=1),
+        )
+
+        token = _login_staff_token(client, "U_ADMIN_ROLES")
+        response = client.get(
+            "/v1/staff/admin/analytics/review-throughput?lookback_days=30",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["top_staff"] == []
+        assert payload["reviewer_count_total"] == 0

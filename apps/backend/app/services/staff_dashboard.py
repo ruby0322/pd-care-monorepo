@@ -1452,3 +1452,109 @@ def get_daily_suspected_series(
         points.append((day, total, suspected, elevated, labeled))
         cursor += timedelta(days=1)
     return points
+
+
+@dataclass(frozen=True)
+class ReviewThroughputDay:
+    local_date: str
+    reviewed_uploads: int
+    reviewer_count: int
+
+
+@dataclass(frozen=True)
+class ReviewThroughputStaff:
+    identity_id: int
+    line_user_id: str
+    display_name: str | None
+    real_name: str | None
+    reviewed_uploads: int
+    daily_counts: list[int]
+
+
+@dataclass(frozen=True)
+class ReviewThroughputTotals:
+    """Window-level distinct counts. Summing the daily rows would double-count an upload
+    reviewed on more than one day, so the averages must divide these instead."""
+
+    reviewed_uploads: int
+    reviewer_count: int
+
+
+def get_review_throughput(
+    session: Session,
+    *,
+    lookback_days: int,
+    top_staff_limit: int = 10,
+) -> tuple[list[ReviewThroughputDay], list[ReviewThroughputStaff], ReviewThroughputTotals]:
+    """Per-day and per-reviewer review counts over the trailing window, in Taipei days.
+
+    A review is counted on the day it was last touched: re-labelling updates the annotation in
+    place, so COALESCE(updated_at, created_at) is the activity timestamp. Counts are distinct by
+    upload, so revisiting one upload does not inflate a reviewer's number.
+    """
+    end_date, _, _ = resolve_taipei_day_bounds()
+    start_date = end_date - timedelta(days=lookback_days - 1)
+    start_dt = datetime.combine(start_date, time.min, tzinfo=TAIPEI_TIMEZONE).astimezone(timezone.utc)
+    reviewed_at = func.coalesce(Annotation.updated_at, Annotation.created_at)
+
+    rows = session.execute(
+        select(Annotation.reviewer_identity_id, Annotation.upload_id, reviewed_at)
+        .join(LiffIdentity, LiffIdentity.id == Annotation.reviewer_identity_id)
+        .where(reviewed_at >= start_dt, LiffIdentity.role.in_(("staff", "admin")))
+    ).all()
+
+    uploads_by_day: dict[str, set[int]] = defaultdict(set)
+    reviewers_by_day: dict[str, set[int]] = defaultdict(set)
+    uploads_by_staff: dict[int, set[int]] = defaultdict(set)
+    uploads_by_staff_day: dict[tuple[int, str], set[int]] = defaultdict(set)
+
+    for reviewer_identity_id, upload_id, activity_at in rows:
+        day_key = to_taipei_date(activity_at).isoformat()
+        uploads_by_day[day_key].add(upload_id)
+        reviewers_by_day[day_key].add(reviewer_identity_id)
+        uploads_by_staff[reviewer_identity_id].add(upload_id)
+        uploads_by_staff_day[(reviewer_identity_id, day_key)].add(upload_id)
+
+    day_keys: list[str] = []
+    cursor = start_date
+    while cursor <= end_date:
+        day_keys.append(cursor.isoformat())
+        cursor += timedelta(days=1)
+
+    days = [
+        ReviewThroughputDay(
+            local_date=day_key,
+            reviewed_uploads=len(uploads_by_day.get(day_key, ())),
+            reviewer_count=len(reviewers_by_day.get(day_key, ())),
+        )
+        for day_key in day_keys
+    ]
+
+    ranked_ids = sorted(uploads_by_staff, key=lambda identity_id: (-len(uploads_by_staff[identity_id]), identity_id))
+    top_ids = ranked_ids[:top_staff_limit]
+    identities = {
+        identity.id: identity
+        for identity in session.execute(select(LiffIdentity).where(LiffIdentity.id.in_(top_ids or [0]))).scalars().all()
+    }
+
+    top_staff: list[ReviewThroughputStaff] = []
+    for identity_id in top_ids:
+        identity = identities.get(identity_id)
+        if identity is None:
+            continue
+        top_staff.append(
+            ReviewThroughputStaff(
+                identity_id=identity_id,
+                line_user_id=identity.line_user_id,
+                display_name=identity.display_name,
+                real_name=identity.real_name,
+                reviewed_uploads=len(uploads_by_staff[identity_id]),
+                daily_counts=[len(uploads_by_staff_day.get((identity_id, day_key), ())) for day_key in day_keys],
+            )
+        )
+
+    totals = ReviewThroughputTotals(
+        reviewed_uploads=len({upload_id for uploads in uploads_by_staff.values() for upload_id in uploads}),
+        reviewer_count=len(uploads_by_staff),
+    )
+    return days, top_staff, totals

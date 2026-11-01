@@ -61,6 +61,8 @@ class AdminIdentityWorkloadStats(BaseModel):
     labeled_assigned_upload_count: int
     labeled_assigned_ratio: float
     reviewed_upload_count: int
+    review_count_7d: int
+    review_count_30d: int
     last_reviewed_at: datetime | None
 
 
@@ -117,35 +119,9 @@ class AdminIdentityBulkDeleteResultResponse(BaseModel):
     skipped_missing_count: int
 
 
-class AdminStaffOverviewItem(BaseModel):
-    identity_id: int
-    line_user_id: str
-    display_name: str | None
-    real_name: str | None
-    picture_url: str | None
-    role: Literal["staff", "admin"]
-    is_active: bool
-    assigned_patient_count: int
-    assigned_upload_count: int
-    labeled_assigned_upload_count: int
-    labeled_assigned_ratio: float
-    reviewed_upload_count: int
-    review_count_7d: int
-    review_count_30d: int
-    last_review_at: datetime | None
-    created_at: datetime
-
-
-class AdminStaffOverviewSummary(BaseModel):
-    staff_count: int
+class AdminStaffSummaryResponse(BaseModel):
     staff_total: int
-    truncated: bool
     active_staff_count: int
     pending_access_request_count: int
-    zero_assignment_staff_count: int
+    idle_staff_count: int
     unassigned_patient_count: int
-
-
-class AdminStaffOverviewResponse(BaseModel):
-    items: list[AdminStaffOverviewItem]
-    summary: AdminStaffOverviewSummary

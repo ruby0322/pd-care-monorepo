@@ -12,6 +12,9 @@ from app.schemas.staff_dashboard import (
     StaffActiveUsersSeriesResponse,
     StaffAgeHistogramBucket,
     StaffAgeHistogramResponse,
+    StaffReviewThroughputDay,
+    StaffReviewThroughputResponse,
+    StaffReviewThroughputStaffItem,
     StaffAssignmentBulkItemResult,
     StaffAssignmentBulkRequest,
     StaffAssignmentBulkResponse,
@@ -35,6 +38,7 @@ from app.services.staff_dashboard import (
     get_active_users_series,
     get_age_histogram,
     get_daily_suspected_series,
+    get_review_throughput,
     get_period_suspected_summary,
     get_today_suspected_summary,
     list_patient_assignments,
@@ -424,6 +428,46 @@ async def get_admin_active_users_series(
         items=[
             StaffActiveUsersSeriesPoint(date=day, active_users=active_count, registered_users=registered_count)
             for day, active_count, registered_count in rows
+        ],
+    )
+
+
+@router.get("/v1/staff/admin/analytics/review-throughput", response_model=StaffReviewThroughputResponse)
+async def get_admin_review_throughput(
+    request: Request,
+    lookback_days: int = Query(default=30, ge=7, le=90),
+    top_staff_limit: int = Query(default=10, ge=1, le=30),
+    credentials=Depends(bearer_scheme),
+    session: Session = Depends(get_staff_session),
+) -> StaffReviewThroughputResponse:
+    require_admin(get_current_principal(request, credentials))
+    days, top_staff, totals = get_review_throughput(
+        session,
+        lookback_days=lookback_days,
+        top_staff_limit=top_staff_limit,
+    )
+    return StaffReviewThroughputResponse(
+        lookback_days=lookback_days,
+        reviewed_uploads_total=totals.reviewed_uploads,
+        reviewer_count_total=totals.reviewer_count,
+        days=[
+            StaffReviewThroughputDay(
+                date=day.local_date,
+                reviewed_uploads=day.reviewed_uploads,
+                reviewer_count=day.reviewer_count,
+            )
+            for day in days
+        ],
+        top_staff=[
+            StaffReviewThroughputStaffItem(
+                identity_id=item.identity_id,
+                line_user_id=item.line_user_id,
+                display_name=item.display_name,
+                real_name=item.real_name,
+                reviewed_uploads=item.reviewed_uploads,
+                daily_counts=item.daily_counts,
+            )
+            for item in top_staff
         ],
     )
 

@@ -18,9 +18,7 @@ from app.schemas.admin_user_management import (
     AdminIdentityListResponse,
     AdminIdentityWorkloadStats,
     AdminRejectHealthcarePermissionRequest,
-    AdminStaffOverviewItem,
-    AdminStaffOverviewResponse,
-    AdminStaffOverviewSummary,
+    AdminStaffSummaryResponse,
     AdminUpdateIdentityRealNameRequest,
     AdminUpdateIdentityRoleRequest,
     AdminUpdateIdentityStatusRequest,
@@ -29,7 +27,7 @@ from app.services.admin_user_management import (
     StaffWorkloadStats,
     approve_healthcare_permission_request,
     delete_inactive_identities,
-    get_staff_overview,
+    get_staff_summary,
     list_healthcare_permission_requests,
     list_identities,
     load_staff_workload_stats,
@@ -56,6 +54,8 @@ def _to_workload_stats(stats: StaffWorkloadStats) -> AdminIdentityWorkloadStats:
             else 0.0
         ),
         reviewed_upload_count=stats.reviewed_upload_count,
+        review_count_7d=stats.review_count_7d,
+        review_count_30d=stats.review_count_30d,
         last_reviewed_at=stats.last_reviewed_at,
     )
 
@@ -127,18 +127,14 @@ async def list_admin_users(
     )
 
 
-@router.get("/v1/staff/admin/staff-overview", response_model=AdminStaffOverviewResponse)
-async def get_admin_staff_overview(
+@router.get("/v1/staff/admin/staff-summary", response_model=AdminStaffSummaryResponse)
+async def get_admin_staff_summary(
     request: Request,
     credentials=Depends(bearer_scheme),
     session: Session = Depends(get_staff_session),
-) -> AdminStaffOverviewResponse:
+) -> AdminStaffSummaryResponse:
     require_admin(get_current_principal(request, credentials))
-    items, summary = get_staff_overview(session)
-    return AdminStaffOverviewResponse(
-        items=[AdminStaffOverviewItem(**item) for item in items],  # type: ignore[arg-type]
-        summary=AdminStaffOverviewSummary(**summary),
-    )
+    return AdminStaffSummaryResponse(**get_staff_summary(session))
 
 
 @router.post("/v1/staff/admin/users/delete/preview", response_model=AdminIdentityBulkDeletePreviewResponse)

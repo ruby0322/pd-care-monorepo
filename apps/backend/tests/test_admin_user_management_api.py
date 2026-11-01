@@ -678,28 +678,27 @@ def _seed_patient(client: TestClient, *, case_number: str, is_active: bool = Tru
         return patient.id
 
 
-def test_staff_cannot_access_staff_overview(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path / "admin-staff-overview-denied.db")
+def test_staff_cannot_access_staff_summary(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-staff-summary-denied.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_identity(client, line_user_id="U_STAFF_OVERVIEW_DENIED", role="staff")
-        token = _login_token(client, "U_STAFF_OVERVIEW_DENIED")
+        _seed_identity(client, line_user_id="U_STAFF_SUMMARY_DENIED", role="staff")
+        token = _login_token(client, "U_STAFF_SUMMARY_DENIED")
 
-        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        response = client.get("/v1/staff/admin/staff-summary", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 403
 
 
-def test_staff_overview_returns_workload_aggregates_per_staff(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path / "admin-staff-overview-aggregates.db")
+def test_identity_list_carries_workload_aggregates_per_staff(tmp_path: Path) -> None:
+    """Per-staff figures ride along with the identity list, which is what 病患分配 renders."""
+    settings = make_settings(tmp_path / "admin-workload-aggregates.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         admin_id = _seed_identity(client, line_user_id="U_ADMIN_OVERVIEW", role="admin", real_name="Admin Lin")
         busy_id = _seed_identity(client, line_user_id="U_STAFF_BUSY", role="staff", real_name="Nurse Busy")
         idle_id = _seed_identity(client, line_user_id="U_STAFF_IDLE", role="staff", real_name="Nurse Idle")
-        _seed_identity(client, line_user_id="U_PATIENT_EXCLUDED", role="patient")
 
         patient_id = _seed_patient(client, case_number="CASE_OVERVIEW_1")
-        unassigned_patient_id = _seed_patient(client, case_number="CASE_OVERVIEW_2")
 
         session_factory = client.app.state.db_session_factory
         with session_factory() as session:
@@ -721,56 +720,58 @@ def test_staff_overview_returns_workload_aggregates_per_staff(tmp_path: Path) ->
         )
 
         token = _login_token(client, "U_ADMIN_OVERVIEW")
-        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        response = client.get(
+            "/v1/staff/admin/users",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"exclude_patient": True, "limit": 50},
+        )
         assert response.status_code == 200
-        payload = response.json()
+        by_id = {item["id"]: item for item in response.json()["items"]}
+        assert set(by_id) == {admin_id, busy_id, idle_id}
 
-        by_id = {item["identity_id"]: item for item in payload["items"]}
-        assert set(by_id) == {admin_id, busy_id, idle_id}, "patient identities must not appear in the staff roster"
-
-        busy = by_id[busy_id]
+        busy = by_id[busy_id]["workload"]
         assert busy["assigned_patient_count"] == 1
         assert busy["review_count_7d"] == 2
         assert busy["review_count_30d"] == 3
-        assert busy["last_review_at"] is not None
-        assert busy["real_name"] == "Nurse Busy"
-        assert busy["role"] == "staff"
+        assert busy["reviewed_upload_count"] == 4
+        assert busy["last_reviewed_at"] is not None
 
-        idle = by_id[idle_id]
+        idle = by_id[idle_id]["workload"]
         assert idle["assigned_patient_count"] == 0
         assert idle["review_count_7d"] == 0
         assert idle["review_count_30d"] == 0
-        assert idle["last_review_at"] is None
-
-        summary = payload["summary"]
-        assert summary["staff_count"] == 3
-        assert summary["staff_total"] == 3
-        assert summary["truncated"] is False
-        assert summary["active_staff_count"] == 3
-        assert (
-            summary["zero_assignment_staff_count"] == 2
-        ), "admin and idle nurse both carry nobody; admins are assignable so they count"
-        assert summary["unassigned_patient_count"] == 1
-        assert unassigned_patient_id != patient_id
+        assert idle["last_reviewed_at"] is None
 
 
-def test_staff_overview_excludes_inactive_staff_from_coverage_gap_count(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path / "admin-staff-overview-inactive.db")
+def test_staff_summary_reports_clinic_wide_assignment_gaps(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-staff-summary-gaps.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
-        _seed_identity(client, line_user_id="U_ADMIN_OVERVIEW_INACTIVE", role="admin")
-        inactive_id = _seed_identity(client, line_user_id="U_STAFF_DEACTIVATED", role="staff", is_active=False)
+        _seed_identity(client, line_user_id="U_ADMIN_SUMMARY", role="admin")
+        busy_id = _seed_identity(client, line_user_id="U_STAFF_SUMMARY_BUSY", role="staff")
+        _seed_identity(client, line_user_id="U_STAFF_SUMMARY_IDLE", role="staff")
+        _seed_identity(client, line_user_id="U_STAFF_SUMMARY_OFF", role="staff", is_active=False)
+        _seed_identity(client, line_user_id="U_PATIENT_SUMMARY", role="patient")
 
-        token = _login_token(client, "U_ADMIN_OVERVIEW_INACTIVE")
-        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        covered_patient_id = _seed_patient(client, case_number="CASE_SUMMARY_COVERED")
+        _seed_patient(client, case_number="CASE_SUMMARY_ORPHAN")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            session.add(StaffPatientAssignment(staff_identity_id=busy_id, patient_id=covered_patient_id))
+            session.commit()
+
+        token = _login_token(client, "U_ADMIN_SUMMARY")
+        response = client.get("/v1/staff/admin/staff-summary", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
-        payload = response.json()
+        summary = response.json()
 
-        assert inactive_id in {item["identity_id"] for item in payload["items"]}, "roster still lists the account"
-        summary = payload["summary"]
-        assert summary["staff_count"] == 2
-        assert summary["active_staff_count"] == 1
-        assert summary["zero_assignment_staff_count"] == 1, "the lone active admin carries nobody and counts"
+        assert summary["staff_total"] == 4, "patients are not staff"
+        assert summary["active_staff_count"] == 3, "the deactivated nurse is excluded"
+        assert (
+            summary["idle_staff_count"] == 2
+        ), "the admin and the idle nurse carry nobody; the deactivated nurse does not count"
+        assert summary["unassigned_patient_count"] == 1
 
 
 def test_authorization_audit_event_records_target_line_user_id(tmp_path: Path) -> None:
@@ -857,9 +858,9 @@ def test_audit_target_identity_fk_nulls_out_instead_of_cascading(tmp_path: Path)
         engine.dispose()
 
 
-def test_staff_overview_matches_shared_workload_semantics(tmp_path: Path) -> None:
-    """Roster figures must agree with the workload columns: active patients only, distinct uploads."""
-    settings = make_settings(tmp_path / "admin-staff-overview-shared-semantics.db")
+def test_workload_uses_active_patients_and_distinct_uploads(tmp_path: Path) -> None:
+    """Assignments to deactivated patients and repeat annotations must not inflate the figures."""
+    settings = make_settings(tmp_path / "admin-workload-semantics.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
     with TestClient(app) as client:
         _seed_identity(client, line_user_id="U_ADMIN_SEMANTICS", role="admin")
@@ -898,14 +899,17 @@ def test_staff_overview_matches_shared_workload_semantics(tmp_path: Path) -> Non
             session.commit()
 
         token = _login_token(client, "U_ADMIN_SEMANTICS")
-        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        response = client.get(
+            "/v1/staff/admin/users",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"exclude_patient": True, "limit": 50},
+        )
         assert response.status_code == 200
-        staff_row = next(item for item in response.json()["items"] if item["identity_id"] == staff_id)
+        workload = next(item for item in response.json()["items"] if item["id"] == staff_id)["workload"]
 
-        assert staff_row["assigned_patient_count"] == 1, "deactivated patients must not count toward workload"
-        assert staff_row["review_count_7d"] == 1, "two annotations on one upload is one reviewed upload"
-        assert staff_row["review_count_30d"] == 1
-        assert staff_row["last_review_at"] is not None
+        assert workload["assigned_patient_count"] == 1, "deactivated patients must not count toward workload"
+        assert workload["review_count_7d"] == 1, "two annotations on one upload is one reviewed upload"
+        assert workload["reviewed_upload_count"] == 1
 
 
 def test_admin_cannot_demote_or_deactivate_their_own_account(tmp_path: Path) -> None:
@@ -954,10 +958,9 @@ def test_patient_assigned_only_to_deactivated_staff_counts_as_unassigned(tmp_pat
             session.commit()
 
         token = _login_token(client, "U_ADMIN_UNASSIGNED")
-        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        response = client.get("/v1/staff/admin/staff-summary", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
-        summary = response.json()["summary"]
-        assert summary["unassigned_patient_count"] == 1, "the patient whose only nurse was disabled is a gap"
+        assert response.json()["unassigned_patient_count"] == 1, "the patient whose only nurse was disabled is a gap"
 
 
 def test_relabelled_annotation_counts_as_recent_review_activity(tmp_path: Path) -> None:
@@ -983,10 +986,13 @@ def test_relabelled_annotation_counts_as_recent_review_activity(tmp_path: Path) 
             session.commit()
 
         token = _login_token(client, "U_ADMIN_RELABEL")
-        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        response = client.get(
+            "/v1/staff/admin/users",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"exclude_patient": True, "limit": 50},
+        )
         assert response.status_code == 200
-        staff_row = next(item for item in response.json()["items"] if item["identity_id"] == staff_id)
+        workload = next(item for item in response.json()["items"] if item["id"] == staff_id)["workload"]
 
-        assert staff_row["review_count_7d"] == 1, "re-labelling is review activity"
-        assert staff_row["review_count_30d"] == 1
-        assert staff_row["last_review_at"] is not None
+        assert workload["review_count_7d"] == 1, "re-labelling is review activity"
+        assert workload["review_count_30d"] == 1

@@ -1,4 +1,4 @@
-import type { AdminStaffOverviewItem, AdminStaffOverviewSummary } from "@/lib/api/staff";
+import type { AdminIdentityWorkloadStats, AdminStaffSummary } from "@/lib/api/staff";
 
 export type StaffOverviewKpi = {
   key: string;
@@ -10,35 +10,31 @@ export type StaffOverviewKpi = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function staffOverviewKpis(summary: AdminStaffOverviewSummary | null): StaffOverviewKpi[] {
+/** Counters that tell an admin whether assignment work is outstanding. */
+export function assignmentKpis(summary: AdminStaffSummary | null): StaffOverviewKpi[] {
+  const idle = summary?.idle_staff_count ?? 0;
+  const unassigned = summary?.unassigned_patient_count ?? 0;
   return [
+    {
+      key: "unassigned_patients",
+      label: "未分配病患",
+      value: unassigned,
+      hint: "無在職醫護負責（含僅指派給已停用帳號）",
+      tone: unassigned > 0 ? "warning" : "neutral",
+    },
+    {
+      key: "idle_staff",
+      label: "空閑醫護",
+      value: idle,
+      hint: "在職 staff/admin 但未負責任何病患",
+      tone: idle > 0 ? "warning" : "neutral",
+    },
     {
       key: "active_staff",
       label: "在職醫護",
       value: summary?.active_staff_count ?? 0,
       hint: `共 ${summary?.staff_total ?? 0} 個 staff/admin 帳號`,
       tone: "neutral",
-    },
-    {
-      key: "pending_requests",
-      label: "待審權限申請",
-      value: summary?.pending_access_request_count ?? 0,
-      hint: "等待 admin 核准或拒絕",
-      tone: (summary?.pending_access_request_count ?? 0) > 0 ? "warning" : "neutral",
-    },
-    {
-      key: "zero_assignment",
-      label: "空閑醫護",
-      value: summary?.zero_assignment_staff_count ?? 0,
-      hint: "在職 staff/admin 但未負責任何病患",
-      tone: (summary?.zero_assignment_staff_count ?? 0) > 0 ? "warning" : "neutral",
-    },
-    {
-      key: "unassigned_patients",
-      label: "未分配病患",
-      value: summary?.unassigned_patient_count ?? 0,
-      hint: "無在職醫護負責（含僅指派給已停用帳號）",
-      tone: (summary?.unassigned_patient_count ?? 0) > 0 ? "warning" : "neutral",
     },
   ];
 }
@@ -69,11 +65,15 @@ export function formatLastReviewAt(lastReviewAt: string | null, now: Date = new 
   return reviewedAt.toLocaleDateString("zh-TW");
 }
 
-/** Dormant = active account that has not reviewed anything in the last 30 days. */
-export function isDormantStaff(item: AdminStaffOverviewItem): boolean {
-  return item.is_active && item.review_count_30d === 0;
+/** Dormant = no review activity in the last 30 days, so assigning more work is questionable. */
+export function isDormantWorkload(workload: AdminIdentityWorkloadStats | null): boolean {
+  return workload !== null && workload.review_count_30d === 0;
 }
 
-export function staffRosterDisplayName(item: AdminStaffOverviewItem): string {
-  return item.real_name?.trim() || item.display_name?.trim() || item.line_user_id;
+/** Share of this person's assigned queue that has been labelled, 0 when nothing is assigned. */
+export function labeledRatioPercent(workload: AdminIdentityWorkloadStats | null): number {
+  if (!workload || workload.assigned_upload_count === 0) {
+    return 0;
+  }
+  return Math.round(workload.labeled_assigned_ratio * 100);
 }

@@ -9,6 +9,8 @@ import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AdminIdentityItem, AdminPatientAssignmentByStaffPatientItem } from "@/lib/api/staff";
 
+import { isDormantWorkload, labeledRatioPercent } from "@/lib/admin/staff-overview";
+
 import { buildPatientLot, staffDisplayName } from "./lot-math";
 import { PersonAvatar } from "./person-avatar";
 import { PatientTile } from "./patient-tile";
@@ -49,6 +51,9 @@ export function StaffAssigneeCard({
 
   const title = staffDisplayName(staff.real_name, staff.display_name);
   const lot = buildPatientLot(patients.length, capacity);
+  const workload = staff.workload ?? null;
+  const labeledPercent = labeledRatioPercent(workload);
+  const dormant = isDormantWorkload(workload);
   const isOver = droppable.isOver || addDroppable.isOver;
 
   return (
@@ -68,7 +73,16 @@ export function StaffAssigneeCard({
       >
         <PersonAvatar name={title} pictureUrl={staff.picture_url} size="md" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-zinc-900">{title}</p>
+          <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-zinc-900">
+            <span className="truncate">{title}</span>
+            {dormant ? (
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
+                title="近 30 日無審核紀錄"
+                aria-label="近 30 日無審核紀錄"
+              />
+            ) : null}
+          </p>
           {staff.real_name?.trim() && staff.display_name?.trim() ? (
             <p className="truncate text-[11px] text-zinc-500">LINE: {staff.display_name}</p>
           ) : (
@@ -79,6 +93,18 @@ export function StaffAssigneeCard({
           )}
         </div>
       </button>
+
+      {workload && workload.assigned_upload_count > 0 ? (
+        <div
+          className="mb-1.5 h-0.5 w-full overflow-hidden rounded-full bg-zinc-100"
+          title={`負責佇列已標註 ${workload.labeled_assigned_upload_count} / ${workload.assigned_upload_count}（${labeledPercent}%）`}
+        >
+          <div
+            className={cn("h-full rounded-full", labeledPercent >= 100 ? "bg-emerald-500" : "bg-cyan-500")}
+            style={{ width: `${labeledPercent}%` }}
+          />
+        </div>
+      ) : null}
 
       <div
         className="grid min-h-0 flex-1 gap-1.5"
