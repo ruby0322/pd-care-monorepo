@@ -6,8 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
-from app.db.models import AIResult, LiffIdentity, Patient, StaffPatientAssignment, Upload
+from app.db.models import AIResult, Annotation, LiffIdentity, Patient, StaffPatientAssignment, Upload
 from app.main import create_app
 from tests.test_staff_dashboard_api import (
     _assign_staff_patient,
@@ -133,7 +134,44 @@ def test_admin_analytics_endpoints_return_expected_payloads(tmp_path: Path) -> N
         assert today_item["suspected_uploads"] == 1
         assert today_item["symptom_elevated_uploads"] == 0
         assert today_item["suspected_ratio"] == 0.5
+        assert today_item["labeled_uploads"] == 0
         assert any(item["total_uploads"] == 0 and item["suspected_ratio"] == 0 for item in daily_payload["items"])
+
+
+def test_admin_daily_suspected_series_counts_labeled_uploads(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "staff-dashboard-admin-series-labeled.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        admin_identity_id = _seed_staff(client, line_user_id="U_ADMIN_SERIES_LABELED", role="admin")
+        _seed_admin_analytics_data(client)
+
+        taipei_tz = timezone(timedelta(hours=8))
+        today_key = datetime.now(tz=timezone.utc).astimezone(taipei_tz).date().isoformat()
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            upload = session.execute(
+                select(Upload).where(Upload.object_key == "patients/a1001/uploads/today-1.jpg")
+            ).scalar_one()
+            session.add(
+                Annotation(
+                    patient_id=upload.patient_id,
+                    upload_id=upload.id,
+                    reviewer_identity_id=admin_identity_id,
+                    label="normal",
+                )
+            )
+            session.commit()
+
+        token = _login_staff_token(client, "U_ADMIN_SERIES_LABELED")
+        response = client.get(
+            "/v1/staff/admin/analytics/daily-suspected-series?lookback_days=30",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        today_item = next(item for item in response.json()["items"] if item["date"] == today_key)
+        assert today_item["total_uploads"] == 2
+        assert today_item["labeled_uploads"] == 1
 
 
 def test_admin_suspected_summary_respects_age_and_active_filters(tmp_path: Path) -> None:

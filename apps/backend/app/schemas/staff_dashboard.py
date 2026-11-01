@@ -142,6 +142,7 @@ class StaffTodayAttentionResponse(BaseModel):
 class StaffWorkbenchWeekDayItem(BaseModel):
     local_date: str
     upload_count: int = 0
+    labeled_upload_count: int = 0
     uploaded_users: int = 0
     risky_patient_count: int = 0
     unhandled_patient_count: int = 0
@@ -507,6 +508,7 @@ class StaffActiveUsersSeriesResponse(BaseModel):
 class StaffDailySuspectedSeriesPoint(BaseModel):
     date: str
     total_uploads: int
+    labeled_uploads: int = 0
     suspected_uploads: int
     symptom_elevated_uploads: int = 0
     suspected_ratio: float

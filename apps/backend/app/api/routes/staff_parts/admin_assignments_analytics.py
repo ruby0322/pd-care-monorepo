@@ -447,10 +447,11 @@ async def get_admin_daily_suspected_series(
             StaffDailySuspectedSeriesPoint(
                 date=day,
                 total_uploads=total,
+                labeled_uploads=labeled,
                 suspected_uploads=suspected,
                 symptom_elevated_uploads=elevated,
                 suspected_ratio=(suspected / total) if total > 0 else 0.0,
             )
-            for day, total, suspected, elevated in rows
+            for day, total, suspected, elevated, labeled in rows
         ],
     )

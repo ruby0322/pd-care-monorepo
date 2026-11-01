@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, inspect, select
 
 from app.config import Settings
 from app.db.models import (
+    AIResult,
     Annotation,
     AuthorizationAuditEvent,
     LiffIdentity,
@@ -312,6 +313,117 @@ def test_admin_user_list_sorts_by_assigned_patient_count_before_pagination(tmp_p
         assert response.status_code == 200
         assert response.json()["total"] == 2
         assert [item["line_user_id"] for item in response.json()["items"]] == ["U_STAFF_ASSIGNMENT_HIGH"]
+
+
+def test_admin_user_list_assigned_count_sort_ignores_inactive_patients(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-assignment-sort-inactive.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_ASSIGNMENT_SORT_INACTIVE", role="admin")
+        active_staff_id = _seed_identity(client, line_user_id="U_STAFF_ASSIGNMENT_ACTIVE_ONLY", role="staff")
+        inactive_only_staff_id = _seed_identity(client, line_user_id="U_STAFF_ASSIGNMENT_INACTIVE_ONLY", role="staff")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            active_patient = Patient(case_number="SORT-ACTIVE", birth_date="1990-01-01")
+            inactive_patient = Patient(case_number="SORT-INACTIVE", birth_date="1990-01-01", is_active=False)
+            session.add_all([active_patient, inactive_patient])
+            session.flush()
+            session.add_all(
+                [
+                    StaffPatientAssignment(staff_identity_id=active_staff_id, patient_id=active_patient.id),
+                    StaffPatientAssignment(staff_identity_id=inactive_only_staff_id, patient_id=inactive_patient.id),
+                ]
+            )
+            session.commit()
+
+        token = _login_token(client, "U_ADMIN_ASSIGNMENT_SORT_INACTIVE")
+        response = client.get(
+            "/v1/staff/admin/users?role=staff&sort=assigned_count_desc&limit=1&offset=0",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert [item["line_user_id"] for item in response.json()["items"]] == ["U_STAFF_ASSIGNMENT_ACTIVE_ONLY"]
+
+
+def test_admin_user_list_includes_labeling_workload_for_staff_and_admin(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-workload.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_WORKLOAD", role="admin")
+        staff_id = _seed_identity(client, line_user_id="U_STAFF_WORKLOAD", role="staff")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            active_patient = Patient(case_number="WL-ACTIVE", birth_date="1990-01-01")
+            inactive_patient = Patient(case_number="WL-INACTIVE", birth_date="1990-01-01", is_active=False)
+            session.add_all([active_patient, inactive_patient])
+            session.flush()
+            session.add_all(
+                [
+                    StaffPatientAssignment(staff_identity_id=staff_id, patient_id=active_patient.id),
+                    StaffPatientAssignment(staff_identity_id=staff_id, patient_id=inactive_patient.id),
+                ]
+            )
+            uploads = []
+            for patient_id, screening_result in (
+                (active_patient.id, "normal"),
+                (active_patient.id, "suspected"),
+                (active_patient.id, "rejected"),
+                (inactive_patient.id, "normal"),
+            ):
+                upload = Upload(patient_id=patient_id, object_key="k", content_type="image/jpeg")
+                session.add(upload)
+                session.flush()
+                session.add(AIResult(upload_id=upload.id, screening_result=screening_result))
+                uploads.append(upload)
+            session.add(
+                Annotation(
+                    patient_id=active_patient.id,
+                    upload_id=uploads[0].id,
+                    reviewer_identity_id=staff_id,
+                    label="normal",
+                )
+            )
+            session.commit()
+
+        token = _login_token(client, "U_ADMIN_WORKLOAD")
+        response = client.get("/v1/staff/admin/users?exclude_patient=true", headers={"Authorization": f"Bearer {token}"})
+
+        assert response.status_code == 200
+        items = response.json()["items"]
+        staff_item = next(item for item in items if item["line_user_id"] == "U_STAFF_WORKLOAD")
+        workload = staff_item["workload"]
+        # Both counts share one universe: the inactive patient is assigned but excluded
+        # from the patient count and from the upload denominator alike.
+        assert workload["assigned_patient_count"] == 1
+        # Rejected uploads and uploads of inactive patients are outside the review queue.
+        assert workload["assigned_upload_count"] == 2
+        assert workload["labeled_assigned_upload_count"] == 1
+        assert workload["labeled_assigned_ratio"] == 0.5
+        assert workload["reviewed_upload_count"] == 1
+        assert workload["last_reviewed_at"] is not None
+
+        admin_item = next(item for item in items if item["line_user_id"] == "U_ADMIN_WORKLOAD")
+        assert admin_item["workload"]["assigned_patient_count"] == 0
+        assert admin_item["workload"]["labeled_assigned_ratio"] == 0.0
+
+
+def test_admin_user_list_omits_workload_for_patient_identities(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "admin-user-management-workload-patient.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_WORKLOAD_PATIENT", role="admin")
+        _seed_identity(client, line_user_id="U_PATIENT_WORKLOAD", role="patient")
+
+        token = _login_token(client, "U_ADMIN_WORKLOAD_PATIENT")
+        response = client.get("/v1/staff/admin/users", headers={"Authorization": f"Bearer {token}"})
+
+        assert response.status_code == 200
+        items = response.json()["items"]
+        patient_item = next(item for item in items if item["line_user_id"] == "U_PATIENT_WORKLOAD")
+        assert patient_item["workload"] is None
 
 
 def test_admin_user_list_includes_real_name_field_with_null_default(tmp_path: Path) -> None:
@@ -739,3 +851,54 @@ def test_audit_target_identity_fk_nulls_out_instead_of_cascading(tmp_path: Path)
         assert target_fks[0]["options"].get("ondelete", "").upper() == "SET NULL"
     finally:
         engine.dispose()
+
+
+def test_staff_overview_matches_shared_workload_semantics(tmp_path: Path) -> None:
+    """Roster figures must agree with the workload columns: active patients only, distinct uploads."""
+    settings = make_settings(tmp_path / "admin-staff-overview-shared-semantics.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        _seed_identity(client, line_user_id="U_ADMIN_SEMANTICS", role="admin")
+        staff_id = _seed_identity(client, line_user_id="U_STAFF_SEMANTICS", role="staff")
+
+        active_patient_id = _seed_patient(client, case_number="CASE_SEMANTICS_ACTIVE")
+        retired_patient_id = _seed_patient(client, case_number="CASE_SEMANTICS_RETIRED", is_active=False)
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            session.add_all(
+                [
+                    StaffPatientAssignment(staff_identity_id=staff_id, patient_id=active_patient_id),
+                    StaffPatientAssignment(staff_identity_id=staff_id, patient_id=retired_patient_id),
+                ]
+            )
+            session.commit()
+
+        now = datetime.now(tz=timezone.utc)
+        _seed_reviews(client, reviewer_identity_id=staff_id, patient_id=active_patient_id, created_ats=[now - timedelta(days=1)])
+
+        # A second pass over the same upload must not inflate the review counts.
+        with session_factory() as session:
+            upload_id = session.execute(select(Upload.id).where(Upload.patient_id == active_patient_id)).scalar_one()
+            session.add(
+                Annotation(
+                    patient_id=active_patient_id,
+                    upload_id=upload_id,
+                    reviewer_identity_id=staff_id,
+                    label="suspected_infection",
+                    comment="re-reviewed",
+                    patient_read_at=None,
+                    created_at=now - timedelta(hours=2),
+                )
+            )
+            session.commit()
+
+        token = _login_token(client, "U_ADMIN_SEMANTICS")
+        response = client.get("/v1/staff/admin/staff-overview", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        staff_row = next(item for item in response.json()["items"] if item["identity_id"] == staff_id)
+
+        assert staff_row["assigned_patient_count"] == 1, "deactivated patients must not count toward workload"
+        assert staff_row["review_count_7d"] == 1, "two annotations on one upload is one reviewed upload"
+        assert staff_row["review_count_30d"] == 1
+        assert staff_row["last_review_at"] is not None

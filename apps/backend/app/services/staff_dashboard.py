@@ -1406,7 +1406,7 @@ def get_daily_suspected_series(
     *,
     lookback_days: int,
     accessible_patient_ids: set[int] | None = None,
-) -> list[tuple[str, int, int, int]]:
+) -> list[tuple[str, int, int, int, int]]:
     end_date, _, _ = resolve_taipei_day_bounds()
     start_date = end_date - timedelta(days=lookback_days - 1)
     start_dt = datetime.combine(start_date, time.min, tzinfo=TAIPEI_TIMEZONE).astimezone(timezone.utc)
@@ -1424,26 +1424,28 @@ def get_daily_suspected_series(
     upload_ids = {upload.id for upload, _ in rows}
     latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
 
-    by_day: dict[str, tuple[int, int, int]] = {}
+    by_day: dict[str, tuple[int, int, int, int]] = {}
     for upload, ai_result in rows:
         day_key = to_taipei_date(upload.created_at).isoformat()
-        total, suspected, elevated = by_day.get(day_key, (0, 0, 0))
+        total, suspected, elevated, labeled = by_day.get(day_key, (0, 0, 0, 0))
+        annotation = latest_annotation_by_upload.get(upload.id)
         tier = _tier_for_upload(
             upload=upload,
             screening_result=ai_result.screening_result,
-            annotation=latest_annotation_by_upload.get(upload.id),
+            annotation=annotation,
         )
         by_day[day_key] = (
             total + 1,
             suspected + (1 if tier == "suspected" else 0),
             elevated + (1 if tier == "elevated" else 0),
+            labeled + (1 if annotation is not None else 0),
         )
 
-    points: list[tuple[str, int, int, int]] = []
+    points: list[tuple[str, int, int, int, int]] = []
     cursor = start_date
     while cursor <= end_date:
         day = cursor.isoformat()
-        total, suspected, elevated = by_day.get(day, (0, 0, 0))
-        points.append((day, total, suspected, elevated))
+        total, suspected, elevated, labeled = by_day.get(day, (0, 0, 0, 0))
+        points.append((day, total, suspected, elevated, labeled))
         cursor += timedelta(days=1)
     return points

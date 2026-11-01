@@ -158,6 +158,7 @@ export type StaffTodayAttentionResponse = {
 export type StaffWorkbenchWeekDayItem = {
   local_date: string;
   upload_count: number;
+  labeled_upload_count: number;
   uploaded_users: number;
   risky_patient_count: number;
   unhandled_patient_count: number;
@@ -386,6 +387,7 @@ export type AdminActiveUsersSeriesResponse = {
 export type AdminDailySuspectedSeriesPoint = {
   date: string;
   total_uploads: number;
+  labeled_uploads: number;
   suspected_uploads: number;
   symptom_elevated_uploads: number;
   suspected_ratio: number;
@@ -405,6 +407,10 @@ export type AdminStaffOverviewItem = {
   role: "staff" | "admin";
   is_active: boolean;
   assigned_patient_count: number;
+  assigned_upload_count: number;
+  labeled_assigned_upload_count: number;
+  labeled_assigned_ratio: number;
+  reviewed_upload_count: number;
   review_count_7d: number;
   review_count_30d: number;
   last_review_at: string | null;
@@ -424,6 +430,15 @@ export type AdminStaffOverviewResponse = {
   summary: AdminStaffOverviewSummary;
 };
 
+export type AdminIdentityWorkloadStats = {
+  assigned_patient_count: number;
+  assigned_upload_count: number;
+  labeled_assigned_upload_count: number;
+  labeled_assigned_ratio: number;
+  reviewed_upload_count: number;
+  last_reviewed_at: string | null;
+};
+
 export type AdminIdentityItem = {
   id: number;
   line_user_id: string;
@@ -434,6 +449,7 @@ export type AdminIdentityItem = {
   is_active: boolean;
   patient_id: number | null;
   created_at: string;
+  workload: AdminIdentityWorkloadStats | null;
 };
 
 export type AdminIdentityListResponse = {

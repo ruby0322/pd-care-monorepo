@@ -1,19 +1,100 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import Select, case, delete, func, or_, select
+from sqlalchemy import Select, case, delete, distinct, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    AIResult,
     Annotation,
     AuthorizationAuditEvent,
     HealthcareAccessRequest,
     LiffIdentity,
     Patient,
     StaffPatientAssignment,
+    Upload,
 )
+from app.services.attention_triage import workbench_upload_where_clauses
 from app.services.identity_validation import assert_valid_line_user_id
+
+
+@dataclass(frozen=True)
+class StaffWorkloadStats:
+    """Labeling workload for one staff/admin identity.
+
+    Every field is scoped to live work: assigned patients are limited to active
+    patients and assigned uploads reuse the review workbench's eligibility rules,
+    so the counts share one universe and the ratio matches the queue the reviewer
+    actually sees. Counting assignments to deactivated patients here would read as
+    "7 assigned patients / 0 assigned uploads", which looks like a bug.
+    """
+
+    assigned_patient_count: int
+    assigned_upload_count: int
+    labeled_assigned_upload_count: int
+    reviewed_upload_count: int
+    last_reviewed_at: datetime | None
+
+
+def load_staff_workload_stats(
+    session: Session,
+    *,
+    staff_identity_ids: list[int],
+) -> dict[int, StaffWorkloadStats]:
+    normalized_ids = {identity_id for identity_id in staff_identity_ids if identity_id > 0}
+    if not normalized_ids:
+        return {}
+
+    assigned_patients = dict(
+        session.execute(
+            select(StaffPatientAssignment.staff_identity_id, func.count(StaffPatientAssignment.patient_id))
+            .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+            .where(StaffPatientAssignment.staff_identity_id.in_(normalized_ids), Patient.is_active.is_(True))
+            .group_by(StaffPatientAssignment.staff_identity_id)
+        ).all()
+    )
+
+    is_labeled = exists().where(Annotation.upload_id == Upload.id)
+    upload_rows = session.execute(
+        select(
+            StaffPatientAssignment.staff_identity_id,
+            func.count(Upload.id),
+            func.coalesce(func.sum(case((is_labeled, 1), else_=0)), 0),
+        )
+        .select_from(StaffPatientAssignment)
+        .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+        .join(Upload, Upload.patient_id == Patient.id)
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .where(StaffPatientAssignment.staff_identity_id.in_(normalized_ids), *workbench_upload_where_clauses())
+        .group_by(StaffPatientAssignment.staff_identity_id)
+    ).all()
+    assigned_uploads = {int(staff_id): (int(total), int(labeled)) for staff_id, total, labeled in upload_rows}
+
+    reviewed_rows = session.execute(
+        select(
+            Annotation.reviewer_identity_id,
+            func.count(distinct(Annotation.upload_id)),
+            func.max(Annotation.created_at),
+        )
+        .where(Annotation.reviewer_identity_id.in_(normalized_ids))
+        .group_by(Annotation.reviewer_identity_id)
+    ).all()
+    reviewed = {int(staff_id): (int(count), last_at) for staff_id, count, last_at in reviewed_rows}
+
+    result: dict[int, StaffWorkloadStats] = {}
+    for identity_id in normalized_ids:
+        assigned_upload_count, labeled_assigned_upload_count = assigned_uploads.get(identity_id, (0, 0))
+        reviewed_upload_count, last_reviewed_at = reviewed.get(identity_id, (0, None))
+        result[identity_id] = StaffWorkloadStats(
+            assigned_patient_count=int(assigned_patients.get(identity_id, 0)),
+            assigned_upload_count=assigned_upload_count,
+            labeled_assigned_upload_count=labeled_assigned_upload_count,
+            reviewed_upload_count=reviewed_upload_count,
+            last_reviewed_at=last_reviewed_at,
+        )
+    return result
 
 
 def create_or_replace_healthcare_permission_request(
@@ -241,8 +322,13 @@ def list_identities(
     total = int(session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one() or 0)
     if sort == "assigned_count_desc":
         assigned_count = (
-            select(func.count(StaffPatientAssignment.id))
-            .where(StaffPatientAssignment.staff_identity_id == LiffIdentity.id)
+            select(func.count(StaffPatientAssignment.patient_id))
+            .select_from(StaffPatientAssignment)
+            .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+            .where(
+                StaffPatientAssignment.staff_identity_id == LiffIdentity.id,
+                Patient.is_active.is_(True),
+            )
             .correlate(LiffIdentity)
             .scalar_subquery()
         )
@@ -453,25 +539,20 @@ def get_staff_overview(
     )
     identity_ids = [identity.id for identity in identities]
 
-    assigned_counts: dict[int, int] = {}
-    review_stats: dict[int, tuple[int, int, datetime | None]] = {}
+    # Assigned-patient and last-review figures come from the shared workload loader so this
+    # roster cannot disagree with the workload columns on the same page: both scope assignments
+    # to active patients and count reviews by distinct upload.
+    workload = load_staff_workload_stats(session, staff_identity_ids=identity_ids)
+
+    windowed_reviews: dict[int, tuple[int, int]] = {}
     if identity_ids:
-        assigned_counts = {
-            staff_identity_id: int(total)
-            for staff_identity_id, total in session.execute(
-                select(StaffPatientAssignment.staff_identity_id, func.count(StaffPatientAssignment.id))
-                .where(StaffPatientAssignment.staff_identity_id.in_(identity_ids))
-                .group_by(StaffPatientAssignment.staff_identity_id)
-            ).all()
-        }
-        review_stats = {
-            reviewer_identity_id: (int(count_7d or 0), int(count_30d or 0), last_review_at)
-            for reviewer_identity_id, count_7d, count_30d, last_review_at in session.execute(
+        windowed_reviews = {
+            reviewer_identity_id: (int(count_7d or 0), int(count_30d or 0))
+            for reviewer_identity_id, count_7d, count_30d in session.execute(
                 select(
                     Annotation.reviewer_identity_id,
-                    func.count(case((Annotation.created_at >= cutoff_7d, Annotation.id))),
-                    func.count(case((Annotation.created_at >= cutoff_30d, Annotation.id))),
-                    func.max(Annotation.created_at),
+                    func.count(distinct(case((Annotation.created_at >= cutoff_7d, Annotation.upload_id)))),
+                    func.count(distinct(case((Annotation.created_at >= cutoff_30d, Annotation.upload_id)))),
                 )
                 .where(Annotation.reviewer_identity_id.in_(identity_ids))
                 .group_by(Annotation.reviewer_identity_id)
@@ -480,7 +561,8 @@ def get_staff_overview(
 
     items: list[dict[str, object]] = []
     for identity in identities:
-        count_7d, count_30d, last_review_at = review_stats.get(identity.id, (0, 0, None))
+        count_7d, count_30d = windowed_reviews.get(identity.id, (0, 0))
+        stats = workload.get(identity.id)
         items.append(
             {
                 "identity_id": identity.id,
@@ -490,10 +572,18 @@ def get_staff_overview(
                 "picture_url": identity.picture_url,
                 "role": identity.role,
                 "is_active": identity.is_active,
-                "assigned_patient_count": assigned_counts.get(identity.id, 0),
+                "assigned_patient_count": stats.assigned_patient_count if stats else 0,
+                "assigned_upload_count": stats.assigned_upload_count if stats else 0,
+                "labeled_assigned_upload_count": stats.labeled_assigned_upload_count if stats else 0,
+                "labeled_assigned_ratio": (
+                    stats.labeled_assigned_upload_count / stats.assigned_upload_count
+                    if stats and stats.assigned_upload_count > 0
+                    else 0.0
+                ),
+                "reviewed_upload_count": stats.reviewed_upload_count if stats else 0,
                 "review_count_7d": count_7d,
                 "review_count_30d": count_30d,
-                "last_review_at": last_review_at,
+                "last_review_at": stats.last_reviewed_at if stats else None,
                 "created_at": identity.created_at,
             }
         )

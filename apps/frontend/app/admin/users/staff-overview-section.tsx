@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowUpDown } from "lucide-react";
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -22,12 +23,38 @@ type StaffOverviewSectionProps = {
   onToggleStatus: (item: AdminStaffOverviewItem) => void;
 };
 
-function SortableHeader({ label, onToggle }: { label: string; onToggle: () => void }) {
+function SortableHeader({ label, hint, onToggle }: { label: string; hint?: string; onToggle: () => void }) {
   return (
-    <button type="button" className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500" onClick={onToggle}>
+    <button
+      type="button"
+      title={hint}
+      className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+      onClick={onToggle}
+    >
       {label}
+      {hint ? <span className="text-zinc-400">ⓘ</span> : null}
       <ArrowUpDown className="h-3.5 w-3.5" />
     </button>
+  );
+}
+
+function LabelProgressCell({ item }: { item: AdminStaffOverviewItem }) {
+  const labeled = item.labeled_assigned_upload_count;
+  const total = item.assigned_upload_count;
+  const percent = Math.round(item.labeled_assigned_ratio * 100);
+  return (
+    <div className="min-w-[112px]">
+      <p className="text-sm tabular-nums text-zinc-900">
+        {labeled} / {total}
+        <span className="ml-1 text-xs text-zinc-500">（{percent}%）</span>
+      </p>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
+        <div
+          className={cn("h-full rounded-full", total > 0 && labeled >= total ? "bg-emerald-500" : "bg-cyan-500")}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -70,7 +97,12 @@ export function StaffOverviewSection({
           <div className="flex items-center gap-2">
             <PersonAvatar name={name} pictureUrl={item.picture_url} />
             <div className="min-w-0">
-              <p className="truncate text-sm text-zinc-900">{name}</p>
+              <p className="truncate text-sm text-zinc-900">
+                {name}
+                {item.is_active ? null : (
+                  <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-700">inactive</span>
+                )}
+              </p>
               <p className="truncate text-xs text-zinc-500">{item.line_user_id}</p>
             </div>
           </div>
@@ -88,7 +120,11 @@ export function StaffOverviewSection({
     {
       accessorKey: "assigned_patient_count",
       header: ({ column }) => (
-        <SortableHeader label="負責病患" onToggle={() => column.toggleSorting(column.getIsSorted() !== "desc")} />
+        <SortableHeader
+          label="指派病患"
+          hint="指派給此人且仍在追蹤中的病患數（停用病患不計）"
+          onToggle={() => column.toggleSorting(column.getIsSorted() !== "desc")}
+        />
       ),
       cell: ({ row }) => {
         const count = row.original.assigned_patient_count;
@@ -98,6 +134,33 @@ export function StaffOverviewSection({
           </span>
         );
       },
+    },
+    {
+      id: "label_progress",
+      accessorFn: (item) => item.labeled_assigned_ratio,
+      header: ({ column }) => (
+        <SortableHeader
+          label="已標註 / 指派上傳"
+          hint="此人負責佇列的完成度：由任何人標註皆計入"
+          onToggle={() => column.toggleSorting(column.getIsSorted() !== "desc")}
+        />
+      ),
+      cell: ({ row }) => <LabelProgressCell item={row.original} />,
+      sortingFn: (rowA, rowB) => {
+        const ratioDiff = rowA.original.labeled_assigned_ratio - rowB.original.labeled_assigned_ratio;
+        return ratioDiff !== 0 ? ratioDiff : rowA.original.assigned_upload_count - rowB.original.assigned_upload_count;
+      },
+    },
+    {
+      accessorKey: "reviewed_upload_count",
+      header: ({ column }) => (
+        <SortableHeader
+          label="本人標註數"
+          hint="此人親自標註過的上傳數：含不在其負責佇列的上傳"
+          onToggle={() => column.toggleSorting(column.getIsSorted() !== "desc")}
+        />
+      ),
+      cell: ({ row }) => <span className="text-sm tabular-nums text-zinc-900">{row.original.reviewed_upload_count}</span>,
     },
     {
       accessorKey: "review_count_7d",
@@ -122,21 +185,6 @@ export function StaffOverviewSection({
       cell: ({ row }) => (
         <span className={isDormantStaff(row.original) ? "text-xs text-amber-700" : "text-xs text-zinc-500"}>
           {formatLastReviewAt(row.original.last_review_at)}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "is_active",
-      header: ({ column }) => (
-        <SortableHeader label="狀態" onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")} />
-      ),
-      cell: ({ row }) => (
-        <span
-          className={`rounded px-2 py-0.5 text-xs ${
-            row.original.is_active ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-700"
-          }`}
-        >
-          {row.original.is_active ? "active" : "inactive"}
         </span>
       ),
     },

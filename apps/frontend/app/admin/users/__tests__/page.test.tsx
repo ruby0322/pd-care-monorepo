@@ -56,6 +56,10 @@ describe("AdminUsersPage", () => {
           role: "staff",
           is_active: true,
           assigned_patient_count: 4,
+          assigned_upload_count: 20,
+          labeled_assigned_upload_count: 15,
+          labeled_assigned_ratio: 0.75,
+          reviewed_upload_count: 18,
           review_count_7d: 3,
           review_count_30d: 11,
           last_review_at: "2026-10-31T00:00:00Z",
@@ -70,6 +74,10 @@ describe("AdminUsersPage", () => {
           role: "admin",
           is_active: true,
           assigned_patient_count: 0,
+          assigned_upload_count: 0,
+          labeled_assigned_upload_count: 0,
+          labeled_assigned_ratio: 0,
+          reviewed_upload_count: 0,
           review_count_7d: 0,
           review_count_30d: 0,
           last_review_at: null,
@@ -115,6 +123,74 @@ describe("AdminUsersPage", () => {
     });
   });
 
+  test("shows assignment and labeling stats on the staff roster", async () => {
+    (fetchAdminStaffOverview as jest.Mock).mockResolvedValue({
+      items: [
+        {
+          identity_id: 1,
+          line_user_id: "U_STAFF_1",
+          display_name: "LINE Name 1",
+          real_name: "Dr. Chen",
+          picture_url: null,
+          role: "staff",
+          is_active: true,
+          assigned_patient_count: 7,
+          assigned_upload_count: 30,
+          labeled_assigned_upload_count: 12,
+          labeled_assigned_ratio: 0.4,
+          reviewed_upload_count: 9,
+          review_count_7d: 3,
+          review_count_30d: 11,
+          last_review_at: "2026-05-20T00:00:00Z",
+          created_at: "2026-05-01T00:00:00Z",
+        },
+      ],
+      summary: {
+        staff_count: 1,
+        active_staff_count: 1,
+        pending_access_request_count: 0,
+        zero_assignment_staff_count: 0,
+        unassigned_patient_count: 0,
+      },
+    });
+
+    render(<AdminUsersPage />);
+
+    const roster = await screen.findByRole("region", { name: "醫護團隊" });
+    expect(within(roster).getByText("指派病患")).toBeInTheDocument();
+    expect(within(roster).getByText("已標註 / 指派上傳")).toBeInTheDocument();
+    expect(within(roster).getByText("本人標註數")).toBeInTheDocument();
+
+    expect(within(roster).getByRole("button", { name: /指派病患/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("停用病患不計")
+    );
+    expect(within(roster).getByRole("button", { name: /已標註 \/ 指派上傳/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("由任何人標註皆計入")
+    );
+    expect(within(roster).getByRole("button", { name: /本人標註數/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("不在其負責佇列")
+    );
+
+    expect(within(roster).getByText("7")).toBeInTheDocument();
+    expect(within(roster).getByText("12 / 30")).toBeInTheDocument();
+    expect(within(roster).getByText("（40%）")).toBeInTheDocument();
+    expect(within(roster).getByText("9")).toBeInTheDocument();
+  });
+
+  test("keeps the identity table free of workload columns", async () => {
+    render(<AdminUsersPage />);
+
+    const identityTable = await screen.findByRole("region", { name: "用戶清單" });
+    for (const label of ["指派病患", "已標註 / 指派上傳", "本人標註數"]) {
+      expect(within(identityTable).queryByText(label)).not.toBeInTheDocument();
+    }
+    expect(within(identityTable).getByText("LINE 顯示名稱")).toBeInTheDocument();
+    expect(within(identityTable).getByText("建立時間")).toBeInTheDocument();
+  });
+
   test("renders separate LINE display name and real name columns", async () => {
     render(<AdminUsersPage />);
 
@@ -127,7 +203,7 @@ describe("AdminUsersPage", () => {
   test("allows admin to edit real name for staff/admin rows", async () => {
     render(<AdminUsersPage />);
 
-    const identityTable = await screen.findByRole("region", { name: "全部用戶" });
+    const identityTable = await screen.findByRole("region", { name: "用戶清單" });
     const editButton = within(identityTable).getByRole("button", { name: "更新姓名" });
     fireEvent.click(editButton);
 
@@ -285,7 +361,7 @@ describe("AdminUsersPage", () => {
       expect(screen.getByText("醫護團隊")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("負責病患")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "醫護團隊" })).getByText("指派病患")).toBeInTheDocument();
     expect(screen.getByText("近 7 日審核")).toBeInTheDocument();
     expect(screen.getByText("近 30 日審核")).toBeInTheDocument();
     expect(screen.getByText("最近審核")).toBeInTheDocument();
@@ -313,7 +389,8 @@ describe("AdminUsersPage", () => {
       expect(screen.getByText("醫護團隊")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("全部用戶")).toBeInTheDocument();
+    // The lower table is staff/admin only (exclude_patient), so it keeps its original title.
+    expect(screen.getByText("用戶清單")).toBeInTheDocument();
   });
 
   test("disables role and status actions on the signed-in admin's own row", async () => {

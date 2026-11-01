@@ -15,6 +15,7 @@ import {
 
 export type DayCalendarMetrics = {
   uploadCount: number;
+  labeledUploads: number;
   uploadedUsers: number;
   riskyPatients: number;
   unhandledPatients: number;
@@ -59,6 +60,24 @@ function MetricChip({
   );
 }
 
+function LabeledProgressBar({ labeled, total }: { labeled: number; total: number }) {
+  const percent = total > 0 ? Math.round((labeled / total) * 100) : 0;
+  const complete = total > 0 && labeled >= total;
+  return (
+    <div className="mt-1.5 w-full">
+      <p className="mb-0.5 truncate text-[9px] leading-none tabular-nums text-zinc-400">
+        已標註 {labeled}/{total}
+      </p>
+      <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-200">
+        <div
+          className={cn("h-full rounded-full", complete ? "bg-emerald-500" : "bg-cyan-500")}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
 
 function formatTaipeiDateLabel(dateKey: string): string {
@@ -88,8 +107,10 @@ function DayCellButton({
   const isAvailable = available.has(cell.dateKey);
   const unhandled = metrics?.unhandledPatients ?? 0;
   const uploadCount = metrics?.uploadCount ?? 0;
+  const labeledUploads = metrics?.labeledUploads ?? 0;
   const uploadedUsers = metrics?.uploadedUsers ?? 0;
   const riskyPatients = metrics?.riskyPatients ?? 0;
+  const labeledPercent = uploadCount > 0 ? Math.round((labeledUploads / uploadCount) * 100) : 0;
 
   return (
     <button
@@ -104,7 +125,7 @@ function DayCellButton({
       )}
       title={
         isAvailable
-          ? `${cell.dateKey} · 上傳 ${uploadCount} · 人數 ${uploadedUsers} · 風險 ${riskyPatients}`
+          ? `${cell.dateKey} · 已標註 ${labeledUploads}/${uploadCount}（${labeledPercent}%） · 人數 ${uploadedUsers} · 風險 ${riskyPatients}`
           : `${cell.dateKey} 無資料`
       }
     >
@@ -120,10 +141,13 @@ function DayCellButton({
         ) : null}
       </div>
       {isAvailable ? (
-        <div className="mt-auto grid w-full grid-cols-3 gap-1 pt-2">
-          <MetricChip selected={selected} icon={<ImageIcon className="h-3.5 w-3.5" />} value={uploadCount} />
-          <MetricChip selected={selected} icon={<Users className="h-3.5 w-3.5" />} value={uploadedUsers} />
-          <MetricChip selected={selected} risk icon={<TriangleAlert className="h-3.5 w-3.5" />} value={riskyPatients} />
+        <div className="mt-auto w-full pt-2">
+          <div className="grid w-full grid-cols-3 gap-1">
+            <MetricChip selected={selected} icon={<ImageIcon className="h-3.5 w-3.5" />} value={uploadCount} />
+            <MetricChip selected={selected} icon={<Users className="h-3.5 w-3.5" />} value={uploadedUsers} />
+            <MetricChip selected={selected} risk icon={<TriangleAlert className="h-3.5 w-3.5" />} value={riskyPatients} />
+          </div>
+          <LabeledProgressBar labeled={labeledUploads} total={uploadCount} />
         </div>
       ) : null}
     </button>
@@ -291,6 +315,22 @@ export function DashboardDayCalendar({
 
       <p className="mb-2 hidden text-[10px] text-zinc-400 md:block">
         方向鍵：← → 切換日期 · ↑ ↓ 切換週 · 點日曆圖示選日期
+      </p>
+
+      <p className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-zinc-400">
+        <span className="inline-flex items-center gap-1">
+          <ImageIcon className="h-3 w-3" />
+          上傳數
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <Users className="h-3 w-3" />
+          上傳人數
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <TriangleAlert className="h-3 w-3" />
+          風險病患
+        </span>
+        <span>底部進度條：已標註 / 總上傳</span>
       </p>
 
       <div className="md:hidden">

@@ -740,6 +740,7 @@ async def get_staff_dashboard_workbench(
                 StaffWorkbenchWeekDayItem(
                     local_date=day.local_date.isoformat(),
                     upload_count=day.upload_count,
+                    labeled_upload_count=day.labeled_upload_count,
                     uploaded_users=day.uploaded_users,
                     risky_patient_count=day.risky_patient_count,
                     unhandled_patient_count=day.unhandled_patient_count,

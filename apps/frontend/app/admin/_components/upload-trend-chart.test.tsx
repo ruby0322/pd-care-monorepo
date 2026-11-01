@@ -54,6 +54,38 @@ describe("buildUploadChartData", () => {
     expect(result.map((point) => point.upload_count)).toEqual([2, 5, 6]);
   });
 
+  test("splits daily uploads into labeled and unlabeled stack segments", () => {
+    const result = buildUploadChartData(
+      [
+        { date: "2026-07-01", total_uploads: 2, labeled_uploads: 2 },
+        { date: "2026-07-02", total_uploads: 3, labeled_uploads: 1 },
+        { date: "2026-07-03", total_uploads: 1 },
+      ],
+      "daily"
+    );
+    expect(result.map((point) => point.labeled_count)).toEqual([2, 1, 0]);
+    expect(result.map((point) => point.unlabeled_count)).toEqual([0, 2, 1]);
+  });
+
+  test("accumulates labeled and unlabeled counts in cumulative mode", () => {
+    const result = buildUploadChartData(
+      [
+        { date: "2026-07-01", total_uploads: 2, labeled_uploads: 2 },
+        { date: "2026-07-02", total_uploads: 3, labeled_uploads: 1 },
+        { date: "2026-07-03", total_uploads: 1 },
+      ],
+      "cumulative"
+    );
+    expect(result.map((point) => point.labeled_count)).toEqual([2, 3, 3]);
+    expect(result.map((point) => point.unlabeled_count)).toEqual([0, 2, 3]);
+  });
+
+  test("clamps labeled counts that exceed the day total", () => {
+    const result = buildUploadChartData([{ date: "2026-07-01", total_uploads: 2, labeled_uploads: 5 }], "daily");
+    expect(result[0].labeled_count).toBe(2);
+    expect(result[0].unlabeled_count).toBe(0);
+  });
+
   test("marks today's point for the daily bar highlight", () => {
     const result = buildUploadChartData(
       uploadSeriesFixture.map(({ date, total_uploads }) => ({ date, total_uploads })),

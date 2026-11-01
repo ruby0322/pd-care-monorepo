@@ -16,6 +16,7 @@ from app.schemas.admin_user_management import (
     AdminIdentityBulkDeleteResultResponse,
     AdminIdentityItem,
     AdminIdentityListResponse,
+    AdminIdentityWorkloadStats,
     AdminRejectHealthcarePermissionRequest,
     AdminStaffOverviewItem,
     AdminStaffOverviewResponse,
@@ -25,11 +26,13 @@ from app.schemas.admin_user_management import (
     AdminUpdateIdentityStatusRequest,
 )
 from app.services.admin_user_management import (
+    StaffWorkloadStats,
     approve_healthcare_permission_request,
     delete_inactive_identities,
     get_staff_overview,
     list_healthcare_permission_requests,
     list_identities,
+    load_staff_workload_stats,
     preview_delete_inactive_identities,
     reject_healthcare_permission_request,
     update_identity_real_name,
@@ -42,7 +45,25 @@ from .shared import get_staff_session
 router = APIRouter(tags=["Staff"])
 
 
-def _to_admin_identity_item(identity: LiffIdentity) -> AdminIdentityItem:
+def _to_workload_stats(stats: StaffWorkloadStats) -> AdminIdentityWorkloadStats:
+    return AdminIdentityWorkloadStats(
+        assigned_patient_count=stats.assigned_patient_count,
+        assigned_upload_count=stats.assigned_upload_count,
+        labeled_assigned_upload_count=stats.labeled_assigned_upload_count,
+        labeled_assigned_ratio=(
+            stats.labeled_assigned_upload_count / stats.assigned_upload_count
+            if stats.assigned_upload_count > 0
+            else 0.0
+        ),
+        reviewed_upload_count=stats.reviewed_upload_count,
+        last_reviewed_at=stats.last_reviewed_at,
+    )
+
+
+def _to_admin_identity_item(
+    identity: LiffIdentity,
+    workload: StaffWorkloadStats | None = None,
+) -> AdminIdentityItem:
     return AdminIdentityItem(
         id=identity.id,
         line_user_id=identity.line_user_id,
@@ -53,6 +74,7 @@ def _to_admin_identity_item(identity: LiffIdentity) -> AdminIdentityItem:
         is_active=identity.is_active,
         patient_id=identity.patient_id,
         created_at=identity.created_at,
+        workload=_to_workload_stats(workload) if workload is not None else None,
     )
 
 
@@ -93,8 +115,12 @@ async def list_admin_users(
         limit=limit,
         offset=offset,
     )
+    workload_by_identity = load_staff_workload_stats(
+        session,
+        staff_identity_ids=[row.id for row in rows if row.role in {"staff", "admin"}],
+    )
     return AdminIdentityListResponse(
-        items=[_to_admin_identity_item(row) for row in rows],
+        items=[_to_admin_identity_item(row, workload_by_identity.get(row.id)) for row in rows],
         total=total,
         limit=limit,
         offset=offset,

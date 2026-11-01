@@ -6,6 +6,8 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } fro
 
 import {
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
@@ -18,10 +20,13 @@ import { getTaipeiTodayKey } from "@/lib/utils/upload-calendar";
 import { buildUploadChartData, type UploadChartMode } from "./upload-trend-chart-data";
 
 const LOOKBACK_OPTIONS = [30, 60, 90] as const;
-const TODAY_UPLOAD_BAR_COLOR = "#ea580c";
+const TODAY_LABELED_BAR_COLOR = "#ea580c";
+const TODAY_UNLABELED_BAR_COLOR = "#fdba74";
 
 const uploadChartConfig = {
-  upload_count: { label: "上傳數", color: "#0891b2" },
+  labeled_count: { label: "已標註", color: "#0891b2" },
+  unlabeled_count: { label: "未標註", color: "#a1a1aa" },
+  upload_count: { label: "總上傳", color: "#3f3f46" },
 } satisfies ChartConfig;
 
 export function UploadTrendChart() {
@@ -64,10 +69,21 @@ export function UploadTrendChart() {
     [chartMode, series]
   );
 
+  const windowTotals = useMemo(() => {
+    const total = series.reduce((sum, point) => sum + point.total_uploads, 0);
+    const labeled = series.reduce((sum, point) => sum + (point.labeled_uploads ?? 0), 0);
+    return { total, labeled, percent: total > 0 ? Math.round((labeled / total) * 100) : 0 };
+  }, [series]);
+
   return (
     <section className="min-w-0 rounded-xl border border-zinc-200 bg-white p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium text-zinc-900">上傳數趨勢</h3>
+        <div className="min-w-0">
+          <h3 className="text-sm font-medium text-zinc-900">上傳數趨勢</h3>
+          <p className="text-xs text-zinc-500">
+            已標註 {windowTotals.labeled} / {windowTotals.total}（{windowTotals.percent}%）
+          </p>
+        </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <div className="flex items-center gap-1 rounded-lg border border-zinc-200 p-1">
             <button
@@ -113,14 +129,23 @@ export function UploadTrendChart() {
             <XAxis dataKey="shortDate" tickLine={false} axisLine={false} minTickGap={24} />
             <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
             <ChartTooltip content={<ChartTooltipContent />} />
-            <Bar dataKey="upload_count" fill="var(--color-upload_count)" radius={4}>
+            <Bar dataKey="labeled_count" stackId="uploads" fill="var(--color-labeled_count)">
               {chartData.map((point) => (
                 <Cell
                   key={point.date}
-                  fill={point.isToday ? TODAY_UPLOAD_BAR_COLOR : "var(--color-upload_count)"}
+                  fill={point.isToday ? TODAY_LABELED_BAR_COLOR : "var(--color-labeled_count)"}
                 />
               ))}
             </Bar>
+            <Bar dataKey="unlabeled_count" stackId="uploads" fill="var(--color-unlabeled_count)" radius={[4, 4, 0, 0]}>
+              {chartData.map((point) => (
+                <Cell
+                  key={point.date}
+                  fill={point.isToday ? TODAY_UNLABELED_BAR_COLOR : "var(--color-unlabeled_count)"}
+                />
+              ))}
+            </Bar>
+            <ChartLegend content={<ChartLegendContent />} />
           </BarChart>
         ) : (
           <LineChart data={chartData}>
@@ -129,6 +154,8 @@ export function UploadTrendChart() {
             <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
             <ChartTooltip content={<ChartTooltipContent />} />
             <Line dataKey="upload_count" stroke="var(--color-upload_count)" strokeWidth={2} dot={false} />
+            <Line dataKey="labeled_count" stroke="var(--color-labeled_count)" strokeWidth={2} dot={false} />
+            <ChartLegend content={<ChartLegendContent />} />
           </LineChart>
         )}
       </ChartContainer>
