@@ -638,11 +638,10 @@ def get_staff_overview(
         "truncated": staff_total > len(items),
         "active_staff_count": len(active_items),
         "pending_access_request_count": pending_access_request_count,
-        # Only active staff count as a coverage gap: deactivated accounts are expected to carry
-        # nobody, and admins routinely operate without a panel of their own.
-        "zero_assignment_staff_count": sum(
-            1 for item in active_items if item["role"] == "staff" and item["assigned_patient_count"] == 0
-        ),
+        # Only active accounts count as a coverage gap; deactivated accounts are expected to carry
+        # nobody. Admins are counted deliberately: 病患分配 lists staff and admin together as
+        # assignable (exclude_patient), so an admin with no panel is a real gap here, not noise.
+        "zero_assignment_staff_count": sum(1 for item in active_items if item["assigned_patient_count"] == 0),
         "unassigned_patient_count": unassigned_patient_count,
     }
     return items, summary

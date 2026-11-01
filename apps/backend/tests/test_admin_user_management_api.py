@@ -747,7 +747,9 @@ def test_staff_overview_returns_workload_aggregates_per_staff(tmp_path: Path) ->
         assert summary["staff_total"] == 3
         assert summary["truncated"] is False
         assert summary["active_staff_count"] == 3
-        assert summary["zero_assignment_staff_count"] == 1, "only the idle nurse counts; admins carry no panel"
+        assert (
+            summary["zero_assignment_staff_count"] == 2
+        ), "admin and idle nurse both carry nobody; admins are assignable so they count"
         assert summary["unassigned_patient_count"] == 1
         assert unassigned_patient_id != patient_id
 
@@ -768,7 +770,7 @@ def test_staff_overview_excludes_inactive_staff_from_coverage_gap_count(tmp_path
         summary = payload["summary"]
         assert summary["staff_count"] == 2
         assert summary["active_staff_count"] == 1
-        assert summary["zero_assignment_staff_count"] == 0, "the lone active account is an admin, not a gap"
+        assert summary["zero_assignment_staff_count"] == 1, "the lone active admin carries nobody and counts"
 
 
 def test_authorization_audit_event_records_target_line_user_id(tmp_path: Path) -> None:
