@@ -1,4 +1,4 @@
-import { buildAvgReviewSeries, buildReviewHeatmap, buildReviewKpis } from "@/lib/admin/review-throughput-data";
+import { buildAvgReviewSeries, buildReviewHeatmap, buildReviewKpis, reviewHeatmapScale } from "@/lib/admin/review-throughput-data";
 import type { AdminDailySuspectedSeriesPoint, AdminReviewThroughputResponse } from "@/lib/api/staff";
 
 function makeThroughput(overrides: Partial<AdminReviewThroughputResponse> = {}): AdminReviewThroughputResponse {
@@ -61,11 +61,40 @@ describe("buildAvgReviewSeries", () => {
 });
 
 describe("buildReviewHeatmap", () => {
-  test("scales intensity against the busiest single cell", () => {
+  test("scales intensity so a typical cell is readable", () => {
     const rows = buildReviewHeatmap(makeThroughput());
-    // Peak cell is 4, so a 4 reads as full and a 2 as half.
     expect(rows[0].cells[0].intensity).toBeCloseTo(1);
-    expect(rows[0].cells[1].intensity).toBeCloseTo(0.5);
+    expect(rows[0].cells[1].intensity).toBeGreaterThan(0.15);
+  });
+
+  test("one outlier day does not flatten every other cell", () => {
+    // A single 40-review day next to ordinary 1-2 review days.
+    const skewed = makeThroughput({
+      top_staff: [
+        { identity_id: 1, line_user_id: "U_A", display_name: null, real_name: "A", reviewed_uploads: 42, daily_counts: [40, 1, 2] },
+        { identity_id: 2, line_user_id: "U_B", display_name: null, real_name: "B", reviewed_uploads: 3, daily_counts: [1, 2, 0] },
+      ],
+    });
+    const rows = buildReviewHeatmap(skewed);
+    const ordinary = rows[1].cells[1]; // a 2-review day
+    expect(ordinary.count).toBe(2);
+    // Against the maximum this would be 2/40 = 0.05, i.e. invisible.
+    expect(ordinary.intensity).toBeGreaterThan(0.5);
+    // The outlier saturates rather than stretching the scale.
+    expect(rows[0].cells[0].intensity).toBe(1);
+  });
+
+  test("the scale ignores empty cells and never drops below 1", () => {
+    expect(reviewHeatmapScale(makeThroughput({ top_staff: [] }))).toBe(1);
+    expect(
+      reviewHeatmapScale(
+        makeThroughput({
+          top_staff: [
+            { identity_id: 1, line_user_id: "U_A", display_name: null, real_name: "A", reviewed_uploads: 1, daily_counts: [0, 0, 1] },
+          ],
+        })
+      )
+    ).toBe(1);
   });
 
   test("an empty cell is zero while a single review stays visible", () => {

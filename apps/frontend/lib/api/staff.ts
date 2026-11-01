@@ -421,14 +421,6 @@ export type AdminReviewThroughputResponse = {
   top_staff: AdminReviewThroughputStaff[];
 };
 
-export type AdminStaffSummary = {
-  staff_total: number;
-  active_staff_count: number;
-  pending_access_request_count: number;
-  idle_staff_count: number;
-  unassigned_patient_count: number;
-};
-
 export type AdminIdentityWorkloadStats = {
   assigned_patient_count: number;
   assigned_upload_count: number;
@@ -983,11 +975,6 @@ export async function fetchAdminReviewThroughput(params?: {
       top_staff_limit: params?.topStaffLimit ?? 10,
     },
   });
-  return data;
-}
-
-export async function fetchAdminStaffSummary(): Promise<AdminStaffSummary> {
-  const { data } = await apiClient.get<AdminStaffSummary>("/v1/staff/admin/staff-summary");
   return data;
 }
 

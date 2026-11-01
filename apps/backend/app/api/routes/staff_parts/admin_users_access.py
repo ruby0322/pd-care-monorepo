@@ -18,7 +18,6 @@ from app.schemas.admin_user_management import (
     AdminIdentityListResponse,
     AdminIdentityWorkloadStats,
     AdminRejectHealthcarePermissionRequest,
-    AdminStaffSummaryResponse,
     AdminUpdateIdentityRealNameRequest,
     AdminUpdateIdentityRoleRequest,
     AdminUpdateIdentityStatusRequest,
@@ -27,7 +26,6 @@ from app.services.admin_user_management import (
     StaffWorkloadStats,
     approve_healthcare_permission_request,
     delete_inactive_identities,
-    get_staff_summary,
     list_healthcare_permission_requests,
     list_identities,
     load_staff_workload_stats,
@@ -125,16 +123,6 @@ async def list_admin_users(
         limit=limit,
         offset=offset,
     )
-
-
-@router.get("/v1/staff/admin/staff-summary", response_model=AdminStaffSummaryResponse)
-async def get_admin_staff_summary(
-    request: Request,
-    credentials=Depends(bearer_scheme),
-    session: Session = Depends(get_staff_session),
-) -> AdminStaffSummaryResponse:
-    require_admin(get_current_principal(request, credentials))
-    return AdminStaffSummaryResponse(**get_staff_summary(session))
 
 
 @router.post("/v1/staff/admin/users/delete/preview", response_model=AdminIdentityBulkDeletePreviewResponse)

@@ -27,19 +27,18 @@ import {
   type AdminPatientAssignmentItem,
   type AdminDailySuspectedSeriesPoint,
   type AdminReviewThroughputResponse,
-  type AdminStaffSummary,
   fetchAdminAssignments,
   fetchAdminAssignmentsByStaff,
   fetchAdminDailySuspectedSeries,
   fetchAdminReviewThroughput,
-  fetchAdminStaffSummary,
   fetchAdminUsersPage,
   fetchStaffMe,
   unassignAdminAssignment,
   upsertAdminAssignment,
 } from "@/lib/api/staff";
 
-import { AssignmentKpiBand } from "./assignment-kpi-band";
+import { UploadTrendChart } from "@/app/admin/_components/upload-trend-chart";
+
 import { AvgReviewChart } from "./avg-review-chart";
 import { ReviewHeatmap } from "./review-heatmap";
 import { ReviewKpiBand } from "./review-kpi-band";
@@ -136,7 +135,6 @@ export default function AdminPatientAssignmentPage() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [assigneeUsers, setAssigneeUsers] = useState<AdminIdentityItem[]>([]);
-  const [staffSummary, setStaffSummary] = useState<AdminStaffSummary | null>(null);
   const [throughput, setThroughput] = useState<AdminReviewThroughputResponse | null>(null);
   const [uploadSeries, setUploadSeries] = useState<AdminDailySuspectedSeriesPoint[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
@@ -221,15 +219,6 @@ export default function AdminPatientAssignmentPage() {
       void run();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
-
-  const loadStaffSummary = useCallback(async () => {
-    try {
-      setStaffSummary(await fetchAdminStaffSummary());
-    } catch {
-      // The band is supplementary; a failure here must not block the assignment board.
-      setStaffSummary(null);
-    }
   }, []);
 
   const loadReviewAnalytics = useCallback(async () => {
@@ -327,9 +316,9 @@ export default function AdminPatientAssignmentPage() {
   ]);
 
   const refreshBoard = useCallback(async () => {
-    await Promise.all([loadPool(), loadAssigneesWithAssignments(), loadStaffSummary()]);
+    await Promise.all([loadPool(), loadAssigneesWithAssignments()]);
     setBoardRevision((current) => current + 1);
-  }, [loadAssigneesWithAssignments, loadPool, loadStaffSummary]);
+  }, [loadAssigneesWithAssignments, loadPool]);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -350,16 +339,6 @@ export default function AdminPatientAssignmentPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [isAdmin, loadPool]);
-
-  useEffect(() => {
-    if (!isAdmin) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void loadStaffSummary();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [isAdmin, loadStaffSummary]);
 
   // Review analytics describe a 30 day window, so they do not refresh on each assignment.
   useEffect(() => {
@@ -480,14 +459,14 @@ export default function AdminPatientAssignmentPage() {
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-      <AssignmentKpiBand summary={staffSummary} />
-
       <ReviewKpiBand throughput={throughput} uploadSeries={uploadSeries} />
 
       <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
+        <UploadTrendChart />
         <AvgReviewChart throughput={throughput} loading={analyticsLoading} />
-        <ReviewHeatmap throughput={throughput} loading={analyticsLoading} />
       </div>
+
+      <ReviewHeatmap throughput={throughput} loading={analyticsLoading} />
 
       <DndContext
         sensors={sensors}

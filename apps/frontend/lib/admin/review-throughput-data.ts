@@ -41,7 +41,26 @@ function staffName(staff: AdminReviewThroughputStaff): string {
 }
 
 /**
- * Heatmap rows scaled against the busiest single cell, so one hue can carry magnitude.
+ * Scale for the heatmap: the 75th percentile of non-empty cells rather than the maximum.
+ * Scaling against the maximum lets a single unusual day flatten every other cell to the
+ * floor — a clinic with one 19-review day and a typical day of 1–2 reads as uniformly
+ * blank. Busy cells saturate instead, which the row total and the cell tooltip still
+ * quantify exactly.
+ */
+export function reviewHeatmapScale(response: AdminReviewThroughputResponse): number {
+  const nonEmpty = response.top_staff
+    .flatMap((staff) => staff.daily_counts)
+    .filter((count) => count > 0)
+    .sort((a, b) => a - b);
+  if (nonEmpty.length === 0) {
+    return 1;
+  }
+  const index = Math.min(nonEmpty.length - 1, Math.floor(nonEmpty.length * 0.75));
+  return Math.max(1, nonEmpty[index]);
+}
+
+/**
+ * Heatmap rows scaled by reviewHeatmapScale, so one hue can carry magnitude.
  * Intensity is 0 for an empty cell and never below 0.15 for a non-empty one, so a
  * single review stays visible against the surface.
  */
@@ -50,14 +69,14 @@ export function buildReviewHeatmap(response: AdminReviewThroughputResponse | nul
     return [];
   }
   const dates = response.days.map((day) => day.date);
-  const peak = Math.max(1, ...response.top_staff.flatMap((staff) => staff.daily_counts));
+  const peak = reviewHeatmapScale(response);
   return response.top_staff.map((staff) => ({
     identity_id: staff.identity_id,
     name: staffName(staff),
     total: staff.reviewed_uploads,
     cells: dates.map((date, index) => {
       const count = staff.daily_counts[index] ?? 0;
-      return { date, count, intensity: count === 0 ? 0 : Math.max(0.15, count / peak) };
+      return { date, count, intensity: count === 0 ? 0 : Math.min(1, Math.max(0.15, count / peak)) };
     }),
   }));
 }

@@ -117,11 +117,3 @@ class AdminIdentityBulkDeleteResultResponse(BaseModel):
     deleted_count: int
     skipped_active_count: int
     skipped_missing_count: int
-
-
-class AdminStaffSummaryResponse(BaseModel):
-    staff_total: int
-    active_staff_count: int
-    pending_access_request_count: int
-    idle_staff_count: int
-    unassigned_patient_count: int

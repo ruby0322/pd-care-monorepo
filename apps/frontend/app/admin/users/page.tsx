@@ -488,7 +488,7 @@ export default function AdminUsersPage() {
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <header>
         <h1 className="text-lg font-semibold text-zinc-900">用戶管理</h1>
-        <p className="text-xs text-zinc-500">admin 專用：角色授權、停用/啟用、醫護權限申請審核、標註工作量</p>
+        <p className="text-xs text-zinc-500">admin 專用：角色授權、停用/啟用、醫護權限申請審核（工作量與審核統計請見病患分配）</p>
       </header>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}

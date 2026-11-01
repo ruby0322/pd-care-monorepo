@@ -1,4 +1,4 @@
-import { assignmentKpis, formatLastReviewAt, isDormantWorkload, labeledRatioPercent } from "@/lib/admin/staff-overview";
+import { formatLastReviewAt, isDormantWorkload, labeledRatioPercent } from "@/lib/admin/staff-overview";
 import type { AdminIdentityWorkloadStats } from "@/lib/api/staff";
 
 function makeWorkload(overrides: Partial<AdminIdentityWorkloadStats> = {}): AdminIdentityWorkloadStats {
@@ -14,43 +14,6 @@ function makeWorkload(overrides: Partial<AdminIdentityWorkloadStats> = {}): Admi
     ...overrides,
   };
 }
-
-describe("assignmentKpis", () => {
-  test("returns zeroed neutral tiles before the summary loads", () => {
-    const kpis = assignmentKpis(null);
-    expect(kpis).toHaveLength(3);
-    expect(kpis.every((kpi) => kpi.value === 0)).toBe(true);
-    expect(kpis.every((kpi) => kpi.tone === "neutral")).toBe(true);
-  });
-
-  test("leads with unassigned patients and warns only on real gaps", () => {
-    const kpis = assignmentKpis({
-      staff_total: 7,
-      active_staff_count: 6,
-      pending_access_request_count: 2,
-      idle_staff_count: 0,
-      unassigned_patient_count: 5,
-    });
-
-    expect(kpis[0].key).toBe("unassigned_patients");
-    const byKey = Object.fromEntries(kpis.map((kpi) => [kpi.key, kpi]));
-    expect(byKey.unassigned_patients.tone).toBe("warning");
-    expect(byKey.idle_staff.tone).toBe("neutral");
-    expect(byKey.active_staff.value).toBe(6);
-    expect(byKey.active_staff.hint).toContain("7");
-  });
-
-  test("omits account-admin counters that are not assignment actions", () => {
-    const kpis = assignmentKpis({
-      staff_total: 1,
-      active_staff_count: 1,
-      pending_access_request_count: 9,
-      idle_staff_count: 0,
-      unassigned_patient_count: 0,
-    });
-    expect(kpis.map((kpi) => kpi.key)).not.toContain("pending_requests");
-  });
-});
 
 describe("formatLastReviewAt", () => {
   const now = new Date("2026-11-01T12:00:00Z");

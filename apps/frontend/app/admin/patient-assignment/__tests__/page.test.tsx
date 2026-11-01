@@ -8,7 +8,6 @@ import {
   fetchAdminAssignmentsByStaff,
   fetchAdminDailySuspectedSeries,
   fetchAdminReviewThroughput,
-  fetchAdminStaffSummary,
   fetchAdminUsersPage,
   fetchStaffMe,
   unassignAdminAssignment,
@@ -110,7 +109,6 @@ jest.mock("@/lib/api/staff", () => ({
   fetchAdminUsersPage: jest.fn(),
   fetchAdminAssignments: jest.fn(),
   fetchAdminAssignmentsByStaff: jest.fn(),
-  fetchAdminStaffSummary: jest.fn(),
   fetchAdminReviewThroughput: jest.fn(),
   fetchAdminDailySuspectedSeries: jest.fn(),
   upsertAdminAssignment: jest.fn(),
@@ -181,13 +179,6 @@ describe("AdminPatientAssignmentPage", () => {
         { date: "2026-10-30", total_uploads: 10, labeled_uploads: 5, suspected_uploads: 1, symptom_elevated_uploads: 0, suspected_ratio: 0.1 },
         { date: "2026-10-31", total_uploads: 6, labeled_uploads: 3, suspected_uploads: 0, symptom_elevated_uploads: 0, suspected_ratio: 0 },
       ],
-    });
-    (fetchAdminStaffSummary as jest.Mock).mockResolvedValue({
-      staff_total: 2,
-      active_staff_count: 2,
-      pending_access_request_count: 0,
-      idle_staff_count: 1,
-      unassigned_patient_count: 4,
     });
     (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
       items: [
@@ -763,22 +754,6 @@ describe("AdminPatientAssignmentPage", () => {
     });
     expect(await screen.findByText("Nurse C")).toBeInTheDocument();
   });
-  test("renders the assignment KPI band from the clinic-wide summary", async () => {
-    render(<AdminPatientAssignmentPage />);
-
-    const band = await screen.findByRole("region", { name: "分配概況" });
-    expect(within(band).getByText("未分配病患")).toBeInTheDocument();
-    // The band renders with zeros first, then fills once the summary resolves.
-    await waitFor(() => {
-      expect(within(band).getByText("4")).toBeInTheDocument();
-    });
-    expect(within(band).getByText("空閑醫護")).toBeInTheDocument();
-    expect(within(band).getByText("在職醫護")).toBeInTheDocument();
-    expect(within(band).getByText("共 2 個 staff/admin 帳號")).toBeInTheDocument();
-    // Pending access requests are account admin, not an assignment action.
-    expect(within(band).queryByText("待審權限申請")).not.toBeInTheDocument();
-  });
-
   test("flags a dormant assignee on the card without showing numbers", async () => {
     render(<AdminPatientAssignmentPage />);
 
@@ -790,32 +765,6 @@ describe("AdminPatientAssignmentPage", () => {
     expect(screen.getAllByLabelText("近 30 日無審核紀錄")).toHaveLength(1);
   });
 
-  test("keeps the KPI band in step with the board after an assignment", async () => {
-    render(<AdminPatientAssignmentPage />);
-
-    await waitFor(() => {
-      expect(fetchAdminStaffSummary).toHaveBeenCalledTimes(1);
-    });
-
-    (fetchAdminStaffSummary as jest.Mock).mockResolvedValue({
-      staff_total: 2,
-      active_staff_count: 2,
-      pending_access_request_count: 0,
-      idle_staff_count: 0,
-      unassigned_patient_count: 3,
-    });
-
-    await act(async () => {
-      await capturedOnDragEnd?.({
-        active: { data: { current: { patientId: 101, fromStaffId: null, caseNumber: "C-101", fullName: "病患 A" } } },
-        over: { data: { current: { type: "staff", staffId: 11 } } },
-      } as unknown as DragEndEvent);
-    });
-
-    await waitFor(() => {
-      expect(fetchAdminStaffSummary).toHaveBeenCalledTimes(2);
-    });
-  });
   test("renders the trailing-window review KPIs", async () => {
     render(<AdminPatientAssignmentPage />);
 
@@ -829,6 +778,22 @@ describe("AdminPatientAssignmentPage", () => {
     // 9 distinct uploads across 2 reviewers
     expect(within(band).getByText("4.5")).toBeInTheDocument();
     expect(within(band).getByText("9 張 / 2 人")).toBeInTheDocument();
+  });
+
+  test("renders the shared upload trend chart alongside the review charts", async () => {
+    render(<AdminPatientAssignmentPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("上傳數趨勢")).toBeInTheDocument();
+    });
+    // The shared component fetches its own window and carries #59's labelled overlay.
+    await waitFor(() => {
+      expect(fetchAdminDailySuspectedSeries).toHaveBeenCalled();
+    });
+    // A textContent matcher also matches ancestors, so assert at least one node carries it.
+    expect(
+      screen.getAllByText((_, element) => (element?.textContent ?? "").includes("已標註 8 / 16")).length
+    ).toBeGreaterThan(0);
   });
 
   test("renders the average-per-reviewer trend and the review heatmap", async () => {

@@ -678,17 +678,6 @@ def _seed_patient(client: TestClient, *, case_number: str, is_active: bool = Tru
         return patient.id
 
 
-def test_staff_cannot_access_staff_summary(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path / "admin-staff-summary-denied.db")
-    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
-    with TestClient(app) as client:
-        _seed_identity(client, line_user_id="U_STAFF_SUMMARY_DENIED", role="staff")
-        token = _login_token(client, "U_STAFF_SUMMARY_DENIED")
-
-        response = client.get("/v1/staff/admin/staff-summary", headers={"Authorization": f"Bearer {token}"})
-        assert response.status_code == 403
-
-
 def test_identity_list_carries_workload_aggregates_per_staff(tmp_path: Path) -> None:
     """Per-staff figures ride along with the identity list, which is what 病患分配 renders."""
     settings = make_settings(tmp_path / "admin-workload-aggregates.db")
@@ -741,37 +730,6 @@ def test_identity_list_carries_workload_aggregates_per_staff(tmp_path: Path) -> 
         assert idle["review_count_7d"] == 0
         assert idle["review_count_30d"] == 0
         assert idle["last_reviewed_at"] is None
-
-
-def test_staff_summary_reports_clinic_wide_assignment_gaps(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path / "admin-staff-summary-gaps.db")
-    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
-    with TestClient(app) as client:
-        _seed_identity(client, line_user_id="U_ADMIN_SUMMARY", role="admin")
-        busy_id = _seed_identity(client, line_user_id="U_STAFF_SUMMARY_BUSY", role="staff")
-        _seed_identity(client, line_user_id="U_STAFF_SUMMARY_IDLE", role="staff")
-        _seed_identity(client, line_user_id="U_STAFF_SUMMARY_OFF", role="staff", is_active=False)
-        _seed_identity(client, line_user_id="U_PATIENT_SUMMARY", role="patient")
-
-        covered_patient_id = _seed_patient(client, case_number="CASE_SUMMARY_COVERED")
-        _seed_patient(client, case_number="CASE_SUMMARY_ORPHAN")
-
-        session_factory = client.app.state.db_session_factory
-        with session_factory() as session:
-            session.add(StaffPatientAssignment(staff_identity_id=busy_id, patient_id=covered_patient_id))
-            session.commit()
-
-        token = _login_token(client, "U_ADMIN_SUMMARY")
-        response = client.get("/v1/staff/admin/staff-summary", headers={"Authorization": f"Bearer {token}"})
-        assert response.status_code == 200
-        summary = response.json()
-
-        assert summary["staff_total"] == 4, "patients are not staff"
-        assert summary["active_staff_count"] == 3, "the deactivated nurse is excluded"
-        assert (
-            summary["idle_staff_count"] == 2
-        ), "the admin and the idle nurse carry nobody; the deactivated nurse does not count"
-        assert summary["unassigned_patient_count"] == 1
 
 
 def test_authorization_audit_event_records_target_line_user_id(tmp_path: Path) -> None:
@@ -890,7 +848,7 @@ def test_workload_uses_active_patients_and_distinct_uploads(tmp_path: Path) -> N
                     patient_id=active_patient_id,
                     upload_id=upload_id,
                     reviewer_identity_id=staff_id,
-                    label="suspected_infection",
+                    label="confirmed_infection",
                     comment="re-reviewed",
                     patient_read_at=None,
                     created_at=now - timedelta(hours=2),
@@ -935,34 +893,6 @@ def test_admin_cannot_demote_or_deactivate_their_own_account(tmp_path: Path) -> 
             assert identity.is_active is True, "self-deactivation must not apply"
 
 
-def test_patient_assigned_only_to_deactivated_staff_counts_as_unassigned(tmp_path: Path) -> None:
-    """An assignment row pointing at a disabled account is not coverage."""
-    settings = make_settings(tmp_path / "admin-unassigned-universe.db")
-    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
-    with TestClient(app) as client:
-        _seed_identity(client, line_user_id="U_ADMIN_UNASSIGNED", role="admin")
-        retired_staff_id = _seed_identity(client, line_user_id="U_STAFF_RETIRED", role="staff", is_active=False)
-        active_staff_id = _seed_identity(client, line_user_id="U_STAFF_ON_DUTY", role="staff")
-
-        orphaned_patient_id = _seed_patient(client, case_number="CASE_ORPHANED")
-        covered_patient_id = _seed_patient(client, case_number="CASE_COVERED")
-
-        session_factory = client.app.state.db_session_factory
-        with session_factory() as session:
-            session.add_all(
-                [
-                    StaffPatientAssignment(staff_identity_id=retired_staff_id, patient_id=orphaned_patient_id),
-                    StaffPatientAssignment(staff_identity_id=active_staff_id, patient_id=covered_patient_id),
-                ]
-            )
-            session.commit()
-
-        token = _login_token(client, "U_ADMIN_UNASSIGNED")
-        response = client.get("/v1/staff/admin/staff-summary", headers={"Authorization": f"Bearer {token}"})
-        assert response.status_code == 200
-        assert response.json()["unassigned_patient_count"] == 1, "the patient whose only nurse was disabled is a gap"
-
-
 def test_relabelled_annotation_counts_as_recent_review_activity(tmp_path: Path) -> None:
     """upsert updates the row in place, so recency must read updated_at, not created_at."""
     settings = make_settings(tmp_path / "admin-relabel-recency.db")
@@ -981,7 +911,7 @@ def test_relabelled_annotation_counts_as_recent_review_activity(tmp_path: Path) 
             annotation = session.execute(
                 select(Annotation).where(Annotation.reviewer_identity_id == staff_id)
             ).scalar_one()
-            annotation.label = "suspected_infection"
+            annotation.label = "confirmed_infection"
             annotation.updated_at = now - timedelta(hours=1)
             session.commit()
 
