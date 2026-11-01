@@ -3,7 +3,7 @@
 import { PersonAvatar } from "@/app/admin/patient-assignment/person-avatar";
 import { UploadThumb } from "@/app/admin/_components/upload-thumb";
 import type { StaffTodayAttentionPatientItem, StaffTodayAttentionRiskHighlight } from "@/lib/api/staff";
-import { annotationBadgeClass, annotationLabelTextOrUnmarked } from "@/lib/i18n/staff-review-label-mapping";
+import { annotationBadgeClass, annotationLabelTextOrUnmarked, annotationReviewerText } from "@/lib/i18n/staff-review-label-mapping";
 import { activeSymptomLabels } from "@/lib/symptoms";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +56,9 @@ export function TodayPatientRow({
   const highlight = item.risk_highlight;
   const isRiskTier = item.tier === "suspected" || item.tier === "elevated";
   const annotationBadge = rowAnnotationBadge(item);
+  const reviewerText = annotationReviewerText(item);
+  const uploadCountText = `上傳 ${item.day_upload_count} 張`;
+  const metaText = reviewerText ? `${uploadCountText} · ${reviewerText}` : uploadCountText;
 
   const symptomLine =
     highlight != null
@@ -90,7 +93,15 @@ export function TodayPatientRow({
         <PersonAvatar name={name} pictureUrl={item.picture_url} size="lg" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-zinc-900">{name}</p>
-          <p className="mt-0.5 truncate text-xs text-zinc-500">上傳 {item.day_upload_count} 張</p>
+          <p className="mt-0.5 truncate text-xs text-zinc-500" title={metaText}>
+            {uploadCountText}
+            {reviewerText ? (
+              <>
+                <span className="mx-1 text-zinc-300">·</span>
+                <span>{reviewerText}</span>
+              </>
+            ) : null}
+          </p>
         </div>
       </div>
 

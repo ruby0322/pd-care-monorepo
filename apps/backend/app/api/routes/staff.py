@@ -121,6 +121,7 @@ def _serialize_today_attention(
     today: date,
     total_uploads: int,
     rows: Sequence[TodayAttentionPatientRow],
+    viewer_identity_id: int,
 ) -> StaffTodayAttentionResponse:
     suspected_patients = sum(1 for row in rows if row.tier == "suspected")
     elevated_patients = sum(1 for row in rows if row.tier == "elevated")
@@ -141,6 +142,10 @@ def _serialize_today_attention(
                 sort_upload_at=row.sort_upload_at,
                 has_annotation=row.has_annotation,
                 annotation_label=row.annotation_label,
+                annotation_reviewer_name=row.annotation_reviewer_name,
+                annotation_reviewed_by_me=row.annotation_reviewer_identity_id == viewer_identity_id,
+                annotation_reviewer_count=row.annotation_reviewer_count,
+                annotation_reviewed_at=row.annotation_reviewed_at,
                 picture_url=row.picture_url,
                 day_upload_count=row.day_upload_count,
                 preview_upload_ids=row.preview_upload_ids,
@@ -706,7 +711,12 @@ async def get_staff_today_attention(
             accessible_patient_ids=accessible_patient_ids,
             local_date=local_date,
         )
-        return _serialize_today_attention(today=today, total_uploads=total_uploads, rows=rows)
+        return _serialize_today_attention(
+            today=today,
+            total_uploads=total_uploads,
+            rows=rows,
+            viewer_identity_id=principal.identity_id,
+        )
     finally:
         session.close()
 
@@ -751,6 +761,7 @@ async def get_staff_dashboard_workbench(
                 today=data.local_date,
                 total_uploads=data.attention_total_uploads,
                 rows=data.attention_rows,
+                viewer_identity_id=principal.identity_id,
             ),
         )
     finally:
