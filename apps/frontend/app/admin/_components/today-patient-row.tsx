@@ -57,6 +57,8 @@ export function TodayPatientRow({
   const isRiskTier = item.tier === "suspected" || item.tier === "elevated";
   const annotationBadge = rowAnnotationBadge(item);
   const reviewerText = annotationReviewerText(item);
+  const uploadCountText = `上傳 ${item.day_upload_count} 張`;
+  const metaText = reviewerText ? `${uploadCountText} · ${reviewerText}` : uploadCountText;
 
   const symptomLine =
     highlight != null
@@ -91,8 +93,8 @@ export function TodayPatientRow({
         <PersonAvatar name={name} pictureUrl={item.picture_url} size="lg" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-zinc-900">{name}</p>
-          <p className="mt-0.5 truncate text-xs text-zinc-500">
-            上傳 {item.day_upload_count} 張
+          <p className="mt-0.5 truncate text-xs text-zinc-500" title={metaText}>
+            {uploadCountText}
             {reviewerText ? (
               <>
                 <span className="mx-1 text-zinc-300">·</span>

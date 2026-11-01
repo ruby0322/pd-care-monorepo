@@ -146,7 +146,7 @@ export function TodayPatientDetailPanel({
           <p className="mt-1 text-xs text-zinc-500">
             {dayScopeLabel} {item.day_upload_count} 張上傳
             <span className="mx-1 text-zinc-300">·</span>
-            {reviewerText ? <span>{reviewerText}</span> : <span className={status.className}>{status.text}</span>}
+            <span className={status.className}>{reviewerText ?? status.text}</span>
           </p>
         </div>
       </div>

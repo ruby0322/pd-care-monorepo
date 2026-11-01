@@ -27,7 +27,7 @@ def _load_latest_annotation_by_upload_ids(session: Session, *, upload_ids: set[i
     rows = session.execute(
         select(Annotation)
         .where(Annotation.upload_id.in_(upload_ids))
-        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc())
+        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc(), Annotation.id.desc())
     ).scalars()
     result: dict[int, Annotation] = {}
     for row in rows:
@@ -44,7 +44,7 @@ class AnnotationReviewerSummary(NamedTuple):
 
 
 def _load_annotation_reviewer_summary(session: Session, *, upload_ids: set[int]) -> dict[int, AnnotationReviewerSummary]:
-    """Latest reviewer and reviewer count per upload, in one query."""
+    """Latest reviewer and distinct reviewer count per upload, in one query."""
     if not upload_ids:
         return {}
     rows = session.execute(
@@ -57,21 +57,25 @@ def _load_annotation_reviewer_summary(session: Session, *, upload_ids: set[int])
         )
         .join(LiffIdentity, LiffIdentity.id == Annotation.reviewer_identity_id)
         .where(Annotation.upload_id.in_(upload_ids))
-        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc())
+        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc(), Annotation.id.desc())
     ).all()
-    result: dict[int, AnnotationReviewerSummary] = {}
+    latest: dict[int, AnnotationReviewerSummary] = {}
+    reviewer_ids_by_upload: dict[int, set[int]] = defaultdict(set)
     for upload_id, reviewer_identity_id, created_at, real_name, display_name in rows:
-        existing = result.get(upload_id)
-        if existing is None:
-            result[upload_id] = AnnotationReviewerSummary(
-                reviewer_identity_id=reviewer_identity_id,
-                reviewer_name=(real_name or "").strip() or (display_name or "").strip() or None,
-                reviewer_count=1,
-                reviewed_at=created_at,
-            )
-        else:
-            result[upload_id] = existing._replace(reviewer_count=existing.reviewer_count + 1)
-    return result
+        reviewer_ids_by_upload[upload_id].add(reviewer_identity_id)
+        if upload_id in latest:
+            continue
+        latest[upload_id] = AnnotationReviewerSummary(
+            reviewer_identity_id=reviewer_identity_id,
+            reviewer_name=(real_name or "").strip() or (display_name or "").strip() or None,
+            reviewer_count=0,
+            reviewed_at=created_at,
+        )
+    # Count people, not rows: the copy says 「等 N 人」 and one reviewer can hold several rows.
+    return {
+        upload_id: summary._replace(reviewer_count=len(reviewer_ids_by_upload[upload_id]))
+        for upload_id, summary in latest.items()
+    }
 
 
 def _tier_for_upload(

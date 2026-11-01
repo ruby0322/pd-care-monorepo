@@ -548,3 +548,34 @@ def test_today_attention_omits_reviewer_when_unannotated(tmp_path: Path) -> None
         assert item["annotation_reviewed_by_me"] is False
         assert item["annotation_reviewer_count"] == 0
         assert item["annotation_reviewed_at"] is None
+
+
+def test_today_attention_counts_people_not_annotation_rows(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "today-attention-reviewer-distinct.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        viewer_id = _seed_reviewer(client, line_user_id="U_STAFF", real_name="王小美")
+        other_id = _seed_reviewer(client, line_user_id="U_OTHER_STAFF", real_name="林美玲")
+        patient_id, upload_ids = _seed_today_patient(
+            client,
+            case_number="P-REVIEWER-DISTINCT",
+            line_user_id="U_PATIENT_REVIEWER_DISTINCT",
+            uploads=[(timedelta(hours=1), "suspected", None)],
+        )
+        _assign_staff_patient(client, staff_identity_id=viewer_id, patient_id=patient_id)
+
+        day_start = _taipei_today_start_utc()
+        for hours in (1, 2):
+            _add_annotation(
+                client,
+                patient_id=patient_id,
+                upload_id=upload_ids[0],
+                reviewer_identity_id=other_id,
+                created_at=day_start + timedelta(hours=hours),
+            )
+
+        # Two rows, one person: the card copy says 「等 N 人」, so N must count reviewers.
+        item = _fetch_single_attention_item(client)
+        assert item["annotation_reviewer_count"] == 1
+        assert item["annotation_reviewer_name"] == "林美玲"
+        assert item["annotation_reviewed_by_me"] is False
