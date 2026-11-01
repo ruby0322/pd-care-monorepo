@@ -10,13 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getReadableApiError } from "@/lib/api/client";
-import { cn } from "@/lib/utils";
 import { AdminActiveFilter, AdminRoleFilter, parseUsersFilters, usersFiltersToSearchParams } from "@/lib/admin/filters";
 import {
   AdminInactiveIdentityDeletePreview,
   AdminAccessRequestItem,
   AdminIdentityItem,
-  AdminIdentityWorkloadStats,
   approveAdminAccessRequest,
   deleteInactiveAdminUsers,
   fetchAdminAccessRequests,
@@ -30,6 +28,13 @@ import {
 } from "@/lib/api/staff";
 
 const DEFAULT_PAGE_SIZE = 10;
+
+type RealNameTarget = {
+  id: number;
+  line_user_id: string;
+  display_name: string | null;
+  real_name: string | null;
+};
 
 function SortableHeaderButton({
   label,
@@ -54,29 +59,6 @@ function SortableHeaderButton({
   );
 }
 
-function LabelProgressCell({ workload }: { workload: AdminIdentityWorkloadStats | null }) {
-  if (!workload) {
-    return <span className="text-sm text-zinc-400">—</span>;
-  }
-  const labeled = workload.labeled_assigned_upload_count;
-  const total = workload.assigned_upload_count;
-  const percent = Math.round(workload.labeled_assigned_ratio * 100);
-  return (
-    <div className="min-w-[112px]">
-      <p className="text-sm tabular-nums text-zinc-900">
-        {labeled} / {total}
-        <span className="ml-1 text-xs text-zinc-500">（{percent}%）</span>
-      </p>
-      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
-        <div
-          className={cn("h-full rounded-full", total > 0 && labeled >= total ? "bg-emerald-500" : "bg-cyan-500")}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
 export default function AdminUsersPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -85,6 +67,7 @@ export default function AdminUsersPage() {
 
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [currentLineUserId, setCurrentLineUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminIdentityItem[]>([]);
   const [userTotal, setUserTotal] = useState(0);
@@ -104,7 +87,7 @@ export default function AdminUsersPage() {
   const [deleteTargetIds, setDeleteTargetIds] = useState<number[]>([]);
   const [deletePreview, setDeletePreview] = useState<AdminInactiveIdentityDeletePreview | null>(null);
   const [deleteScopeLabel, setDeleteScopeLabel] = useState<string>("");
-  const [realNameDialogUser, setRealNameDialogUser] = useState<AdminIdentityItem | null>(null);
+  const [realNameDialogUser, setRealNameDialogUser] = useState<RealNameTarget | null>(null);
   const [realNameDialogDraft, setRealNameDialogDraft] = useState("");
 
   const query = useMemo(
@@ -134,6 +117,7 @@ export default function AdminUsersPage() {
     setError(null);
     try {
       const profile = await fetchStaffMe();
+      setCurrentLineUserId(profile.line_user_id);
       if (profile.role !== "admin") {
         setIsAdmin(false);
         setUsers([]);
@@ -269,7 +253,7 @@ export default function AdminUsersPage() {
     }
   }
 
-  function openRealNameDialog(user: AdminIdentityItem) {
+  function openRealNameDialog(user: RealNameTarget) {
     setRealNameDialogUser(user);
     setRealNameDialogDraft(user.real_name ?? "");
   }
@@ -304,6 +288,8 @@ export default function AdminUsersPage() {
       setWorkingId(null);
     }
   }
+
+
 
   const inactiveUserIds = useMemo(() => users.filter((user) => !user.is_active).map((user) => user.id), [users]);
 
@@ -408,74 +394,6 @@ export default function AdminUsersPage() {
         ),
       },
       {
-        id: "assigned_patients",
-        header: ({ column }) => (
-          <SortableHeaderButton
-            label="指派病患"
-            hint="指派給此人且仍在追蹤中的病患數（停用病患不計）"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          />
-        ),
-        cell: ({ row }) => {
-          const workload = row.original.workload;
-          return workload ? (
-            <span className="text-sm tabular-nums text-zinc-900">{workload.assigned_patient_count}</span>
-          ) : (
-            <span className="text-sm text-zinc-400">—</span>
-          );
-        },
-        sortingFn: (rowA, rowB) =>
-          (rowA.original.workload?.assigned_patient_count ?? -1) - (rowB.original.workload?.assigned_patient_count ?? -1),
-      },
-      {
-        id: "label_progress",
-        header: ({ column }) => (
-          <SortableHeaderButton
-            label="已標註 / 指派上傳"
-            hint="此人負責佇列的完成度：由任何人標註皆計入"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          />
-        ),
-        cell: ({ row }) => <LabelProgressCell workload={row.original.workload} />,
-        sortingFn: (rowA, rowB) => {
-          const a = rowA.original.workload;
-          const b = rowB.original.workload;
-          const ratioDiff = (a?.labeled_assigned_ratio ?? -1) - (b?.labeled_assigned_ratio ?? -1);
-          if (ratioDiff !== 0) {
-            return ratioDiff;
-          }
-          return (a?.assigned_upload_count ?? -1) - (b?.assigned_upload_count ?? -1);
-        },
-      },
-      {
-        id: "reviewed_uploads",
-        header: ({ column }) => (
-          <SortableHeaderButton
-            label="本人標註數"
-            hint="此人親自標註過的上傳數：含不在其負責佇列的上傳"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          />
-        ),
-        cell: ({ row }) => {
-          const workload = row.original.workload;
-          if (!workload) {
-            return <span className="text-sm text-zinc-400">—</span>;
-          }
-          return (
-            <div>
-              <p className="text-sm tabular-nums text-zinc-900">{workload.reviewed_upload_count}</p>
-              <p className="text-xs text-zinc-500">
-                {workload.last_reviewed_at
-                  ? `最後標註 ${new Date(workload.last_reviewed_at).toLocaleDateString("zh-TW")}`
-                  : "尚未標註"}
-              </p>
-            </div>
-          );
-        },
-        sortingFn: (rowA, rowB) =>
-          (rowA.original.workload?.reviewed_upload_count ?? -1) - (rowB.original.workload?.reviewed_upload_count ?? -1),
-      },
-      {
         accessorKey: "created_at",
         header: ({ column }) => (
           <SortableHeaderButton label="建立時間" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
@@ -489,6 +407,8 @@ export default function AdminUsersPage() {
         header: () => <span className="text-xs font-medium text-zinc-500">操作</span>,
         cell: ({ row }) => {
           const user = row.original;
+          // Same invariant the roster enforces: the operator cannot lock themselves out.
+          const isSelf = currentLineUserId !== null && user.line_user_id === currentLineUserId;
           return (
             <div className="flex items-center justify-end gap-2">
               {user.role !== "patient" ? (
@@ -517,7 +437,8 @@ export default function AdminUsersPage() {
                 size="sm"
                 variant="outline"
                 className="whitespace-nowrap"
-                disabled={workingId === user.id}
+                disabled={workingId === user.id || isSelf}
+                title={isSelf ? "無法停用自己的帳號" : undefined}
                 onClick={() => void handleToggleStatus(user)}
               >
                 {user.is_active ? "停用" : "啟用"}
@@ -567,7 +488,7 @@ export default function AdminUsersPage() {
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <header>
         <h1 className="text-lg font-semibold text-zinc-900">用戶管理</h1>
-        <p className="text-xs text-zinc-500">admin 專用：角色授權、停用/啟用、醫護權限申請審核、標註工作量</p>
+        <p className="text-xs text-zinc-500">admin 專用：角色授權、停用/啟用、醫護權限申請審核（工作量與審核統計請見病患分配）</p>
       </header>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
@@ -616,7 +537,7 @@ export default function AdminUsersPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white">
+      <section aria-label="用戶清單" className="rounded-2xl border border-zinc-200 bg-white">
         <div className="border-b border-zinc-100 px-4 py-3 text-sm font-medium text-zinc-900">用戶清單</div>
         <div className="border-b border-zinc-100 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">

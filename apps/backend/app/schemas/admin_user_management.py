@@ -61,6 +61,8 @@ class AdminIdentityWorkloadStats(BaseModel):
     labeled_assigned_upload_count: int
     labeled_assigned_ratio: float
     reviewed_upload_count: int
+    review_count_7d: int
+    review_count_30d: int
     last_reviewed_at: datetime | None
 
 

@@ -112,6 +112,9 @@ class Annotation(Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     patient_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Re-labelling an upload updates this row in place, so created_at alone understates review
+    # activity. Null on rows written before this column existed; read via COALESCE.
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class HealthcareAccessRequest(Base):
@@ -135,9 +138,14 @@ class AuthorizationAuditEvent(Base):
     __tablename__ = "authorization_audit_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    actor_identity_id: Mapped[int] = mapped_column(ForeignKey("liff_identities.id", ondelete="SET NULL"), nullable=True)
+    actor_identity_id: Mapped[int | None] = mapped_column(ForeignKey("liff_identities.id", ondelete="SET NULL"), nullable=True)
     actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
-    target_identity_id: Mapped[int] = mapped_column(ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=False)
+    # Audit history must outlive the identity it describes, so the FK nulls out on delete and the
+    # LINE user id is denormalized to keep the row readable afterwards.
+    target_identity_id: Mapped[int | None] = mapped_column(
+        ForeignKey("liff_identities.id", ondelete="SET NULL"), nullable=True
+    )
+    target_line_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     before_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     after_value: Mapped[str | None] = mapped_column(Text, nullable=True)

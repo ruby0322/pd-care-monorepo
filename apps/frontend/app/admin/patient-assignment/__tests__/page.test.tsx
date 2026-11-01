@@ -6,6 +6,8 @@ import AdminPatientAssignmentPage from "@/app/admin/patient-assignment/page";
 import {
   fetchAdminAssignments,
   fetchAdminAssignmentsByStaff,
+  fetchAdminDailySuspectedSeries,
+  fetchAdminReviewThroughput,
   fetchAdminUsersPage,
   fetchStaffMe,
   unassignAdminAssignment,
@@ -40,8 +42,12 @@ function getPoolSection() {
   return screen.getByRole("heading", { name: "未分配病患" }).closest("section");
 }
 
+function getStaffBoard() {
+  return screen.getByRole("region", { name: "人員" });
+}
+
 function getStaffCard(title: string) {
-  return screen.getByText(title).closest("article");
+  return within(getStaffBoard()).getByText(title).closest("article");
 }
 
 const dragStartEvent = {
@@ -103,6 +109,8 @@ jest.mock("@/lib/api/staff", () => ({
   fetchAdminUsersPage: jest.fn(),
   fetchAdminAssignments: jest.fn(),
   fetchAdminAssignmentsByStaff: jest.fn(),
+  fetchAdminReviewThroughput: jest.fn(),
+  fetchAdminDailySuspectedSeries: jest.fn(),
   upsertAdminAssignment: jest.fn(),
   unassignAdminAssignment: jest.fn(),
 }));
@@ -146,6 +154,32 @@ describe("AdminPatientAssignmentPage", () => {
       },
     });
     (fetchStaffMe as jest.Mock).mockResolvedValue({ line_user_id: "U_ADMIN_ASSIGNMENT", role: "admin" });
+    (fetchAdminReviewThroughput as jest.Mock).mockResolvedValue({
+      lookback_days: 30,
+      reviewed_uploads_total: 9,
+      reviewer_count_total: 2,
+      days: [
+        { date: "2026-10-30", reviewed_uploads: 4, reviewer_count: 2 },
+        { date: "2026-10-31", reviewed_uploads: 3, reviewer_count: 2 },
+      ],
+      top_staff: [
+        {
+          identity_id: 11,
+          line_user_id: "U_STAFF_ASSIGNMENT",
+          display_name: "護理師 A",
+          real_name: "Nurse A",
+          reviewed_uploads: 6,
+          daily_counts: [4, 2],
+        },
+      ],
+    });
+    (fetchAdminDailySuspectedSeries as jest.Mock).mockResolvedValue({
+      lookback_days: 30,
+      items: [
+        { date: "2026-10-30", total_uploads: 10, labeled_uploads: 5, suspected_uploads: 1, symptom_elevated_uploads: 0, suspected_ratio: 0.1 },
+        { date: "2026-10-31", total_uploads: 6, labeled_uploads: 3, suspected_uploads: 0, symptom_elevated_uploads: 0, suspected_ratio: 0 },
+      ],
+    });
     (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
       items: [
         {
@@ -158,6 +192,16 @@ describe("AdminPatientAssignmentPage", () => {
           is_active: true,
           patient_id: null,
           created_at: "2026-05-01T00:00:00Z",
+          workload: {
+            assigned_patient_count: 2,
+            assigned_upload_count: 10,
+            labeled_assigned_upload_count: 4,
+            labeled_assigned_ratio: 0.4,
+            reviewed_upload_count: 6,
+            review_count_7d: 1,
+            review_count_30d: 5,
+            last_reviewed_at: "2026-05-20T00:00:00Z",
+          },
         },
         {
           id: 22,
@@ -169,6 +213,17 @@ describe("AdminPatientAssignmentPage", () => {
           is_active: true,
           patient_id: null,
           created_at: "2026-05-01T00:00:00Z",
+          // Dormant: no review activity in 30 days.
+          workload: {
+            assigned_patient_count: 0,
+            assigned_upload_count: 0,
+            labeled_assigned_upload_count: 0,
+            labeled_assigned_ratio: 0,
+            reviewed_upload_count: 3,
+            review_count_7d: 0,
+            review_count_30d: 0,
+            last_reviewed_at: "2026-01-02T00:00:00Z",
+          },
         },
       ],
       total: 2,
@@ -231,8 +286,9 @@ describe("AdminPatientAssignmentPage", () => {
 
     expect(await screen.findByRole("heading", { name: "未分配病患" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "可指派人員" })).toBeInTheDocument();
-    expect(await screen.findByText("Nurse A")).toBeInTheDocument();
-    expect(await screen.findByText("Admin B")).toBeInTheDocument();
+    const board = await screen.findByRole("region", { name: "人員" });
+    expect(within(board).getByText("Nurse A")).toBeInTheDocument();
+    expect(within(board).getByText("Admin B")).toBeInTheDocument();
     expect(await screen.findByText("池中病患")).toBeInTheDocument();
     expect(screen.getByText("池中病患").closest('[role="button"]')).toHaveClass(PATIENT_TILE_DRAG_SIZE_CLASS);
     expect(screen.getByTestId("unassigned-pool-list")).toHaveClass("flex", "flex-wrap", "justify-start");
@@ -284,7 +340,10 @@ describe("AdminPatientAssignmentPage", () => {
   test("opens staff sheet with remove actions for assigned patients", async () => {
     render(<AdminPatientAssignmentPage />);
 
-    const staffName = await screen.findByText("Nurse A");
+    await waitFor(() => {
+      expect(within(getStaffBoard()).getByText("Nurse A")).toBeInTheDocument();
+    });
+    const staffName = within(getStaffBoard()).getByText("Nurse A");
     fireEvent.click(staffName);
 
     expect(await screen.findByRole("dialog", { name: "Nurse A 詳情" })).toBeInTheDocument();
@@ -567,7 +626,9 @@ describe("AdminPatientAssignmentPage", () => {
     });
 
     const view = render(<AdminPatientAssignmentPage />);
-    await screen.findByText("Nurse A");
+    await waitFor(() => {
+      expect(within(getStaffBoard()).getByText("Nurse A")).toBeInTheDocument();
+    });
 
     const staffSearchInput = screen.getByLabelText("搜尋可指派人員");
     fireEvent.change(staffSearchInput, { target: { value: "Nurse" } });
@@ -674,7 +735,9 @@ describe("AdminPatientAssignmentPage", () => {
 
     const view = render(<AdminPatientAssignmentPage />);
 
-    await screen.findByText("Nurse A");
+    await waitFor(() => {
+      expect(within(getStaffBoard()).getByText("Nurse A")).toBeInTheDocument();
+    });
     expect(screen.getByText(/顯示 1-1 \/ 13 位人員/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
@@ -690,5 +753,71 @@ describe("AdminPatientAssignmentPage", () => {
       );
     });
     expect(await screen.findByText("Nurse C")).toBeInTheDocument();
+  });
+  test("flags a dormant assignee on the card without showing numbers", async () => {
+    render(<AdminPatientAssignmentPage />);
+
+    await waitFor(() => {
+      expect(within(getStaffBoard()).getByText("Nurse A")).toBeInTheDocument();
+    });
+
+    // Admin B has no review activity in 30 days; Nurse A does.
+    expect(screen.getAllByLabelText("近 30 日無審核紀錄")).toHaveLength(1);
+  });
+
+  test("renders the trailing-window review KPIs", async () => {
+    render(<AdminPatientAssignmentPage />);
+
+    const band = await screen.findByRole("region", { name: "近三十日審核概況" });
+    await waitFor(() => {
+      // (10 + 6) / 2 days
+      expect(within(band).getByText("8")).toBeInTheDocument();
+    });
+    // 8 labeled of 16 total
+    expect(within(band).getByText("50%")).toBeInTheDocument();
+    // 9 distinct uploads across 2 reviewers
+    expect(within(band).getByText("4.5")).toBeInTheDocument();
+    expect(within(band).getByText("9 張 / 2 人")).toBeInTheDocument();
+  });
+
+  test("renders the shared upload trend chart alongside the review charts", async () => {
+    render(<AdminPatientAssignmentPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("上傳數趨勢")).toBeInTheDocument();
+    });
+    // The shared component fetches its own window and carries #59's labelled overlay.
+    await waitFor(() => {
+      expect(fetchAdminDailySuspectedSeries).toHaveBeenCalled();
+    });
+    // A textContent matcher also matches ancestors, so assert at least one node carries it.
+    expect(
+      screen.getAllByText((_, element) => (element?.textContent ?? "").includes("已標註 8 / 16")).length
+    ).toBeGreaterThan(0);
+  });
+
+  test("renders the average-per-reviewer trend and the review heatmap", async () => {
+    render(<AdminPatientAssignmentPage />);
+
+    const trend = await screen.findByRole("region", { name: "平均每人審核數趨勢" });
+    expect(within(trend).getByText("平均每人審核數")).toBeInTheDocument();
+
+    const heatmap = await screen.findByRole("region", { name: "醫護審核熱圖" });
+    await waitFor(() => {
+      expect(within(heatmap).getByText("Nurse A")).toBeInTheDocument();
+    });
+    expect(within(heatmap).getByText("6")).toBeInTheDocument();
+  });
+
+  test("keeps the board usable when review analytics fail", async () => {
+    (fetchAdminReviewThroughput as jest.Mock).mockRejectedValue(new Error("boom"));
+
+    render(<AdminPatientAssignmentPage />);
+
+    await waitFor(() => {
+      expect(within(getStaffBoard()).getByText("Nurse A")).toBeInTheDocument();
+    });
+    const heatmap = screen.getByRole("region", { name: "醫護審核熱圖" });
+    expect(within(heatmap).getByText("期間內無審核紀錄")).toBeInTheDocument();
   });
 });

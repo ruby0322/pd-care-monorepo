@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import AdminUsersPage from "@/app/admin/users/page";
 import {
@@ -6,6 +6,8 @@ import {
   fetchAdminUsersPage,
   fetchStaffMe,
   updateAdminUserRealName,
+  updateAdminUserRole,
+  updateAdminUserStatus,
 } from "@/lib/api/staff";
 
 const mockSearchParams = new URLSearchParams();
@@ -41,6 +43,8 @@ describe("AdminUsersPage", () => {
     jest.clearAllMocks();
     (fetchStaffMe as jest.Mock).mockResolvedValue({ line_user_id: "U_ADMIN", role: "admin" });
     (fetchAdminAccessRequests as jest.Mock).mockResolvedValue([]);
+    (updateAdminUserRole as jest.Mock).mockResolvedValue({});
+    (updateAdminUserStatus as jest.Mock).mockResolvedValue({});
     (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
       items: [
         {
@@ -70,69 +74,15 @@ describe("AdminUsersPage", () => {
     });
   });
 
-  test("shows assignment and labeling stats for staff rows", async () => {
-    (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
-      items: [
-        {
-          id: 1,
-          line_user_id: "U_STAFF_1",
-          display_name: "LINE Name 1",
-          real_name: "Dr. Chen",
-          role: "staff",
-          is_active: true,
-          patient_id: null,
-          created_at: "2026-05-01T00:00:00Z",
-          workload: {
-            assigned_patient_count: 7,
-            assigned_upload_count: 30,
-            labeled_assigned_upload_count: 12,
-            labeled_assigned_ratio: 0.4,
-            reviewed_upload_count: 9,
-            last_reviewed_at: "2026-05-20T00:00:00Z",
-          },
-        },
-        {
-          id: 2,
-          line_user_id: "U_PATIENT_1",
-          display_name: "Patient",
-          real_name: null,
-          role: "patient",
-          is_active: true,
-          patient_id: 5,
-          created_at: "2026-05-02T00:00:00Z",
-          workload: null,
-        },
-      ],
-      total: 2,
-      limit: 10,
-      offset: 0,
-    });
-
+  test("keeps the identity table free of workload columns", async () => {
     render(<AdminUsersPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText("指派病患")).toBeInTheDocument();
-    });
-    expect(screen.getByText("已標註 / 指派上傳")).toBeInTheDocument();
-    expect(screen.getByText("本人標註數")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /指派病患/ })).toHaveAttribute(
-      "title",
-      expect.stringContaining("停用病患不計")
-    );
-    expect(screen.getByRole("button", { name: /已標註 \/ 指派上傳/ })).toHaveAttribute(
-      "title",
-      expect.stringContaining("由任何人標註皆計入")
-    );
-    expect(screen.getByRole("button", { name: /本人標註數/ })).toHaveAttribute(
-      "title",
-      expect.stringContaining("不在其負責佇列")
-    );
-    expect(screen.getByText("7")).toBeInTheDocument();
-    expect(screen.getByText("12 / 30")).toBeInTheDocument();
-    expect(screen.getByText("（40%）")).toBeInTheDocument();
-    expect(screen.getByText("9")).toBeInTheDocument();
-    // Patient rows have no labeling workload.
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(3);
+    const identityTable = await screen.findByRole("region", { name: "用戶清單" });
+    for (const label of ["指派病患", "已標註 / 指派上傳", "本人標註數"]) {
+      expect(within(identityTable).queryByText(label)).not.toBeInTheDocument();
+    }
+    expect(within(identityTable).getByText("LINE 顯示名稱")).toBeInTheDocument();
+    expect(within(identityTable).getByText("建立時間")).toBeInTheDocument();
   });
 
   test("renders separate LINE display name and real name columns", async () => {
@@ -147,7 +97,8 @@ describe("AdminUsersPage", () => {
   test("allows admin to edit real name for staff/admin rows", async () => {
     render(<AdminUsersPage />);
 
-    const editButton = await screen.findByRole("button", { name: "更新姓名" });
+    const identityTable = await screen.findByRole("region", { name: "用戶清單" });
+    const editButton = within(identityTable).getByRole("button", { name: "更新姓名" });
     fireEvent.click(editButton);
 
     const input = await screen.findByLabelText("真實姓名");
@@ -297,4 +248,42 @@ describe("AdminUsersPage", () => {
       expect(fetchAdminUsersPage).toHaveBeenCalledWith(expect.objectContaining({ query: "staff", offset: 0 }));
     });
   });
+  test("disables 停用 on the signed-in admin's own row in the identity table too", async () => {
+    (fetchAdminUsersPage as jest.Mock).mockResolvedValue({
+      items: [
+        {
+          id: 2,
+          line_user_id: "U_ADMIN",
+          display_name: "Admin Lin",
+          real_name: null,
+          role: "admin",
+          is_active: true,
+          patient_id: null,
+          created_at: "2026-04-01T00:00:00Z",
+        },
+        {
+          id: 1,
+          line_user_id: "U_STAFF_1",
+          display_name: "LINE Name 1",
+          real_name: "Dr. Chen",
+          role: "staff",
+          is_active: true,
+          patient_id: null,
+          created_at: "2026-05-01T00:00:00Z",
+        },
+      ],
+      total: 2,
+      limit: 10,
+      offset: 0,
+    });
+
+    render(<AdminUsersPage />);
+
+    const identityTable = await screen.findByRole("region", { name: "用戶清單" });
+    const toggles = within(identityTable).getAllByRole("button", { name: "停用" });
+    // fetchStaffMe resolves as U_ADMIN, the first row.
+    expect(toggles[0]).toBeDisabled();
+    expect(toggles[1]).toBeEnabled();
+  });
+
 });

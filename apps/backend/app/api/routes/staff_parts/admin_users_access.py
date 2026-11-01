@@ -52,6 +52,8 @@ def _to_workload_stats(stats: StaffWorkloadStats) -> AdminIdentityWorkloadStats:
             else 0.0
         ),
         reviewed_upload_count=stats.reviewed_upload_count,
+        review_count_7d=stats.review_count_7d,
+        review_count_30d=stats.review_count_30d,
         last_reviewed_at=stats.last_reviewed_at,
     )
 

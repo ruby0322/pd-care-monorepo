@@ -20,6 +20,11 @@ from app.services.attention_triage import workbench_upload_where_clauses
 from app.services.identity_validation import assert_valid_line_user_id
 
 
+# Re-labelling an upload updates the annotation in place, so review recency and the rolling
+# windows must prefer updated_at and fall back to created_at for rows written before it existed.
+ANNOTATION_REVIEWED_AT = func.coalesce(Annotation.updated_at, Annotation.created_at)
+
+
 @dataclass(frozen=True)
 class StaffWorkloadStats:
     """Labeling workload for one staff/admin identity.
@@ -35,6 +40,8 @@ class StaffWorkloadStats:
     assigned_upload_count: int
     labeled_assigned_upload_count: int
     reviewed_upload_count: int
+    review_count_7d: int
+    review_count_30d: int
     last_reviewed_at: datetime | None
 
 
@@ -42,10 +49,15 @@ def load_staff_workload_stats(
     session: Session,
     *,
     staff_identity_ids: list[int],
+    now: datetime | None = None,
 ) -> dict[int, StaffWorkloadStats]:
     normalized_ids = {identity_id for identity_id in staff_identity_ids if identity_id > 0}
     if not normalized_ids:
         return {}
+
+    reference_time = now or datetime.now(tz=timezone.utc)
+    cutoff_7d = reference_time - timedelta(days=7)
+    cutoff_30d = reference_time - timedelta(days=30)
 
     assigned_patients = dict(
         session.execute(
@@ -76,22 +88,31 @@ def load_staff_workload_stats(
         select(
             Annotation.reviewer_identity_id,
             func.count(distinct(Annotation.upload_id)),
-            func.max(Annotation.created_at),
+            func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_7d, Annotation.upload_id)))),
+            func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_30d, Annotation.upload_id)))),
+            func.max(ANNOTATION_REVIEWED_AT),
         )
         .where(Annotation.reviewer_identity_id.in_(normalized_ids))
         .group_by(Annotation.reviewer_identity_id)
     ).all()
-    reviewed = {int(staff_id): (int(count), last_at) for staff_id, count, last_at in reviewed_rows}
+    reviewed = {
+        int(staff_id): (int(total), int(count_7d or 0), int(count_30d or 0), last_at)
+        for staff_id, total, count_7d, count_30d, last_at in reviewed_rows
+    }
 
     result: dict[int, StaffWorkloadStats] = {}
     for identity_id in normalized_ids:
         assigned_upload_count, labeled_assigned_upload_count = assigned_uploads.get(identity_id, (0, 0))
-        reviewed_upload_count, last_reviewed_at = reviewed.get(identity_id, (0, None))
+        reviewed_upload_count, review_count_7d, review_count_30d, last_reviewed_at = reviewed.get(
+            identity_id, (0, 0, 0, None)
+        )
         result[identity_id] = StaffWorkloadStats(
             assigned_patient_count=int(assigned_patients.get(identity_id, 0)),
             assigned_upload_count=assigned_upload_count,
             labeled_assigned_upload_count=labeled_assigned_upload_count,
             reviewed_upload_count=reviewed_upload_count,
+            review_count_7d=review_count_7d,
+            review_count_30d=review_count_30d,
             last_reviewed_at=last_reviewed_at,
         )
     return result
@@ -212,6 +233,7 @@ def approve_healthcare_permission_request(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="healthcare_permission_approve",
             before_value=before_role,
             after_value=role,
@@ -251,6 +273,7 @@ def reject_healthcare_permission_request(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="healthcare_permission_reject",
             before_value=identity.role,
             after_value=identity.role,
@@ -411,6 +434,8 @@ def update_identity_role(
 ) -> LiffIdentity:
     if actor_role != "admin":
         raise PermissionError("不可踰越階級：僅 admin 可調整角色")
+    if actor_identity_id == target_identity_id:
+        raise PermissionError("無法調整自己的角色，避免最後一位 admin 自我降權")
     identity = session.get(LiffIdentity, target_identity_id)
     if identity is None:
         raise LookupError("Identity not found")
@@ -421,6 +446,7 @@ def update_identity_role(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="identity_role_update",
             before_value=before_role,
             after_value=role,
@@ -443,6 +469,8 @@ def update_identity_status(
 ) -> LiffIdentity:
     if actor_role != "admin":
         raise PermissionError("不可踰越階級：僅 admin 可調整帳號狀態")
+    if actor_identity_id == target_identity_id:
+        raise PermissionError("無法停用自己的帳號，避免最後一位 admin 自我鎖出")
     identity = session.get(LiffIdentity, target_identity_id)
     if identity is None:
         raise LookupError("Identity not found")
@@ -454,6 +482,7 @@ def update_identity_status(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="identity_status_update",
             before_value=before_value,
             after_value=after_value,
@@ -493,6 +522,7 @@ def update_identity_real_name(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="identity_real_name_update",
             before_value=before_value,
             after_value=normalized_name,

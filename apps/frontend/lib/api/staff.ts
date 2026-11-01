@@ -404,12 +404,37 @@ export type AdminDailySuspectedSeriesResponse = {
   items: AdminDailySuspectedSeriesPoint[];
 };
 
+export type AdminReviewThroughputDay = {
+  date: string;
+  reviewed_uploads: number;
+  reviewer_count: number;
+};
+
+export type AdminReviewThroughputStaff = {
+  identity_id: number;
+  line_user_id: string;
+  display_name: string | null;
+  real_name: string | null;
+  reviewed_uploads: number;
+  daily_counts: number[];
+};
+
+export type AdminReviewThroughputResponse = {
+  lookback_days: number;
+  reviewed_uploads_total: number;
+  reviewer_count_total: number;
+  days: AdminReviewThroughputDay[];
+  top_staff: AdminReviewThroughputStaff[];
+};
+
 export type AdminIdentityWorkloadStats = {
   assigned_patient_count: number;
   assigned_upload_count: number;
   labeled_assigned_upload_count: number;
   labeled_assigned_ratio: number;
   reviewed_upload_count: number;
+  review_count_7d: number;
+  review_count_30d: number;
   last_reviewed_at: string | null;
 };
 
@@ -943,6 +968,19 @@ export async function fetchAdminDailySuspectedSeries(params?: {
       },
     }
   );
+  return data;
+}
+
+export async function fetchAdminReviewThroughput(params?: {
+  lookbackDays?: number;
+  topStaffLimit?: number;
+}): Promise<AdminReviewThroughputResponse> {
+  const { data } = await apiClient.get<AdminReviewThroughputResponse>("/v1/staff/admin/analytics/review-throughput", {
+    params: {
+      lookback_days: params?.lookbackDays ?? 30,
+      top_staff_limit: params?.topStaffLimit ?? 10,
+    },
+  });
   return data;
 }
 

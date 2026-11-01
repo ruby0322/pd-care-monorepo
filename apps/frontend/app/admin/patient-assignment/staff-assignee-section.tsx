@@ -61,7 +61,7 @@ export function StaffAssigneeSection({
   const canGoNextPage = page < totalPages;
 
   return (
-    <section className="space-y-3">
+    <section aria-label="人員" className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-zinc-900">可指派人員</h2>

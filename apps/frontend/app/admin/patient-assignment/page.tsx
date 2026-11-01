@@ -25,15 +25,26 @@ import {
   type AdminIdentityItem,
   type AdminPatientAssignmentByStaffPatientItem,
   type AdminPatientAssignmentItem,
+  type AdminDailySuspectedSeriesPoint,
+  type AdminReviewThroughputResponse,
   fetchAdminAssignments,
   fetchAdminAssignmentsByStaff,
+  fetchAdminDailySuspectedSeries,
+  fetchAdminReviewThroughput,
   fetchAdminUsersPage,
   fetchStaffMe,
   unassignAdminAssignment,
   upsertAdminAssignment,
 } from "@/lib/api/staff";
 
+import { UploadTrendChart } from "@/app/admin/_components/upload-trend-chart";
+
+import { AvgReviewChart } from "./avg-review-chart";
+import { ReviewHeatmap } from "./review-heatmap";
+import { ReviewKpiBand } from "./review-kpi-band";
 import { STAFF_PAGE_SIZE } from "./constants";
+
+const REVIEW_LOOKBACK_DAYS = 30;
 import { resolveDragEndResult } from "./drag-end";
 import { PatientDragOverlay } from "./patient-drag-overlay";
 import type { PatientTilePatient } from "./patient-tile";
@@ -124,6 +135,9 @@ export default function AdminPatientAssignmentPage() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [assigneeUsers, setAssigneeUsers] = useState<AdminIdentityItem[]>([]);
+  const [throughput, setThroughput] = useState<AdminReviewThroughputResponse | null>(null);
+  const [uploadSeries, setUploadSeries] = useState<AdminDailySuspectedSeriesPoint[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [usersLoading, setUsersLoading] = useState(false);
   const [poolPatients, setPoolPatients] = useState<PatientTilePatient[]>([]);
   const [poolTotal, setPoolTotal] = useState(0);
@@ -205,6 +219,24 @@ export default function AdminPatientAssignmentPage() {
       void run();
     }, 0);
     return () => window.clearTimeout(timer);
+  }, []);
+
+  const loadReviewAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true);
+    try {
+      const [throughputData, seriesData] = await Promise.all([
+        fetchAdminReviewThroughput({ lookbackDays: REVIEW_LOOKBACK_DAYS }),
+        fetchAdminDailySuspectedSeries({ lookbackDays: REVIEW_LOOKBACK_DAYS }),
+      ]);
+      setThroughput(throughputData);
+      setUploadSeries(seriesData.items);
+    } catch {
+      // Analytics are supplementary; a failure here must not block the assignment board.
+      setThroughput(null);
+      setUploadSeries([]);
+    } finally {
+      setAnalyticsLoading(false);
+    }
   }, []);
 
   const loadAssigneesWithAssignments = useCallback(async () => {
@@ -307,6 +339,17 @@ export default function AdminPatientAssignmentPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [isAdmin, loadPool]);
+
+  // Review analytics describe a 30 day window, so they do not refresh on each assignment.
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void loadReviewAnalytics();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isAdmin, loadReviewAnalytics]);
 
   const sheetStaff = useMemo(
     () => assigneeUsers.find((user) => user.id === sheetStaffId) ?? null,
@@ -415,6 +458,15 @@ export default function AdminPatientAssignmentPage() {
       </div>
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <ReviewKpiBand throughput={throughput} uploadSeries={uploadSeries} />
+
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
+        <UploadTrendChart />
+        <AvgReviewChart throughput={throughput} loading={analyticsLoading} />
+      </div>
+
+      <ReviewHeatmap throughput={throughput} loading={analyticsLoading} />
 
       <DndContext
         sensors={sensors}

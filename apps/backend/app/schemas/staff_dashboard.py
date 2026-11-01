@@ -523,3 +523,26 @@ class StaffDailySuspectedSeriesPoint(BaseModel):
 class StaffDailySuspectedSeriesResponse(BaseModel):
     lookback_days: int
     items: list[StaffDailySuspectedSeriesPoint]
+
+
+class StaffReviewThroughputDay(BaseModel):
+    date: str
+    reviewed_uploads: int
+    reviewer_count: int
+
+
+class StaffReviewThroughputStaffItem(BaseModel):
+    identity_id: int
+    line_user_id: str
+    display_name: str | None
+    real_name: str | None
+    reviewed_uploads: int
+    daily_counts: list[int]
+
+
+class StaffReviewThroughputResponse(BaseModel):
+    lookback_days: int
+    reviewed_uploads_total: int
+    reviewer_count_total: int
+    days: list[StaffReviewThroughputDay]
+    top_staff: list[StaffReviewThroughputStaffItem]

@@ -20,6 +20,9 @@ apps/backend/*.pyd
 apps/backend/build/
 apps/backend/dist/
 apps/backend/models/
+# MODEL_CACHE_DIR in .env.local.example points here; running the backend locally
+# downloads ~17MB of weights into it.
+apps/backend/.cache/
 apps/backend/*.db
 
 .env

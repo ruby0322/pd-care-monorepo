@@ -11,6 +11,8 @@ import type { AdminIdentityItem, AdminPatientAssignmentByStaffPatientItem } from
 import { fetchAdminAssignments } from "@/lib/api/staff";
 
 import { POOL_PAGE_SIZE } from "./constants";
+import { formatLastReviewAt, labeledRatioPercent } from "@/lib/admin/staff-overview";
+
 import { genderBadgeLabel, staffDisplayName } from "./lot-math";
 import type { PatientTilePatient } from "./patient-tile";
 import { PersonAvatar } from "./person-avatar";
@@ -145,6 +147,47 @@ export function StaffDetailSheet({
             </div>
           </SheetHeader>
           <SheetBody className="space-y-5">
+            <section aria-label="工作量">
+              <h3 className="mb-2 text-sm font-semibold text-zinc-900">工作量</h3>
+              {staff.workload ? (
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                  <div>
+                    <dt className="text-zinc-500">指派病患</dt>
+                    <dd className="text-sm tabular-nums text-zinc-900">{staff.workload.assigned_patient_count}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-500">負責佇列已標註</dt>
+                    <dd className="text-sm tabular-nums text-zinc-900">
+                      {staff.workload.labeled_assigned_upload_count} / {staff.workload.assigned_upload_count}
+                      <span className="ml-1 text-xs text-zinc-500">（{labeledRatioPercent(staff.workload)}%）</span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-500">本人標註數</dt>
+                    <dd className="text-sm tabular-nums text-zinc-900">{staff.workload.reviewed_upload_count}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-500">近 7 / 30 日審核</dt>
+                    <dd className="text-sm tabular-nums text-zinc-900">
+                      {staff.workload.review_count_7d} / {staff.workload.review_count_30d}
+                    </dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="text-zinc-500">最近審核</dt>
+                    <dd
+                      className={
+                        staff.workload.review_count_30d === 0 ? "text-sm text-amber-700" : "text-sm text-zinc-900"
+                      }
+                    >
+                      {formatLastReviewAt(staff.workload.last_reviewed_at)}
+                    </dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="text-xs text-zinc-400">無工作量資料</p>
+              )}
+            </section>
+
             <section id="staff-sheet-assigned" className={focus === "assigned" ? "scroll-mt-2" : undefined}>
               <h3 className="mb-2 text-sm font-semibold text-zinc-900">負責病患</h3>
               {assignedPatients.length === 0 ? (
