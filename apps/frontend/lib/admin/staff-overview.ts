@@ -28,7 +28,7 @@ export function staffOverviewKpis(summary: AdminStaffOverviewSummary | null): St
     },
     {
       key: "zero_assignment",
-      label: "零指派醫護",
+      label: "空閑醫護",
       value: summary?.zero_assignment_staff_count ?? 0,
       hint: "在職 staff/admin 但未負責任何病患",
       tone: (summary?.zero_assignment_staff_count ?? 0) > 0 ? "warning" : "neutral",

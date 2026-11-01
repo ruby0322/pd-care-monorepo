@@ -377,7 +377,7 @@ describe("AdminUsersPage", () => {
     render(<AdminUsersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("零指派醫護")).toBeInTheDocument();
+      expect(screen.getByText("空閑醫護")).toBeInTheDocument();
     });
 
     expect(screen.getByText("在職醫護")).toBeInTheDocument();
