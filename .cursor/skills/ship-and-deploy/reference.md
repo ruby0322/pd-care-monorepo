@@ -220,14 +220,14 @@ From `docker-compose.yml`:
 | Service | Host port | Health |
 | --- | --- | --- |
 | `frontend` | `${PDCARE_HTTPS_PORT:-443}` → 443 (TLS gateway) | Depends on healthy backend |
-| `backend` | `8000` | `/healthz`, `/readyz` |
+| `backend` | `${PDCARE_BACKEND_PORT_BIND:-127.0.0.1:8000}` | `/healthz`, `/readyz` |
 | `postgres` | `${PDCARE_POSTGRES_PORT_BIND:-127.0.0.1:5432}` | `pg_isready` |
-| `seaweedfs-s3` | `8333` | wget status |
-| `seaweedfs-filer` | `8888` | wget status |
-| `seaweedfs-master` | `9333` | cluster status |
-| `seaweedfs-volume` | `8080` | wget status |
+| `seaweedfs-s3` | `127.0.0.1:8333` | wget status |
+| `seaweedfs-filer` | `127.0.0.1:8888` | wget status |
+| `seaweedfs-master` | `127.0.0.1:9333` | cluster status |
+| `seaweedfs-volume` | `127.0.0.1:8080` | wget status |
 
-Observability override (`docker-compose.observability.yml`) adds Grafana (`3001`), Loki (`3100`), Prometheus (`9090`), Promtail.
+Observability override (`docker-compose.observability.yml`) adds Grafana (`127.0.0.1:3001`), Loki (`127.0.0.1:3100`), Prometheus (`127.0.0.1:9090`), Promtail. Do not publish these on the public NIC.
 
 ## Backend health checks
 

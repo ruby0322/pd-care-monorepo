@@ -9,7 +9,7 @@ This runbook provides a minimal, maintainable Kubernetes workflow for two namesp
 repository (`ruby0322/pd-care-monorepo`) is **public**, so Argo CD does not need
 a Git PAT. See [`argocd-cd.md`](argocd-cd.md) for CI/CD promotion, `ghcr-pull-secret`
 setup, and the end-to-end dry-run checklist. For the Argo CD web UI, see
-[`argocd-dashboard.md`](argocd-dashboard.md) (port-forward or `argocd.pd.lu.im.ntu.edu.tw`).
+[`argocd-dashboard.md`](argocd-dashboard.md) (port-forward by default; public UI is opt-in).
 
 The sections below still document manual Minikube operations (local image builds,
 `kubectl apply`, scoped rollouts). Overlays now reference `ghcr.io/ruby0322/...` with

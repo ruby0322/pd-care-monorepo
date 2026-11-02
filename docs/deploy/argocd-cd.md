@@ -42,8 +42,8 @@ bash ops/deploy/argocd-ui-portforward.sh
 # Open http://127.0.0.1:8080 (user: admin; HTTP when server.insecure is enabled)
 ```
 
-See [argocd-dashboard.md](argocd-dashboard.md) for login, SSH tunnel, and external UI at
-`https://argocd.pd.lu.im.ntu.edu.tw` (Ingress + cert-manager; port-forward fallback).
+See [argocd-dashboard.md](argocd-dashboard.md) for login, SSH tunnel, and the
+opt-in public UI (`ARGOCD_EXPOSE_PUBLIC_UI=true`; default is port-forward only).
 
 ### Argo CD Git repository credentials
 

@@ -1,3 +1,8 @@
+# Opt-in public Argo CD UI. Do not apply on a campus-public operator IP;
+# NTU CERT treats this as an exposed management console.
+# Enable only with ARGOCD_EXPOSE_PUBLIC_UI=true on a private network.
+# Default access: bash ops/deploy/argocd-ui-portforward.sh
+# Tear down a live public UI: bash ops/security/unpublish_argocd_ui.sh
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
