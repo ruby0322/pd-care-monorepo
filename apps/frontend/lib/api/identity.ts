@@ -32,6 +32,7 @@ export type PatientProfileResponse = {
   longest_continuous_upload_streak_days: number;
   total_upload_count: number;
   primary_nurse_name: string | null;
+  primary_nurse_assigned: boolean;
 };
 
 export type HealthcareAccessRequestStatusResponse = {

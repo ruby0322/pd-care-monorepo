@@ -24,6 +24,7 @@ from app.services.taipei_dates import normalize_datetime, resolve_taipei_day_bou
 class HistoryOverviewDaySummary:
     local_date: date
     upload_count: int
+    labeled_upload_count: int
     uploaded_users: int
     suspected_infected_users: int
     symptom_elevated_users: int
@@ -340,6 +341,7 @@ def list_history_overview_days(
             HistoryOverviewDaySummary(
                 local_date=local_day,
                 upload_count=len(day_rows),
+                labeled_upload_count=sum(1 for row in day_rows if row.annotation_label is not None),
                 uploaded_users=uploaded_users,
                 suspected_infected_users=suspected_infected_users,
                 symptom_elevated_users=symptom_elevated_users,

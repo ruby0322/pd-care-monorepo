@@ -90,11 +90,35 @@ Implementation: `app/services/upload.py` → `persist_patient_upload`.
 | Stage | Model | Config | Outcome |
 | --- | --- | --- | --- |
 | Presence pre-screen (optional) | CLIP embeddings + sklearn linear probe | `PRESCREEN_*` env | `rejected` if not exit-site; **fail-open** on inference errors |
-| Infection-oriented screen | CNN multiclass (PyTorch) | `MODEL_PATH`, `THRESHOLD`, class names | `suspected` or `normal` from infection class probability |
+| Infection-oriented screen | CNN multiclass (PyTorch) | `MODEL_PATH`, `THRESHOLD` (`0.72`), class names | `suspected` or `normal` from infection class probability |
 | Low-level API | Same CNN | `/v1/predict` | Direct probabilities; not the patient upload path |
 
 `screening_result` values on `ai_results`: `normal`, `suspected`, `rejected`,
 `technical_error`.
+
+#### Infection decision threshold
+
+`suspected` is decided by `infection_probability >= settings.threshold` in
+`app/services/model_loader.py`, where `infection_probability` is the softmax probability
+of `class_4` — the clinical exit-site score `>=4`, i.e. the infection-positive class.
+`THRESHOLD` is therefore a cut on `P(score >= 4)`.
+
+Current value **`0.72`**, raised from `0.5`. It was chosen from a threshold sweep on a
+**deduplicated** held-out test set (n=388: 35 positive / 353 negative; dedup removed the
+84 test images that had a byte-identical copy in the training split). `0.72` lifts F1
+from `0.857` to `0.882` and accuracy from `97.42%` to `97.94%` by removing 2 false
+positives (5 -> 3), with **recall unchanged** at `0.857` (30 of 35). F1 and accuracy peak
+on the plateau `h = 0.717-0.748`; `0.72` sits at its low (safer) end.
+
+> [!WARNING]
+> `0.72` was selected on the test set it is scored on, so its advantage is
+> optimistically biased, and out-of-fold threshold selection is **still pending**. With
+> 35 positives, "recall unchanged" has wide uncertainty, and raising a screening
+> threshold is in principle a sensitivity-reducing direction. Reviewed and accepted by
+> the repo owner on this basis.
+
+The deployed value is `THRESHOLD` in `k8s/base/configmap.yaml`; the in-code default is in
+`app/core/config.py`. It is unrelated to the `PRESCREEN_*` presence-gate threshold above.
 
 Suspected cases create a `notifications` row (`status=new`) for staff review.
 This is an in-app / staff workflow signal; automatic LINE Messaging API push is

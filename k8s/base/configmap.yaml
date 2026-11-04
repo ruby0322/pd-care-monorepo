@@ -13,7 +13,8 @@ data:
   HF_HOME: "/models/hf-cache"
   TRANSFORMERS_CACHE: "/models/hf-cache"
   DEVICE: "cpu"
-  THRESHOLD: "0.5"
+  # Infection decision cut on P(class_4). See README "Model Notes".
+  THRESHOLD: "0.72"
   IMAGE_SIZE: "384"
   MAX_UPLOAD_MB: "10"
   S3_ENDPOINT_URL: "http://seaweedfs-s3:8333"

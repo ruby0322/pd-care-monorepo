@@ -55,6 +55,17 @@ class AdminRejectHealthcarePermissionRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class AdminIdentityWorkloadStats(BaseModel):
+    assigned_patient_count: int
+    assigned_upload_count: int
+    labeled_assigned_upload_count: int
+    labeled_assigned_ratio: float
+    reviewed_upload_count: int
+    review_count_7d: int
+    review_count_30d: int
+    last_reviewed_at: datetime | None
+
+
 class AdminIdentityItem(BaseModel):
     id: int
     line_user_id: str
@@ -65,6 +76,7 @@ class AdminIdentityItem(BaseModel):
     is_active: bool
     patient_id: int | None
     created_at: datetime
+    workload: AdminIdentityWorkloadStats | None = None
 
 
 class AdminIdentityListResponse(BaseModel):

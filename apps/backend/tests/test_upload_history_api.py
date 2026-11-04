@@ -13,7 +13,10 @@ from app.config import Settings
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, PendingBinding, StaffPatientAssignment, Upload
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
-from app.services.upload_history import _patient_upload_date_counts_stmt
+from app.services.upload_history import (
+    _lifetime_metrics_from_date_counts,
+    _patient_upload_date_counts_stmt,
+)
 from tests.db_test_utils import migrated_sqlite_database_url
 
 
@@ -484,6 +487,7 @@ def test_patient_profile_returns_basic_profile_and_line_avatar(tmp_path: Path) -
         assert payload["longest_continuous_upload_streak_days"] == 0
         assert payload["total_upload_count"] == 0
         assert payload["primary_nurse_name"] is None
+        assert payload["primary_nurse_assigned"] is False
 
 
 def test_patient_profile_returns_assigned_nurse_real_name_not_line_display_name(tmp_path: Path) -> None:
@@ -512,7 +516,9 @@ def test_patient_profile_returns_assigned_nurse_real_name_not_line_display_name(
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
-        assert response.json()["primary_nurse_name"] == "鄭靜誼"
+        payload = response.json()
+        assert payload["primary_nurse_name"] == "鄭靜誼"
+        assert payload["primary_nurse_assigned"] is True
 
 
 def test_patient_profile_omits_nurse_name_when_assignee_has_only_line_display_name(tmp_path: Path) -> None:
@@ -541,7 +547,9 @@ def test_patient_profile_omits_nurse_name_when_assignee_has_only_line_display_na
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
-        assert response.json()["primary_nurse_name"] is None
+        payload = response.json()
+        assert payload["primary_nurse_name"] is None
+        assert payload["primary_nurse_assigned"] is True
 
 
 def test_upload_history_summary_counts_staff_annotation_as_suspected(tmp_path: Path) -> None:
@@ -1175,6 +1183,33 @@ def test_upload_history_current_streak_is_not_capped_at_28_days(tmp_path: Path) 
         assert response.json()["summary"]["continuous_upload_streak_days"] == 30
 
 
+def test_upload_history_current_streak_ignores_empty_today(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path / "history-streak-pending-today.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        patient_id = _seed_matched_identity(client, line_user_id="U_LINE_STREAK_PENDING_TODAY")
+        token = _issue_token_for_line_user(client, line_user_id="U_LINE_STREAK_PENDING_TODAY")
+        today = _taipei_today()
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as session:
+            for offset in range(1, 6):
+                _add_qualified_upload(
+                    session,
+                    patient_id=patient_id,
+                    day=today - timedelta(days=offset),
+                    suffix=f"pending-today-{offset}",
+                )
+            session.commit()
+
+        _attach_storage(client)
+        response = client.get(
+            "/v1/patient/upload-history",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["summary"]["continuous_upload_streak_days"] == 5
+
+
 def test_lifetime_metrics_query_aggregates_counts_by_taipei_date() -> None:
     stmt = _patient_upload_date_counts_stmt(
         patient_id=1,
@@ -1184,6 +1219,47 @@ def test_lifetime_metrics_query_aggregates_counts_by_taipei_date() -> None:
     sql = str(stmt.compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": True})).lower()
     assert "group by" in sql
     assert "datetime" in sql
+
+
+def test_current_streak_includes_today_when_uploaded() -> None:
+    today = date(2026, 9, 9)
+    metrics = _lifetime_metrics_from_date_counts(
+        {
+            today: 1,
+            today - timedelta(days=1): 1,
+            today - timedelta(days=2): 1,
+        },
+        today=today,
+    )
+    assert metrics.continuous_upload_streak_days == 3
+    assert metrics.longest_continuous_upload_streak_days == 3
+
+
+def test_current_streak_keeps_yesterday_run_when_today_is_still_empty() -> None:
+    today = date(2026, 9, 9)
+    metrics = _lifetime_metrics_from_date_counts(
+        {
+            today - timedelta(days=1): 1,
+            today - timedelta(days=2): 1,
+            today - timedelta(days=3): 1,
+        },
+        today=today,
+    )
+    assert metrics.continuous_upload_streak_days == 3
+    assert metrics.longest_continuous_upload_streak_days == 3
+
+
+def test_current_streak_resets_when_last_upload_was_two_days_ago() -> None:
+    today = date(2026, 9, 9)
+    metrics = _lifetime_metrics_from_date_counts(
+        {
+            today - timedelta(days=2): 1,
+            today - timedelta(days=3): 1,
+        },
+        today=today,
+    )
+    assert metrics.continuous_upload_streak_days == 0
+    assert metrics.longest_continuous_upload_streak_days == 2
 
 
 def test_patient_profile_reports_longest_streak_and_total_upload_count(tmp_path: Path) -> None:

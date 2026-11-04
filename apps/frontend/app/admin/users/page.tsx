@@ -29,6 +29,36 @@ import {
 
 const DEFAULT_PAGE_SIZE = 10;
 
+type RealNameTarget = {
+  id: number;
+  line_user_id: string;
+  display_name: string | null;
+  real_name: string | null;
+};
+
+function SortableHeaderButton({
+  label,
+  hint,
+  onClick,
+}: {
+  label: string;
+  hint?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={hint ? `${hint}\n（排序僅作用於當前頁面）` : undefined}
+      className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
+      onClick={onClick}
+    >
+      {label}
+      {hint ? <span className="text-zinc-400">ⓘ</span> : null}
+      <ArrowUpDown className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
 export default function AdminUsersPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -37,6 +67,7 @@ export default function AdminUsersPage() {
 
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [currentLineUserId, setCurrentLineUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminIdentityItem[]>([]);
   const [userTotal, setUserTotal] = useState(0);
@@ -56,7 +87,7 @@ export default function AdminUsersPage() {
   const [deleteTargetIds, setDeleteTargetIds] = useState<number[]>([]);
   const [deletePreview, setDeletePreview] = useState<AdminInactiveIdentityDeletePreview | null>(null);
   const [deleteScopeLabel, setDeleteScopeLabel] = useState<string>("");
-  const [realNameDialogUser, setRealNameDialogUser] = useState<AdminIdentityItem | null>(null);
+  const [realNameDialogUser, setRealNameDialogUser] = useState<RealNameTarget | null>(null);
   const [realNameDialogDraft, setRealNameDialogDraft] = useState("");
 
   const query = useMemo(
@@ -86,6 +117,7 @@ export default function AdminUsersPage() {
     setError(null);
     try {
       const profile = await fetchStaffMe();
+      setCurrentLineUserId(profile.line_user_id);
       if (profile.role !== "admin") {
         setIsAdmin(false);
         setUsers([]);
@@ -221,7 +253,7 @@ export default function AdminUsersPage() {
     }
   }
 
-  function openRealNameDialog(user: AdminIdentityItem) {
+  function openRealNameDialog(user: RealNameTarget) {
     setRealNameDialogUser(user);
     setRealNameDialogDraft(user.real_name ?? "");
   }
@@ -256,6 +288,8 @@ export default function AdminUsersPage() {
       setWorkingId(null);
     }
   }
+
+
 
   const inactiveUserIds = useMemo(() => users.filter((user) => !user.is_active).map((user) => user.id), [users]);
 
@@ -308,14 +342,7 @@ export default function AdminUsersPage() {
       {
         accessorKey: "display_name",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            LINE 顯示名稱
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="LINE 顯示名稱" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => {
           const user = row.original;
@@ -335,14 +362,7 @@ export default function AdminUsersPage() {
       {
         accessorKey: "real_name",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            真實姓名
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="真實姓名" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => <span className="text-sm text-zinc-900">{row.original.real_name ?? "—"}</span>,
         sortingFn: (rowA, rowB) => {
@@ -354,28 +374,14 @@ export default function AdminUsersPage() {
       {
         accessorKey: "role",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            角色
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="角色" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">{row.original.role}</span>,
       },
       {
         accessorKey: "is_active",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            狀態
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="狀態" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => (
           <span
@@ -390,14 +396,7 @@ export default function AdminUsersPage() {
       {
         accessorKey: "created_at",
         header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            建立時間
-            <ArrowUpDown className="h-3.5 w-3.5" />
-          </button>
+          <SortableHeaderButton label="建立時間" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")} />
         ),
         cell: ({ row }) => (
           <span className="text-xs text-zinc-500">{new Date(row.original.created_at).toLocaleString("zh-TW", { hour12: false })}</span>
@@ -408,6 +407,8 @@ export default function AdminUsersPage() {
         header: () => <span className="text-xs font-medium text-zinc-500">操作</span>,
         cell: ({ row }) => {
           const user = row.original;
+          // Same invariant the roster enforces: the operator cannot lock themselves out.
+          const isSelf = currentLineUserId !== null && user.line_user_id === currentLineUserId;
           return (
             <div className="flex items-center justify-end gap-2">
               {user.role !== "patient" ? (
@@ -436,7 +437,8 @@ export default function AdminUsersPage() {
                 size="sm"
                 variant="outline"
                 className="whitespace-nowrap"
-                disabled={workingId === user.id}
+                disabled={workingId === user.id || isSelf}
+                title={isSelf ? "無法停用自己的帳號" : undefined}
                 onClick={() => void handleToggleStatus(user)}
               >
                 {user.is_active ? "停用" : "啟用"}
@@ -486,7 +488,7 @@ export default function AdminUsersPage() {
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <header>
         <h1 className="text-lg font-semibold text-zinc-900">用戶管理</h1>
-        <p className="text-xs text-zinc-500">admin 專用：角色授權、停用/啟用、醫護權限申請審核</p>
+        <p className="text-xs text-zinc-500">admin 專用：角色授權、停用/啟用、醫護權限申請審核（工作量與審核統計請見病患分配）</p>
       </header>
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
@@ -535,7 +537,7 @@ export default function AdminUsersPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white">
+      <section aria-label="用戶清單" className="rounded-2xl border border-zinc-200 bg-white">
         <div className="border-b border-zinc-100 px-4 py-3 text-sm font-medium text-zinc-900">用戶清單</div>
         <div className="border-b border-zinc-100 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -597,7 +599,7 @@ export default function AdminUsersPage() {
           <TableBody>
             {usersTable.getRowModel().rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-sm text-zinc-500">
+                <TableCell colSpan={9} className="py-8 text-center text-sm text-zinc-500">
                   沒有符合條件的用戶
                 </TableCell>
               </TableRow>

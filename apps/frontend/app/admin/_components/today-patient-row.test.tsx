@@ -13,6 +13,10 @@ function makePatient(overrides?: Partial<StaffTodayAttentionPatientItem>): Staff
     sort_upload_at: "2026-08-09T00:00:00Z",
     has_annotation: false,
     annotation_label: null,
+    annotation_reviewer_name: null,
+    annotation_reviewed_by_me: false,
+    annotation_reviewer_count: 0,
+    annotation_reviewed_at: null,
     picture_url: null,
     day_upload_count: 2,
     preview_upload_ids: [],
@@ -163,4 +167,79 @@ test("hides symptom chips in list card for elevated risk", () => {
   expect(screen.getByText("症狀高風險")).toBeInTheDocument();
   expect(screen.queryByText("疼痛")).not.toBeInTheDocument();
   expect(screen.queryByText("膿")).not.toBeInTheDocument();
+});
+
+function renderRow(item: StaffTodayAttentionPatientItem) {
+  return render(
+    <TodayPatientRow
+      item={item}
+      selected={false}
+      onSelect={jest.fn()}
+      imageUrlByUploadId={{}}
+      imageErrorByUploadId={{}}
+    />
+  );
+}
+
+test("shows no reviewer line when the representative upload is unannotated", () => {
+  renderRow(makePatient());
+
+  expect(screen.queryByText(/已標註/)).not.toBeInTheDocument();
+});
+
+test("shows the reviewer name and Taipei time of the annotation", () => {
+  renderRow(
+    makePatient({
+      has_annotation: true,
+      annotation_label: "normal",
+      annotation_reviewer_name: "林美玲",
+      annotation_reviewer_count: 1,
+      annotation_reviewed_at: "2026-08-09T06:22:00Z",
+    })
+  );
+
+  expect(screen.getByText("林美玲 14:22 已標註")).toBeInTheDocument();
+});
+
+test("shows 我 when the viewer annotated it", () => {
+  renderRow(
+    makePatient({
+      has_annotation: true,
+      annotation_label: "suspected",
+      annotation_reviewer_name: "林美玲",
+      annotation_reviewed_by_me: true,
+      annotation_reviewer_count: 1,
+      annotation_reviewed_at: "2026-08-09T06:22:00Z",
+    })
+  );
+
+  expect(screen.getByText("我 14:22 已標註")).toBeInTheDocument();
+});
+
+test("shows the reviewer count when several staff annotated the same upload", () => {
+  renderRow(
+    makePatient({
+      has_annotation: true,
+      annotation_label: "confirmed_infection",
+      annotation_reviewer_name: "林美玲",
+      annotation_reviewer_count: 3,
+      annotation_reviewed_at: "2026-08-09T06:22:00Z",
+    })
+  );
+
+  expect(screen.getByText("林美玲 等 3 人 14:22 已標註")).toBeInTheDocument();
+});
+
+test("falls back to 未命名 when the reviewer has no name on file", () => {
+  renderRow(
+    makePatient({
+      has_annotation: true,
+      annotation_label: "normal",
+      annotation_reviewer_name: null,
+      annotation_reviewer_count: 1,
+      annotation_reviewed_at: "2026-08-09T06:22:00Z",
+    })
+  );
+
+  expect(screen.getByText("未命名 14:22 已標註")).toBeInTheDocument();
 });

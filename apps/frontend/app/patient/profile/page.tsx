@@ -11,6 +11,14 @@ import { fetchPatientProfile, PatientProfileResponse } from "@/lib/api/identity"
 import { APP_VERSION_LABEL } from "@/lib/app-version";
 import { getPatientSession } from "@/lib/auth/patient-session";
 
+function primaryNurseLabel(name: string | null, assigned: boolean): string {
+  const trimmed = name?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+  return assigned ? "已指派" : "未指派";
+}
+
 export default function PatientProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<PatientProfileResponse | null>(null);
@@ -112,7 +120,9 @@ export default function PatientProfilePage() {
               </div>
               <div className="rounded-xl bg-zinc-50 px-3 py-2">
                 <p className="text-xs text-zinc-500">主要護理師</p>
-                <p className="text-zinc-900">{profile.primary_nurse_name ?? "未設定"}</p>
+                <p className="text-zinc-900">
+                  {primaryNurseLabel(profile.primary_nurse_name, profile.primary_nurse_assigned)}
+                </p>
               </div>
               <div className="rounded-xl bg-zinc-50 px-3 py-2">
                 <p className="text-xs text-zinc-500">最長連續上傳天數</p>

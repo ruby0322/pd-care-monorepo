@@ -1,12 +1,121 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import Select, delete, func, or_, select
+from sqlalchemy import Select, case, delete, distinct, exists, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import AuthorizationAuditEvent, HealthcareAccessRequest, LiffIdentity, StaffPatientAssignment
+from app.db.models import (
+    AIResult,
+    Annotation,
+    AuthorizationAuditEvent,
+    HealthcareAccessRequest,
+    LiffIdentity,
+    Patient,
+    StaffPatientAssignment,
+    Upload,
+)
+from app.services.attention_triage import workbench_upload_where_clauses
 from app.services.identity_validation import assert_valid_line_user_id
+
+
+# Re-labelling an upload updates the annotation in place, so review recency and the rolling
+# windows must prefer updated_at and fall back to created_at for rows written before it existed.
+ANNOTATION_REVIEWED_AT = func.coalesce(Annotation.updated_at, Annotation.created_at)
+
+
+@dataclass(frozen=True)
+class StaffWorkloadStats:
+    """Labeling workload for one staff/admin identity.
+
+    Every field is scoped to live work: assigned patients are limited to active
+    patients and assigned uploads reuse the review workbench's eligibility rules,
+    so the counts share one universe and the ratio matches the queue the reviewer
+    actually sees. Counting assignments to deactivated patients here would read as
+    "7 assigned patients / 0 assigned uploads", which looks like a bug.
+    """
+
+    assigned_patient_count: int
+    assigned_upload_count: int
+    labeled_assigned_upload_count: int
+    reviewed_upload_count: int
+    review_count_7d: int
+    review_count_30d: int
+    last_reviewed_at: datetime | None
+
+
+def load_staff_workload_stats(
+    session: Session,
+    *,
+    staff_identity_ids: list[int],
+    now: datetime | None = None,
+) -> dict[int, StaffWorkloadStats]:
+    normalized_ids = {identity_id for identity_id in staff_identity_ids if identity_id > 0}
+    if not normalized_ids:
+        return {}
+
+    reference_time = now or datetime.now(tz=timezone.utc)
+    cutoff_7d = reference_time - timedelta(days=7)
+    cutoff_30d = reference_time - timedelta(days=30)
+
+    assigned_patients = dict(
+        session.execute(
+            select(StaffPatientAssignment.staff_identity_id, func.count(StaffPatientAssignment.patient_id))
+            .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+            .where(StaffPatientAssignment.staff_identity_id.in_(normalized_ids), Patient.is_active.is_(True))
+            .group_by(StaffPatientAssignment.staff_identity_id)
+        ).all()
+    )
+
+    is_labeled = exists().where(Annotation.upload_id == Upload.id)
+    upload_rows = session.execute(
+        select(
+            StaffPatientAssignment.staff_identity_id,
+            func.count(Upload.id),
+            func.coalesce(func.sum(case((is_labeled, 1), else_=0)), 0),
+        )
+        .select_from(StaffPatientAssignment)
+        .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+        .join(Upload, Upload.patient_id == Patient.id)
+        .join(AIResult, AIResult.upload_id == Upload.id)
+        .where(StaffPatientAssignment.staff_identity_id.in_(normalized_ids), *workbench_upload_where_clauses())
+        .group_by(StaffPatientAssignment.staff_identity_id)
+    ).all()
+    assigned_uploads = {int(staff_id): (int(total), int(labeled)) for staff_id, total, labeled in upload_rows}
+
+    reviewed_rows = session.execute(
+        select(
+            Annotation.reviewer_identity_id,
+            func.count(distinct(Annotation.upload_id)),
+            func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_7d, Annotation.upload_id)))),
+            func.count(distinct(case((ANNOTATION_REVIEWED_AT >= cutoff_30d, Annotation.upload_id)))),
+            func.max(ANNOTATION_REVIEWED_AT),
+        )
+        .where(Annotation.reviewer_identity_id.in_(normalized_ids))
+        .group_by(Annotation.reviewer_identity_id)
+    ).all()
+    reviewed = {
+        int(staff_id): (int(total), int(count_7d or 0), int(count_30d or 0), last_at)
+        for staff_id, total, count_7d, count_30d, last_at in reviewed_rows
+    }
+
+    result: dict[int, StaffWorkloadStats] = {}
+    for identity_id in normalized_ids:
+        assigned_upload_count, labeled_assigned_upload_count = assigned_uploads.get(identity_id, (0, 0))
+        reviewed_upload_count, review_count_7d, review_count_30d, last_reviewed_at = reviewed.get(
+            identity_id, (0, 0, 0, None)
+        )
+        result[identity_id] = StaffWorkloadStats(
+            assigned_patient_count=int(assigned_patients.get(identity_id, 0)),
+            assigned_upload_count=assigned_upload_count,
+            labeled_assigned_upload_count=labeled_assigned_upload_count,
+            reviewed_upload_count=reviewed_upload_count,
+            review_count_7d=review_count_7d,
+            review_count_30d=review_count_30d,
+            last_reviewed_at=last_reviewed_at,
+        )
+    return result
 
 
 def create_or_replace_healthcare_permission_request(
@@ -124,6 +233,7 @@ def approve_healthcare_permission_request(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="healthcare_permission_approve",
             before_value=before_role,
             after_value=role,
@@ -163,6 +273,7 @@ def reject_healthcare_permission_request(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="healthcare_permission_reject",
             before_value=identity.role,
             after_value=identity.role,
@@ -232,8 +343,13 @@ def list_identities(
     total = int(session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one() or 0)
     if sort == "assigned_count_desc":
         assigned_count = (
-            select(func.count(StaffPatientAssignment.id))
-            .where(StaffPatientAssignment.staff_identity_id == LiffIdentity.id)
+            select(func.count(StaffPatientAssignment.patient_id))
+            .select_from(StaffPatientAssignment)
+            .join(Patient, Patient.id == StaffPatientAssignment.patient_id)
+            .where(
+                StaffPatientAssignment.staff_identity_id == LiffIdentity.id,
+                Patient.is_active.is_(True),
+            )
             .correlate(LiffIdentity)
             .scalar_subquery()
         )
@@ -318,6 +434,8 @@ def update_identity_role(
 ) -> LiffIdentity:
     if actor_role != "admin":
         raise PermissionError("不可踰越階級：僅 admin 可調整角色")
+    if actor_identity_id == target_identity_id:
+        raise PermissionError("無法調整自己的角色，避免最後一位 admin 自我降權")
     identity = session.get(LiffIdentity, target_identity_id)
     if identity is None:
         raise LookupError("Identity not found")
@@ -328,6 +446,7 @@ def update_identity_role(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="identity_role_update",
             before_value=before_role,
             after_value=role,
@@ -350,6 +469,8 @@ def update_identity_status(
 ) -> LiffIdentity:
     if actor_role != "admin":
         raise PermissionError("不可踰越階級：僅 admin 可調整帳號狀態")
+    if actor_identity_id == target_identity_id:
+        raise PermissionError("無法停用自己的帳號，避免最後一位 admin 自我鎖出")
     identity = session.get(LiffIdentity, target_identity_id)
     if identity is None:
         raise LookupError("Identity not found")
@@ -361,6 +482,7 @@ def update_identity_status(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="identity_status_update",
             before_value=before_value,
             after_value=after_value,
@@ -400,6 +522,7 @@ def update_identity_real_name(
             actor_identity_id=actor_identity_id,
             actor_role=actor_role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="identity_real_name_update",
             before_value=before_value,
             after_value=normalized_name,

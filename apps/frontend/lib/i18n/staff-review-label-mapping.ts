@@ -21,6 +21,7 @@ export const STAFF_REVIEW_COPY = {
   regularRisk: "一般風險",
   unmarked: "未標註",
   annotated: "已標註",
+  unnamedReviewer: "未命名",
   commentPlaceholder: "請輸入護理審核備註（選填）",
   loadingImage: "載入影像中...",
 } as const;
@@ -108,4 +109,32 @@ export function annotationBadgeClass(value: StaffAnnotationItem["label"] | null)
 
 export function annotationStatusBadgeClass(hasAnnotation: boolean): string {
   return hasAnnotation ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-700";
+}
+
+export type AnnotationReviewerSummaryLike = {
+  annotation_reviewer_name: string | null;
+  annotation_reviewed_by_me: boolean;
+  annotation_reviewer_count: number;
+  annotation_reviewed_at: string | null;
+};
+
+function formatAnnotationTime(raw: string): string {
+  return new Intl.DateTimeFormat("zh-TW", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Taipei",
+  }).format(new Date(raw));
+}
+
+/** "林美玲 14:22 已標註" / "我 14:22 已標註" / "林美玲 等 3 人 14:22 已標註"; null when nobody annotated. */
+export function annotationReviewerText(item: AnnotationReviewerSummaryLike): string | null {
+  if (item.annotation_reviewer_count <= 0 || !item.annotation_reviewed_at) {
+    return null;
+  }
+  const who = item.annotation_reviewed_by_me
+    ? "我"
+    : item.annotation_reviewer_name?.trim() || STAFF_REVIEW_COPY.unnamedReviewer;
+  const others = item.annotation_reviewer_count > 1 ? ` 等 ${item.annotation_reviewer_count} 人` : "";
+  return `${who}${others} ${formatAnnotationTime(item.annotation_reviewed_at)} ${STAFF_REVIEW_COPY.annotated}`;
 }

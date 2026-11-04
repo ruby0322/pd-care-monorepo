@@ -245,7 +245,7 @@ def _lifetime_metrics_from_date_counts(
     today: date,
 ) -> PatientUploadLifetimeMetrics:
     streak = 0
-    checking = today
+    checking = today if uploads_by_date.get(today, 0) > 0 else today - timedelta(days=1)
     while uploads_by_date.get(checking, 0) > 0:
         streak += 1
         checking -= timedelta(days=1)

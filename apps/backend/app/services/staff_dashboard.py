@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Literal, cast
+from typing import Literal, NamedTuple, cast
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import Select, and_, case, delete, func, select
@@ -27,13 +27,55 @@ def _load_latest_annotation_by_upload_ids(session: Session, *, upload_ids: set[i
     rows = session.execute(
         select(Annotation)
         .where(Annotation.upload_id.in_(upload_ids))
-        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc())
+        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc(), Annotation.id.desc())
     ).scalars()
     result: dict[int, Annotation] = {}
     for row in rows:
         if row.upload_id not in result:
             result[row.upload_id] = row
     return result
+
+
+class AnnotationReviewerSummary(NamedTuple):
+    reviewer_identity_id: int
+    reviewer_name: str | None
+    reviewer_count: int
+    reviewed_at: datetime
+
+
+def _load_annotation_reviewer_summary(session: Session, *, upload_ids: set[int]) -> dict[int, AnnotationReviewerSummary]:
+    """Latest reviewer and distinct reviewer count per upload, in one query."""
+    if not upload_ids:
+        return {}
+    rows = session.execute(
+        select(
+            Annotation.upload_id,
+            Annotation.reviewer_identity_id,
+            Annotation.created_at,
+            LiffIdentity.real_name,
+            LiffIdentity.display_name,
+        )
+        .join(LiffIdentity, LiffIdentity.id == Annotation.reviewer_identity_id)
+        .where(Annotation.upload_id.in_(upload_ids))
+        .order_by(Annotation.upload_id.asc(), Annotation.created_at.desc(), Annotation.id.desc())
+    ).all()
+    latest: dict[int, AnnotationReviewerSummary] = {}
+    reviewer_ids_by_upload: dict[int, set[int]] = defaultdict(set)
+    for upload_id, reviewer_identity_id, created_at, real_name, display_name in rows:
+        reviewer_ids_by_upload[upload_id].add(reviewer_identity_id)
+        if upload_id in latest:
+            continue
+        latest[upload_id] = AnnotationReviewerSummary(
+            reviewer_identity_id=reviewer_identity_id,
+            reviewer_name=(real_name or "").strip() or (display_name or "").strip() or None,
+            reviewer_count=0,
+            reviewed_at=created_at,
+        )
+    # Count people, not rows: the copy says 「等 N 人」 and one reviewer can hold several rows.
+    return {
+        upload_id: summary._replace(reviewer_count=len(reviewer_ids_by_upload[upload_id]))
+        for upload_id, summary in latest.items()
+    }
 
 
 def _tier_for_upload(
@@ -650,6 +692,7 @@ def upsert_annotation_for_upload(
     if upload is None:
         raise LookupError("Upload not found")
 
+    reviewed_at = datetime.now(tz=timezone.utc)
     annotation = session.execute(
         select(Annotation)
         .where(
@@ -667,12 +710,14 @@ def upsert_annotation_for_upload(
             label=label,
             comment=comment,
             patient_read_at=None,
+            updated_at=reviewed_at,
         )
         session.add(annotation)
     else:
         annotation.label = label
         annotation.comment = comment
         annotation.patient_read_at = None
+        annotation.updated_at = reviewed_at
     session.commit()
     session.refresh(annotation)
     return annotation
@@ -1022,6 +1067,10 @@ class TodayAttentionPatientRow:
     sort_upload_at: datetime
     has_annotation: bool
     annotation_label: Literal["normal", "suspected", "confirmed_infection", "rejected"] | None
+    annotation_reviewer_identity_id: int | None
+    annotation_reviewer_name: str | None
+    annotation_reviewer_count: int
+    annotation_reviewed_at: datetime | None
     picture_url: str | None
     day_upload_count: int
     preview_upload_ids: list[int]
@@ -1156,6 +1205,7 @@ def list_today_attention_patients(
 
     upload_ids = {upload.id for upload, _, _ in rows}
     latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
+    reviewer_summary_by_upload = _load_annotation_reviewer_summary(session, upload_ids=upload_ids)
     picture_by_patient = _load_patient_picture_urls(
         session,
         patient_ids={patient.id for _, _, patient in rows},
@@ -1226,6 +1276,7 @@ def list_today_attention_patients(
                 else None
             )
 
+        reviewer_summary = reviewer_summary_by_upload.get(representative.id)
         attention_rows.append(
             TodayAttentionPatientRow(
                 patient=patients_by_id[patient_id],
@@ -1234,6 +1285,10 @@ def list_today_attention_patients(
                 sort_upload_at=sort_upload_at,
                 has_annotation=has_annotation,
                 annotation_label=annotation_label,
+                annotation_reviewer_identity_id=reviewer_summary.reviewer_identity_id if reviewer_summary else None,
+                annotation_reviewer_name=reviewer_summary.reviewer_name if reviewer_summary else None,
+                annotation_reviewer_count=reviewer_summary.reviewer_count if reviewer_summary else 0,
+                annotation_reviewed_at=reviewer_summary.reviewed_at if reviewer_summary else None,
                 picture_url=picture_by_patient.get(patient_id),
                 day_upload_count=day_upload_count,
                 preview_upload_ids=preview_upload_ids,
@@ -1406,7 +1461,7 @@ def get_daily_suspected_series(
     *,
     lookback_days: int,
     accessible_patient_ids: set[int] | None = None,
-) -> list[tuple[str, int, int, int]]:
+) -> list[tuple[str, int, int, int, int]]:
     end_date, _, _ = resolve_taipei_day_bounds()
     start_date = end_date - timedelta(days=lookback_days - 1)
     start_dt = datetime.combine(start_date, time.min, tzinfo=TAIPEI_TIMEZONE).astimezone(timezone.utc)
@@ -1424,26 +1479,134 @@ def get_daily_suspected_series(
     upload_ids = {upload.id for upload, _ in rows}
     latest_annotation_by_upload = _load_latest_annotation_by_upload_ids(session, upload_ids=upload_ids)
 
-    by_day: dict[str, tuple[int, int, int]] = {}
+    by_day: dict[str, tuple[int, int, int, int]] = {}
     for upload, ai_result in rows:
         day_key = to_taipei_date(upload.created_at).isoformat()
-        total, suspected, elevated = by_day.get(day_key, (0, 0, 0))
+        total, suspected, elevated, labeled = by_day.get(day_key, (0, 0, 0, 0))
+        annotation = latest_annotation_by_upload.get(upload.id)
         tier = _tier_for_upload(
             upload=upload,
             screening_result=ai_result.screening_result,
-            annotation=latest_annotation_by_upload.get(upload.id),
+            annotation=annotation,
         )
         by_day[day_key] = (
             total + 1,
             suspected + (1 if tier == "suspected" else 0),
             elevated + (1 if tier == "elevated" else 0),
+            labeled + (1 if annotation is not None else 0),
         )
 
-    points: list[tuple[str, int, int, int]] = []
+    points: list[tuple[str, int, int, int, int]] = []
     cursor = start_date
     while cursor <= end_date:
         day = cursor.isoformat()
-        total, suspected, elevated = by_day.get(day, (0, 0, 0))
-        points.append((day, total, suspected, elevated))
+        total, suspected, elevated, labeled = by_day.get(day, (0, 0, 0, 0))
+        points.append((day, total, suspected, elevated, labeled))
         cursor += timedelta(days=1)
     return points
+
+
+@dataclass(frozen=True)
+class ReviewThroughputDay:
+    local_date: str
+    reviewed_uploads: int
+    reviewer_count: int
+
+
+@dataclass(frozen=True)
+class ReviewThroughputStaff:
+    identity_id: int
+    line_user_id: str
+    display_name: str | None
+    real_name: str | None
+    reviewed_uploads: int
+    daily_counts: list[int]
+
+
+@dataclass(frozen=True)
+class ReviewThroughputTotals:
+    """Window-level distinct counts. Summing the daily rows would double-count an upload
+    reviewed on more than one day, so the averages must divide these instead."""
+
+    reviewed_uploads: int
+    reviewer_count: int
+
+
+def get_review_throughput(
+    session: Session,
+    *,
+    lookback_days: int,
+    top_staff_limit: int = 10,
+) -> tuple[list[ReviewThroughputDay], list[ReviewThroughputStaff], ReviewThroughputTotals]:
+    """Per-day and per-reviewer review counts over the trailing window, in Taipei days.
+
+    A review is counted on the day it was last touched: re-labelling updates the annotation in
+    place, so COALESCE(updated_at, created_at) is the activity timestamp. Counts are distinct by
+    upload, so revisiting one upload does not inflate a reviewer's number.
+    """
+    end_date, _, _ = resolve_taipei_day_bounds()
+    start_date = end_date - timedelta(days=lookback_days - 1)
+    start_dt = datetime.combine(start_date, time.min, tzinfo=TAIPEI_TIMEZONE).astimezone(timezone.utc)
+    reviewed_at = func.coalesce(Annotation.updated_at, Annotation.created_at)
+
+    rows = session.execute(
+        select(Annotation.reviewer_identity_id, Annotation.upload_id, reviewed_at)
+        .join(LiffIdentity, LiffIdentity.id == Annotation.reviewer_identity_id)
+        .where(reviewed_at >= start_dt, LiffIdentity.role.in_(("staff", "admin")))
+    ).all()
+
+    uploads_by_day: dict[str, set[int]] = defaultdict(set)
+    reviewers_by_day: dict[str, set[int]] = defaultdict(set)
+    uploads_by_staff: dict[int, set[int]] = defaultdict(set)
+    uploads_by_staff_day: dict[tuple[int, str], set[int]] = defaultdict(set)
+
+    for reviewer_identity_id, upload_id, activity_at in rows:
+        day_key = to_taipei_date(activity_at).isoformat()
+        uploads_by_day[day_key].add(upload_id)
+        reviewers_by_day[day_key].add(reviewer_identity_id)
+        uploads_by_staff[reviewer_identity_id].add(upload_id)
+        uploads_by_staff_day[(reviewer_identity_id, day_key)].add(upload_id)
+
+    day_keys: list[str] = []
+    cursor = start_date
+    while cursor <= end_date:
+        day_keys.append(cursor.isoformat())
+        cursor += timedelta(days=1)
+
+    days = [
+        ReviewThroughputDay(
+            local_date=day_key,
+            reviewed_uploads=len(uploads_by_day.get(day_key, ())),
+            reviewer_count=len(reviewers_by_day.get(day_key, ())),
+        )
+        for day_key in day_keys
+    ]
+
+    ranked_ids = sorted(uploads_by_staff, key=lambda identity_id: (-len(uploads_by_staff[identity_id]), identity_id))
+    top_ids = ranked_ids[:top_staff_limit]
+    identities = {
+        identity.id: identity
+        for identity in session.execute(select(LiffIdentity).where(LiffIdentity.id.in_(top_ids or [0]))).scalars().all()
+    }
+
+    top_staff: list[ReviewThroughputStaff] = []
+    for identity_id in top_ids:
+        identity = identities.get(identity_id)
+        if identity is None:
+            continue
+        top_staff.append(
+            ReviewThroughputStaff(
+                identity_id=identity_id,
+                line_user_id=identity.line_user_id,
+                display_name=identity.display_name,
+                real_name=identity.real_name,
+                reviewed_uploads=len(uploads_by_staff[identity_id]),
+                daily_counts=[len(uploads_by_staff_day.get((identity_id, day_key), ())) for day_key in day_keys],
+            )
+        )
+
+    totals = ReviewThroughputTotals(
+        reviewed_uploads=len({upload_id for uploads in uploads_by_staff.values() for upload_id in uploads}),
+        reviewer_count=len(uploads_by_staff),
+    )
+    return days, top_staff, totals

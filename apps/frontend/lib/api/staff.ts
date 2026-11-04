@@ -140,6 +140,12 @@ export type StaffTodayAttentionPatientItem = {
   sort_upload_at: string;
   has_annotation: boolean;
   annotation_label: "normal" | "suspected" | "confirmed_infection" | "rejected" | null;
+  annotation_reviewer_name: string | null;
+  /** The latest annotation is the viewer's — not "the viewer annotated this upload" (a later
+   * colleague review flips it back to false). Only for the 我 pronoun, never a "handled by me" filter. */
+  annotation_reviewed_by_me: boolean;
+  annotation_reviewer_count: number;
+  annotation_reviewed_at: string | null;
   picture_url: string | null;
   day_upload_count: number;
   preview_upload_ids: number[];
@@ -158,6 +164,7 @@ export type StaffTodayAttentionResponse = {
 export type StaffWorkbenchWeekDayItem = {
   local_date: string;
   upload_count: number;
+  labeled_upload_count: number;
   uploaded_users: number;
   risky_patient_count: number;
   unhandled_patient_count: number;
@@ -386,6 +393,7 @@ export type AdminActiveUsersSeriesResponse = {
 export type AdminDailySuspectedSeriesPoint = {
   date: string;
   total_uploads: number;
+  labeled_uploads: number;
   suspected_uploads: number;
   symptom_elevated_uploads: number;
   suspected_ratio: number;
@@ -394,6 +402,40 @@ export type AdminDailySuspectedSeriesPoint = {
 export type AdminDailySuspectedSeriesResponse = {
   lookback_days: number;
   items: AdminDailySuspectedSeriesPoint[];
+};
+
+export type AdminReviewThroughputDay = {
+  date: string;
+  reviewed_uploads: number;
+  reviewer_count: number;
+};
+
+export type AdminReviewThroughputStaff = {
+  identity_id: number;
+  line_user_id: string;
+  display_name: string | null;
+  real_name: string | null;
+  reviewed_uploads: number;
+  daily_counts: number[];
+};
+
+export type AdminReviewThroughputResponse = {
+  lookback_days: number;
+  reviewed_uploads_total: number;
+  reviewer_count_total: number;
+  days: AdminReviewThroughputDay[];
+  top_staff: AdminReviewThroughputStaff[];
+};
+
+export type AdminIdentityWorkloadStats = {
+  assigned_patient_count: number;
+  assigned_upload_count: number;
+  labeled_assigned_upload_count: number;
+  labeled_assigned_ratio: number;
+  reviewed_upload_count: number;
+  review_count_7d: number;
+  review_count_30d: number;
+  last_reviewed_at: string | null;
 };
 
 export type AdminIdentityItem = {
@@ -406,6 +448,7 @@ export type AdminIdentityItem = {
   is_active: boolean;
   patient_id: number | null;
   created_at: string;
+  workload: AdminIdentityWorkloadStats | null;
 };
 
 export type AdminIdentityListResponse = {
@@ -925,6 +968,19 @@ export async function fetchAdminDailySuspectedSeries(params?: {
       },
     }
   );
+  return data;
+}
+
+export async function fetchAdminReviewThroughput(params?: {
+  lookbackDays?: number;
+  topStaffLimit?: number;
+}): Promise<AdminReviewThroughputResponse> {
+  const { data } = await apiClient.get<AdminReviewThroughputResponse>("/v1/staff/admin/analytics/review-throughput", {
+    params: {
+      lookback_days: params?.lookbackDays ?? 30,
+      top_staff_limit: params?.topStaffLimit ?? 10,
+    },
+  });
   return data;
 }
 

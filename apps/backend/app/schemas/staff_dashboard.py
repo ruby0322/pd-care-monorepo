@@ -124,6 +124,12 @@ class StaffTodayAttentionPatientItem(BaseModel):
     sort_upload_at: datetime
     has_annotation: bool
     annotation_label: Literal["normal", "suspected", "confirmed_infection", "rejected"] | None = None
+    annotation_reviewer_name: str | None = None
+    # "The latest annotation is the viewer's", not "the viewer annotated this upload":
+    # a later colleague review flips it back to False. Do not use it as a "already handled by me" filter.
+    annotation_reviewed_by_me: bool = False
+    annotation_reviewer_count: int = 0
+    annotation_reviewed_at: datetime | None = None
     picture_url: str | None = None
     day_upload_count: int = 0
     preview_upload_ids: list[int] = Field(default_factory=list)
@@ -142,6 +148,7 @@ class StaffTodayAttentionResponse(BaseModel):
 class StaffWorkbenchWeekDayItem(BaseModel):
     local_date: str
     upload_count: int = 0
+    labeled_upload_count: int = 0
     uploaded_users: int = 0
     risky_patient_count: int = 0
     unhandled_patient_count: int = 0
@@ -507,6 +514,7 @@ class StaffActiveUsersSeriesResponse(BaseModel):
 class StaffDailySuspectedSeriesPoint(BaseModel):
     date: str
     total_uploads: int
+    labeled_uploads: int = 0
     suspected_uploads: int
     symptom_elevated_uploads: int = 0
     suspected_ratio: float
@@ -515,3 +523,26 @@ class StaffDailySuspectedSeriesPoint(BaseModel):
 class StaffDailySuspectedSeriesResponse(BaseModel):
     lookback_days: int
     items: list[StaffDailySuspectedSeriesPoint]
+
+
+class StaffReviewThroughputDay(BaseModel):
+    date: str
+    reviewed_uploads: int
+    reviewer_count: int
+
+
+class StaffReviewThroughputStaffItem(BaseModel):
+    identity_id: int
+    line_user_id: str
+    display_name: str | None
+    real_name: str | None
+    reviewed_uploads: int
+    daily_counts: list[int]
+
+
+class StaffReviewThroughputResponse(BaseModel):
+    lookback_days: int
+    reviewed_uploads_total: int
+    reviewer_count_total: int
+    days: list[StaffReviewThroughputDay]
+    top_staff: list[StaffReviewThroughputStaffItem]

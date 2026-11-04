@@ -33,6 +33,31 @@ jest.mock("@/lib/api/client", () => ({
   getReadableApiError: jest.fn(() => "readable error"),
 }));
 
+function mockProfile(
+  overrides: Partial<{
+    primary_nurse_name: string | null;
+    primary_nurse_assigned: boolean;
+  }> = {},
+) {
+  return {
+    status: "matched",
+    can_upload: true,
+    line_user_id: "U1234abcd",
+    display_name: "王小明",
+    picture_url: null,
+    patient_id: 1,
+    full_name: "王小明",
+    case_number: "P111111",
+    birth_date: "1981-01-01",
+    onboarding_guide_dismissed: false,
+    longest_continuous_upload_streak_days: 14,
+    total_upload_count: 42,
+    primary_nurse_name: "鄭靜誼",
+    primary_nurse_assigned: true,
+    ...overrides,
+  };
+}
+
 describe("PatientProfilePage", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -45,21 +70,7 @@ describe("PatientProfilePage", () => {
   });
 
   test("shows lifetime metrics without an outer wrapping card", async () => {
-    (fetchPatientProfile as jest.Mock).mockResolvedValue({
-      status: "matched",
-      can_upload: true,
-      line_user_id: "U1234abcd",
-      display_name: "王小明",
-      picture_url: null,
-      patient_id: 1,
-      full_name: "王小明",
-      case_number: "P111111",
-      birth_date: "1981-01-01",
-      onboarding_guide_dismissed: false,
-      longest_continuous_upload_streak_days: 14,
-      total_upload_count: 42,
-      primary_nurse_name: "鄭靜誼",
-    });
+    (fetchPatientProfile as jest.Mock).mockResolvedValue(mockProfile());
 
     const { container } = render(<PatientProfilePage />);
 
@@ -71,6 +82,32 @@ describe("PatientProfilePage", () => {
     expect(screen.getByText("鄭靜誼")).toBeInTheDocument();
     expect(container.querySelector(".rounded-3xl.border")).not.toBeInTheDocument();
     expect(screen.getByText("PD Care v0.1.0")).toBeInTheDocument();
+  });
+
+  test("shows 已指派 when a nurse is assigned without a clinical real name", async () => {
+    (fetchPatientProfile as jest.Mock).mockResolvedValue(
+      mockProfile({ primary_nurse_name: null, primary_nurse_assigned: true }),
+    );
+
+    render(<PatientProfilePage />);
+
+    expect(await screen.findByText("主要護理師")).toBeInTheDocument();
+    expect(screen.getByText("已指派")).toBeInTheDocument();
+    expect(screen.queryByText("未設定")).not.toBeInTheDocument();
+    expect(screen.queryByText("未指派")).not.toBeInTheDocument();
+  });
+
+  test("shows 未指派 when no nurse is assigned", async () => {
+    (fetchPatientProfile as jest.Mock).mockResolvedValue(
+      mockProfile({ primary_nurse_name: null, primary_nurse_assigned: false }),
+    );
+
+    render(<PatientProfilePage />);
+
+    expect(await screen.findByText("主要護理師")).toBeInTheDocument();
+    expect(screen.getByText("未指派")).toBeInTheDocument();
+    expect(screen.queryByText("未設定")).not.toBeInTheDocument();
+    expect(screen.queryByText("已指派")).not.toBeInTheDocument();
   });
 
   test("redirects users without a patient session", async () => {

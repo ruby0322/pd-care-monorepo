@@ -196,6 +196,7 @@ def _record_patient_binding_audit(
             actor_identity_id=identity.id,
             actor_role=identity.role,
             target_identity_id=identity.id,
+            target_line_user_id=identity.line_user_id,
             action="identity_patient_binding_update",
             before_value=str(before_patient_id) if before_patient_id is not None else None,
             after_value=str(after_patient_id) if after_patient_id is not None else None,
@@ -255,18 +256,21 @@ def get_identity_profile_by_identity_id(session: Session, *, identity_id: int) -
     )
 
 
-def get_primary_nurse_real_name(session: Session, *, patient_id: int) -> str | None:
-    real_name = session.execute(
-        select(LiffIdentity.real_name)
-        .join(StaffPatientAssignment, StaffPatientAssignment.staff_identity_id == LiffIdentity.id)
+def get_primary_nurse_assignment(session: Session, *, patient_id: int) -> tuple[bool, str | None]:
+    row = session.execute(
+        select(StaffPatientAssignment.id, LiffIdentity.real_name)
+        .join(LiffIdentity, StaffPatientAssignment.staff_identity_id == LiffIdentity.id)
         .where(StaffPatientAssignment.patient_id == patient_id)
         .order_by(StaffPatientAssignment.id.desc())
         .limit(1)
-    ).scalar_one_or_none()
+    ).one_or_none()
+    if row is None:
+        return False, None
+    _assignment_id, real_name = row
     if real_name is None:
-        return None
+        return True, None
     normalized = real_name.strip()
-    return normalized or None
+    return True, normalized or None
 
 
 def dismiss_onboarding_guide(session: Session, *, identity_id: int) -> bool:

@@ -8,7 +8,12 @@ import { PersonAvatar } from "@/app/admin/patient-assignment/person-avatar";
 import { PatientDayUploadReviewModal } from "@/app/admin/_components/patient-day-upload-review-modal";
 import { UploadThumb } from "@/app/admin/_components/upload-thumb";
 import type { StaffTodayAttentionPatientItem } from "@/lib/api/staff";
-import { STAFF_REVIEW_COPY, annotationBadgeClass, annotationLabelTextOrUnmarked } from "@/lib/i18n/staff-review-label-mapping";
+import {
+  STAFF_REVIEW_COPY,
+  annotationBadgeClass,
+  annotationLabelTextOrUnmarked,
+  annotationReviewerText,
+} from "@/lib/i18n/staff-review-label-mapping";
 import { activeSymptomLabels } from "@/lib/symptoms";
 import { cn } from "@/lib/utils";
 
@@ -105,6 +110,7 @@ export function TodayPatientDetailPanel({
   const uploadIds = collectUploadIds(item).slice(0, 4);
   const overflowCount = Math.max(0, item.day_upload_count - uploadIds.length);
   const canReview = item.day_upload_count > 0;
+  const reviewerText = annotationReviewerText(item);
 
   const symptomLine =
     highlight != null
@@ -140,7 +146,7 @@ export function TodayPatientDetailPanel({
           <p className="mt-1 text-xs text-zinc-500">
             {dayScopeLabel} {item.day_upload_count} 張上傳
             <span className="mx-1 text-zinc-300">·</span>
-            <span className={status.className}>{status.text}</span>
+            <span className={status.className}>{reviewerText ?? status.text}</span>
           </p>
         </div>
       </div>

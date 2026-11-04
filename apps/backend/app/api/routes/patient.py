@@ -33,7 +33,7 @@ from app.services.identity import (
     dismiss_onboarding_guide,
     get_identity_profile_by_identity_id,
     get_identity_status_for_principal,
-    get_primary_nurse_real_name,
+    get_primary_nurse_assignment,
 )
 from app.services.model_loader import LoadedModel
 from app.services.prescreen import (
@@ -222,11 +222,14 @@ async def patient_profile(
         longest_streak = 0
         total_upload_count = 0
         primary_nurse_name = None
+        primary_nurse_assigned = False
         if status == "matched" and patient_id is not None:
             lifetime = summarize_patient_upload_lifetime_metrics(session, patient_id=patient_id)
             longest_streak = lifetime.longest_continuous_upload_streak_days
             total_upload_count = lifetime.total_upload_count
-            primary_nurse_name = get_primary_nurse_real_name(session, patient_id=patient_id)
+            primary_nurse_assigned, primary_nurse_name = get_primary_nurse_assignment(
+                session, patient_id=patient_id
+            )
 
         return PatientProfileResponse(
             status=status,
@@ -242,6 +245,7 @@ async def patient_profile(
             longest_continuous_upload_streak_days=longest_streak,
             total_upload_count=total_upload_count,
             primary_nurse_name=primary_nurse_name,
+            primary_nurse_assigned=primary_nurse_assigned,
         )
     finally:
         session.close()
