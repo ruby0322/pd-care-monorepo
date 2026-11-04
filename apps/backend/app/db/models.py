@@ -143,3 +143,36 @@ class AuthorizationAuditEvent(Base):
     after_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CopilotSession(Base):
+    __tablename__ = "copilot_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_identity_id: Mapped[int] = mapped_column(
+        ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False, default="新對話")
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    # private = owner only, staff = any staff/admin, admin = admin only.
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CopilotMessage(Base):
+    __tablename__ = "copilot_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("copilot_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # JSON array of {tool, params, ok, duration_ms, error} entries kept for auditability.
+    tool_trace: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
