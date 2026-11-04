@@ -11,6 +11,7 @@ from botocore.exceptions import ClientError
 from app.api.routes.staff_parts import (
     admin_assignments_analytics_router,
     admin_users_access_router,
+    cohort_analytics_router,
     notifications_router,
 )
 from app.api.routes.staff_parts.shared import (
@@ -113,6 +114,7 @@ router = APIRouter(tags=["Staff"])
 
 router.include_router(admin_users_access_router)
 router.include_router(admin_assignments_analytics_router)
+router.include_router(cohort_analytics_router)
 router.include_router(notifications_router)
 
 
