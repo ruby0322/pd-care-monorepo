@@ -1,6 +1,6 @@
 "use client";
 
-import { Code2, Download, Maximize2, RefreshCw, X, Zap } from "lucide-react";
+import { AlertTriangle, Code2, Download, Maximize2, RefreshCw, Wrench, X, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { queryCopilotProxy } from "@/lib/api/copilot";
@@ -8,7 +8,9 @@ import { queryCopilotProxy } from "@/lib/api/copilot";
 import {
   buildArtifactDocument,
   isAllowedArtifactTool,
+  parseArtifactError,
   parseArtifactQuery,
+  type ArtifactErrorMessage,
 } from "./artifact-bridge";
 
 const MAX_CONCURRENT_QUERIES = 3;
@@ -19,15 +21,18 @@ type Props = {
   /** Live data is opt-in: an artifact only reaches the proxy once the user turns it on. */
   liveEnabled: boolean;
   onToggleLive: (next: boolean) => void;
+  /** Lets the thread offer to send the failure back so the assistant can repair its own HTML. */
+  onRequestRepair?: (errors: ArtifactErrorMessage[]) => void;
 };
 
-export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive }: Props) {
+export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequestRepair }: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [height, setHeight] = useState(320);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSource, setShowSource] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [runtimeErrors, setRuntimeErrors] = useState<ArtifactErrorMessage[]>([]);
   const inFlightRef = useRef(0);
   const lastQueryAtRef = useRef(0);
 
@@ -54,6 +59,14 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive }: Props) 
       if (heightPayload && heightPayload.type === "pdcare:height" && typeof heightPayload.height === "number") {
         const next = Math.min(Math.max(heightPayload.height + 8, 160), 2400);
         setHeight((current) => (Math.abs(current - next) > 4 ? next : current));
+        return;
+      }
+
+      const runtimeError = parseArtifactError(event.data);
+      if (runtimeError) {
+        setRuntimeErrors((current) =>
+          current.some((item) => item.message === runtimeError.message) ? current : [...current, runtimeError],
+        );
         return;
       }
 
@@ -154,7 +167,11 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive }: Props) 
           </button>
           <button
             type="button"
-            onClick={() => setReloadKey((key) => key + 1)}
+            onClick={() => {
+              setRuntimeErrors([]);
+              setLastError(null);
+              setReloadKey((key) => key + 1);
+            }}
             className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
             aria-label="重新整理報表"
           >
@@ -189,6 +206,34 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive }: Props) 
 
       {lastError ? (
         <p className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">{lastError}</p>
+      ) : null}
+
+      {runtimeErrors.length > 0 ? (
+        <div className="border-b border-rose-100 bg-rose-50 px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" strokeWidth={1.5} />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-rose-800">這份報表執行時發生錯誤</p>
+              <ul className="mt-1 space-y-0.5">
+                {runtimeErrors.slice(0, 3).map((item, index) => (
+                  <li key={index} className="truncate font-mono text-[11px] text-rose-700" title={item.message}>
+                    {item.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {onRequestRepair ? (
+              <button
+                type="button"
+                onClick={() => onRequestRepair(runtimeErrors)}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-rose-600 px-2 py-1 text-xs text-white transition-colors hover:bg-rose-700"
+              >
+                <Wrench className="h-3 w-3" strokeWidth={1.5} />
+                請 Copilot 修正
+              </button>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       {showSource ? (

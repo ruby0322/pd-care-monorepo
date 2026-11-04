@@ -58,4 +58,11 @@ const data = await window.pdcare.query("get_cohort_suspected_series", {{ lookbac
 `window.pdcare.query(toolName, params)` 回傳該工具的 JSON（與你自己呼叫的格式相同），由前端代為帶使用者權限發送。
 可用的 toolName 與參數就是上面那份清單。iframe 本身無法對外連線，這個 bridge 是唯一取得資料的途徑。
 請在 HTML 中附上明顯的「重新整理」按鈕或自動輪詢（間隔至少 30 秒），並處理 bridge 回傳錯誤的情況。
-只有在使用者明確要求即時／可重新整理時才用 bridge；一次性的分析請直接把查到的數字寫進 HTML。"""
+只有在使用者明確要求即時／可重新整理時才用 bridge；一次性的分析請直接把查到的數字寫進 HTML。
+
+### HTML 錯誤修正
+報表在瀏覽器中執行時若發生 JS 錯誤，使用者會把錯誤訊息回報給你。收到這類回報時：
+- 針對錯誤訊息修掉根因，不要只是加 try/catch 把錯誤藏起來。
+- **重新輸出完整的 ```html 區塊**（不要只給 diff 或片段），因為舊的區塊會被整份取代。
+- 保留原本的分析結論與資料；只修壞掉的部分。
+- 常見原因：引用了外部資源（CSP 禁止）、在 DOM 還沒就緒時操作元素、沒處理 window.pdcare.query 回傳的錯誤。"""

@@ -65,21 +65,46 @@ const BRIDGE_SCRIPT = `
 (function () {
   var pending = {};
   var counter = 0;
+  function report(kind, message, detail) {
+    try {
+      parent.postMessage({
+        type: "pdcare:error",
+        kind: kind,
+        message: String(message || "unknown error"),
+        detail: detail ? String(detail).slice(0, 2000) : ""
+      }, "*");
+    } catch (e) {}
+  }
+  // The report is what lets the assistant repair its own output: a chart that throws is
+  // otherwise just a blank box, with the cause visible only in a console nobody opens.
+  window.addEventListener("error", function (event) {
+    var where = event.lineno ? " (line " + event.lineno + ":" + event.colno + ")" : "";
+    report("script", (event.message || "script error") + where, event.error && event.error.stack);
+  });
+  window.addEventListener("unhandledrejection", function (event) {
+    var reason = event.reason;
+    report("promise", (reason && reason.message) || reason || "unhandled rejection", reason && reason.stack);
+  });
   window.addEventListener("message", function (event) {
     var data = event.data;
     if (!data || data.type !== "pdcare:result") return;
     var entry = pending[data.id];
     if (!entry) return;
     delete pending[data.id];
-    if (data.ok) entry.resolve(data.data);
-    else entry.reject(new Error(data.error || "query failed"));
+    if (data.ok) {
+      entry.resolve(data.data);
+    } else {
+      var err = new Error(data.error || "query failed");
+      report("query", "window.pdcare.query(\"" + entry.tool + "\") failed: " + err.message);
+      entry.reject(err);
+    }
   });
   window.pdcare = {
     query: function (tool, params) {
       counter += 1;
       var id = "q" + counter;
       return new Promise(function (resolve, reject) {
-        pending[id] = { resolve: resolve, reject: reject };
+        pending[id] = { resolve: resolve, reject: reject, tool: tool };
         parent.postMessage({ type: "pdcare:query", id: id, tool: tool, params: params || {} }, "*");
         setTimeout(function () {
           if (pending[id]) {
@@ -125,6 +150,29 @@ export function buildArtifactDocument(html: string): string {
 ${html}
 </body>
 </html>`;
+}
+
+export type ArtifactErrorMessage = {
+  type: "pdcare:error";
+  kind: string;
+  message: string;
+  detail: string;
+};
+
+export function parseArtifactError(data: unknown): ArtifactErrorMessage | null {
+  if (typeof data !== "object" || data === null) {
+    return null;
+  }
+  const candidate = data as Partial<ArtifactErrorMessage>;
+  if (candidate.type !== "pdcare:error" || typeof candidate.message !== "string") {
+    return null;
+  }
+  return {
+    type: "pdcare:error",
+    kind: typeof candidate.kind === "string" ? candidate.kind : "script",
+    message: candidate.message.slice(0, 500),
+    detail: typeof candidate.detail === "string" ? candidate.detail.slice(0, 2000) : "",
+  };
 }
 
 /** Extracts fenced ```html blocks, returning the prose around them and the blocks themselves. */

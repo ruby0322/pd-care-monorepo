@@ -2,6 +2,7 @@ import {
   ARTIFACT_ALLOWED_TOOLS,
   buildArtifactDocument,
   isAllowedArtifactTool,
+  parseArtifactError,
   parseArtifactQuery,
   parseAssistantContent,
 } from "@/app/admin/copilot/_components/artifact-bridge";
@@ -43,6 +44,35 @@ describe("parseArtifactQuery", () => {
   });
 });
 
+describe("parseArtifactError", () => {
+  it("parses a reported runtime error", () => {
+    expect(
+      parseArtifactError({ type: "pdcare:error", kind: "script", message: "boom", detail: "stack" }),
+    ).toEqual({ type: "pdcare:error", kind: "script", message: "boom", detail: "stack" });
+  });
+
+  it("defaults kind and detail when absent", () => {
+    const parsed = parseArtifactError({ type: "pdcare:error", message: "boom" });
+    expect(parsed).toEqual({ type: "pdcare:error", kind: "script", message: "boom", detail: "" });
+  });
+
+  it("truncates very long payloads", () => {
+    const parsed = parseArtifactError({
+      type: "pdcare:error",
+      message: "m".repeat(5000),
+      detail: "d".repeat(5000),
+    });
+    expect(parsed?.message.length).toBe(500);
+    expect(parsed?.detail.length).toBe(2000);
+  });
+
+  it("ignores unrelated messages", () => {
+    expect(parseArtifactError(null)).toBeNull();
+    expect(parseArtifactError({ type: "pdcare:query", id: "q1", tool: "t" })).toBeNull();
+    expect(parseArtifactError({ type: "pdcare:error" })).toBeNull();
+  });
+});
+
 describe("buildArtifactDocument", () => {
   const doc = buildArtifactDocument("<p>hi</p>");
 
@@ -60,6 +90,12 @@ describe("buildArtifactDocument", () => {
 
   it("embeds the supplied markup", () => {
     expect(doc).toContain("<p>hi</p>");
+  });
+
+  it("reports runtime errors out of the frame so the assistant can repair its own HTML", () => {
+    expect(doc).toContain('addEventListener("error"');
+    expect(doc).toContain('addEventListener("unhandledrejection"');
+    expect(doc).toContain('type: "pdcare:error"');
   });
 });
 
