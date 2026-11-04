@@ -15,6 +15,7 @@ from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
 from app.api.routes import copilot as copilot_routes
 from app.services.copilot.sessions import copilot_proxy_rate_limiter
+from app.services.copilot.agent import echoable_output_item
 from app.services.copilot.tools import COPILOT_TOOLS, CopilotToolError, resolve_tool
 from tests.db_test_utils import migrated_sqlite_database_url
 
@@ -153,7 +154,16 @@ class _FakeFunctionCall:
         self.call_id = call_id
 
     def model_dump(self) -> dict:
-        return {"type": "function_call", "name": self.name, "arguments": self.arguments, "call_id": self.call_id}
+        # Mirrors the real SDK: output items carry output-only fields such as `status`,
+        # which the Responses API rejects if they are echoed back as input.
+        return {
+            "type": "function_call",
+            "name": self.name,
+            "arguments": self.arguments,
+            "call_id": self.call_id,
+            "id": f"fc_{self.call_id}",
+            "status": "completed",
+        }
 
 
 class _FakeStream:
@@ -535,6 +545,50 @@ def test_proxy_rate_limit_returns_429(tmp_path: Path) -> None:
         assert client.post("/v1/copilot/proxy", json=payload, headers=headers).status_code == 200
         assert client.post("/v1/copilot/proxy", json=payload, headers=headers).status_code == 429
     copilot_proxy_rate_limiter.reset()
+
+
+def test_echoed_output_items_drop_output_only_fields() -> None:
+    """Regression: echoing `status` back caused 400 Unknown parameter: 'input[1].status'."""
+    echoed = echoable_output_item(_FakeFunctionCall("get_today_attention", {}))
+    assert "status" not in echoed
+    assert echoed["call_id"] == "call_1"
+    assert echoed["name"] == "get_today_attention"
+
+    nested = echoable_output_item(
+        {"type": "reasoning", "status": "completed", "summary": [{"text": "x", "status": "done"}], "nulled": None}
+    )
+    assert "status" not in nested
+    assert "status" not in nested["summary"][0]
+    assert "nulled" not in nested
+
+
+def test_tool_turn_sends_no_output_only_fields_to_the_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second request must not carry `status` anywhere in its input payload."""
+    fake = install_fake_openai(
+        monkeypatch,
+        [
+            [completed(calls=[_FakeFunctionCall("get_cohort_gender_distribution", {})])],
+            text_turn("完成。"),
+        ],
+    )
+    with build_client(tmp_path, "agent-echo-clean") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+        response = client.post(
+            f"/v1/copilot/sessions/{session_id}/messages", json={"content": "性別分佈"}, headers=headers
+        )
+        assert response.status_code == 200
+
+    assert len(fake.responses.calls) == 2
+    follow_up_input = fake.responses.calls[1]["input"]
+    assert json.dumps(follow_up_input, default=str).find('"status"') == -1, follow_up_input
+    # The function_call item and its output must still be present and paired.
+    kinds = [item.get("type") for item in follow_up_input if isinstance(item, dict)]
+    assert "function_call" in kinds
+    assert "function_call_output" in kinds
 
 
 def test_unknown_tool_is_rejected() -> None:

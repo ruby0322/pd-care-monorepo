@@ -70,6 +70,30 @@ def _function_calls(response: Any) -> list[Any]:
     return [item for item in output if getattr(item, "type", None) == "function_call"]
 
 
+# Output-only fields the Responses API rejects when an output item is echoed back as input
+# ("Unknown parameter: 'input[1].status'"). Reasoning and function_call items both carry them.
+_OUTPUT_ONLY_KEYS = frozenset({"status"})
+
+
+def _strip_output_only(value: Any) -> Any:
+    """Drop output-only keys and nulls so an output item is valid as input."""
+    if isinstance(value, dict):
+        return {
+            key: _strip_output_only(inner)
+            for key, inner in value.items()
+            if key not in _OUTPUT_ONLY_KEYS and inner is not None
+        }
+    if isinstance(value, list):
+        return [_strip_output_only(item) for item in value]
+    return value
+
+
+def echoable_output_item(item: Any) -> dict[str, Any]:
+    """Serialize one response output item for replay in the next turn's input."""
+    dumped = item.model_dump() if hasattr(item, "model_dump") else item
+    return _strip_output_only(dumped)
+
+
 def _parse_arguments(raw: Any) -> dict[str, Any]:
     if isinstance(raw, dict):
         return raw
@@ -164,8 +188,9 @@ async def run_agent_turn(
             break
 
         # Keep the model's own function_call items in the transcript so call_ids line up.
+        # They must be stripped of output-only fields first, or the next request 400s.
         for item in getattr(final_response, "output", None) or []:
-            conversation.append(item.model_dump() if hasattr(item, "model_dump") else item)
+            conversation.append(echoable_output_item(item))
 
         for call in calls:
             name = getattr(call, "name", "")
