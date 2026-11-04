@@ -99,7 +99,7 @@ Example response shape:
     "infection_class_index": 4,
     "infection_class_name": "class_4",
     "infection_probability": 0.97,
-    "threshold": 0.72,
+    "threshold": 0.5,
     "is_infection_positive": true
   }
 }
@@ -114,42 +114,54 @@ Important settings:
 - `MODEL_URL`: direct download URL for the checkpoint
 - `MODEL_PATH`: local on-disk checkpoint location
 - `DEVICE`: must be `cpu` (GPU support is intentionally disabled)
-- `THRESHOLD`: infection probability threshold for screening output, default **`0.72`** (see [Infection decision threshold](#infection-decision-threshold))
+- `THRESHOLD`: infection probability **floor** for screening output, default **`0.5`** (see [Infection decision rule](#infection-decision-rule))
 - `MAX_UPLOAD_MB`: maximum accepted upload size
 - `MODEL_BACKBONE`: fallback reconstruction backbone, default `mobilenet_v3_large`
 - `MODEL_ARCH`: fallback reconstruction arch when `MODEL_BACKBONE=none`
 
-## Infection decision threshold
+## Infection decision rule
 
-The screening decision is `infection_probability >= settings.threshold` in
-`app/services/model_loader.py`, where `infection_probability` is the softmax
-probability of `class_4` (clinical exit-site score `>=4`, the infection-positive
-class). So `THRESHOLD` is literally a cut on `P(score >= 4)`.
+```python
+is_infection_positive = (
+    predicted_class_index == settings.infection_class_index  # argmax == class_4
+    or infection_probability >= settings.threshold           # P(class_4) >= THRESHOLD
+)
+```
 
-Current value: **`0.72`** (raised from `0.5`).
+in `app/services/model_loader.py`, where `infection_probability` is the softmax
+probability of `class_4` (clinical exit-site score `>=4`, the infection-positive class).
 
-Evidence — threshold sweep on a **deduplicated** held-out test set (n=388: 35 positive
-/ 353 negative; dedup removed the 84 test images that had a byte-identical copy in the
-training split):
+**The model's own top prediction always wins.** `THRESHOLD` is a *floor* that can only
+**add** positives; it can never turn an `argmax == class_4` image into `normal`. Since any
+`P(class_4) >= 0.5` is necessarily the argmax of a 5-class softmax, the rule reduces to
+pure argmax at the deployed `THRESHOLD=0.5`, and is identical at `0.72`.
 
-| threshold | Precision | Recall | F1 | Accuracy | TP | FN | FP | TN |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.50 (previous) | 0.857 | 0.857 | 0.857 | 97.42% | 30 | 5 | 5 | 348 |
-| **0.72 (current)** | **0.909** | **0.857** | **0.882** | **97.94%** | 30 | 5 | 3 | 350 |
+Current value: **`0.5`**.
 
-`0.72` removes 2 false positives with **no change in recall** (0.857, 30 of 35 in both
-cases). F1 and accuracy both peak on the plateau `h = 0.717-0.748`; `0.72` is at the
-low (safer) end of that plateau.
+This is deliberate: every published metric for this checkpoint (binary accuracy 96.8%,
+sensitivity 83.3%, F1 0.80) comes from the research evaluation harness in
+[`ntuh-pd-exit-site-classification`](https://github.com/ruby0322/ntuh-pd-exit-site-classification)
+(`prepare.py`, `evaluate`), which scores `model(x).argmax(dim=1)`. The service now
+implements the rule the model was selected and validated under.
 
-> [!WARNING]
-> **Test-selected value.** `0.72` was chosen on the same test set it is reported on, so
-> its advantage over `0.5` is optimistically biased. Out-of-fold threshold selection is
-> **still pending**. With only 35 positive examples, "recall is unchanged" carries wide
-> uncertainty, and raising a screening threshold is in principle a sensitivity-reducing
-> direction. Reviewed and accepted by the repo owner on this basis.
+On the **deduplicated** held-out test set (n=388: 35 positive / 353 negative; dedup
+removed the 84 test images that had a byte-identical copy in the training split) the rule
+scores Precision `0.833` / Recall `0.857` / F1 `0.845` — the research harness's own
+numbers, and the same at `THRESHOLD=0.5` and `THRESHOLD=0.72`.
+
+> [!NOTE]
+> **Supersedes the earlier `THRESHOLD = 0.72` rationale.** That change reported F1 `0.882`
+> from a sweep of the bare `infection_probability >= threshold` rule — a rule that could
+> *veto* the model's top prediction, and did: a production image with `argmax == class_4`
+> and `P(class_4) = 0.7151` was stored as `screening_result = "normal"` under `0.72`. The
+> swept rule is not the one the model was validated under, so the `0.882` figure is
+> withdrawn and the threshold is back at the pre-incident `0.5`. Under floor semantics a
+> *lower* threshold is strictly more sensitive. Out-of-fold threshold selection remains
+> pending; with only 35 positives, any value tuned on the test set stays optimistically
+> biased.
 
 The deployed value lives in `k8s/base/configmap.yaml`; the in-code default is in
-`app/core/config.py`.
+`app/core/config.py`. It is unrelated to the `PRESCREEN_*` presence-gate threshold.
 
 ## Docker
 

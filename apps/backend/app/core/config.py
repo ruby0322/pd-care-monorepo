@@ -129,7 +129,7 @@ def get_settings() -> Settings:
         model_backbone=os.getenv("MODEL_BACKBONE", "mobilenet_v3_large").strip().lower(),
         model_arch=os.getenv("MODEL_ARCH", "baseline").strip().lower(),
         transfer_dropout=_parse_float("TRANSFER_DROPOUT", 0.4),
-        threshold=_parse_float("THRESHOLD", 0.72),
+        threshold=_parse_float("THRESHOLD", 0.5),
         image_size=_parse_int("IMAGE_SIZE", 384),
         infection_class_index=_parse_int("INFECTION_CLASS_INDEX", 4),
         class_names=_parse_csv("CLASS_NAMES", DEFAULT_CLASS_NAMES),
