@@ -50,6 +50,10 @@ OPENAPI_TAGS = [
         "name": "Staff",
         "description": "Protected staff/admin endpoints for notifications and image access.",
     },
+    {
+        "name": "Copilot",
+        "description": "PD Copilot: read-only LLM analysis sessions over the staff API surface.",
+    },
 ]
 
 
