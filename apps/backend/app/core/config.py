@@ -12,6 +12,8 @@ DEFAULT_MODEL_URL = (
 )
 DEFAULT_CLASS_NAMES = ("class_0", "class_1", "class_2", "class_3", "class_4")
 DEFAULT_IMAGE_CONTENT_TYPES = ("image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff")
+# Model picker contents are env-driven (COPILOT_MODELS); this is only the fallback.
+DEFAULT_COPILOT_MODELS = ("gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-luna")
 
 # Browser dev servers often bind random ports (e.g. Cursor preview). LAN phones stay on :3000 unless overridden via env.
 DEFAULT_CORS_ALLOWED_ORIGIN_REGEX = (
@@ -97,6 +99,14 @@ class Settings:
     prescreen_max_concurrent: int = 4
     prescreen_inference_wait_seconds: float = 1.5
     hf_token: str | None = None
+    copilot_enabled: bool = False
+    openai_api_key: str | None = None
+    copilot_models: tuple[str, ...] = DEFAULT_COPILOT_MODELS
+    copilot_default_model: str = DEFAULT_COPILOT_MODELS[0]
+    copilot_max_tool_iterations: int = 12
+    copilot_request_timeout_seconds: float = 180.0
+    copilot_tool_result_max_bytes: int = 24576
+    copilot_proxy_rate_limit_per_minute: int = 60
 
     @property
     def max_upload_bytes(self) -> int:
@@ -117,6 +127,10 @@ def get_settings() -> Settings:
     prescreen_model_cache_dir = Path(
         os.getenv("PRESCREEN_MODEL_CACHE_DIR", str(model_cache_dir / "prescreen"))
     )
+    copilot_models = _parse_csv("COPILOT_MODELS", DEFAULT_COPILOT_MODELS)
+    # An unlisted default would be unselectable in the picker, so fall back to the first listed model.
+    requested_default = (os.getenv("COPILOT_DEFAULT_MODEL") or "").strip()
+    copilot_default_model = requested_default if requested_default in copilot_models else copilot_models[0]
 
     return Settings(
         app_name=os.getenv("APP_NAME", "pd-exit-site-inference-api"),
@@ -177,4 +191,12 @@ def get_settings() -> Settings:
         prescreen_max_concurrent=_parse_int("PRESCREEN_MAX_CONCURRENT", 4),
         prescreen_inference_wait_seconds=_parse_float("PRESCREEN_INFERENCE_WAIT_SECONDS", 1.5),
         hf_token=(os.getenv("HF_TOKEN") or "").strip() or None,
+        copilot_enabled=_parse_bool("COPILOT_ENABLED", False),
+        openai_api_key=(os.getenv("OPENAI_API_KEY") or "").strip() or None,
+        copilot_models=copilot_models,
+        copilot_default_model=copilot_default_model,
+        copilot_max_tool_iterations=_parse_int("COPILOT_MAX_TOOL_ITERATIONS", 12),
+        copilot_request_timeout_seconds=_parse_float("COPILOT_REQUEST_TIMEOUT_SECONDS", 180.0),
+        copilot_tool_result_max_bytes=_parse_int("COPILOT_TOOL_RESULT_MAX_BYTES", 24576),
+        copilot_proxy_rate_limit_per_minute=_parse_int("COPILOT_PROXY_RATE_LIMIT_PER_MINUTE", 60),
     )
