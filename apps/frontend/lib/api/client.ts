@@ -49,7 +49,7 @@ apiClient.interceptors.request.use((config) => {
   if (!config.url || config.headers?.Authorization) {
     return config;
   }
-  if (config.url.startsWith("/v1/staff")) {
+  if (config.url.startsWith("/v1/staff") || config.url.startsWith("/v1/copilot")) {
     const token = getStaffAccessToken();
     if (!token) {
       return config;
