@@ -69,7 +69,7 @@ export function CopilotMarkdown({ content }: { content: string }) {
     const items = [...listBuffer];
     listBuffer = [];
     blocks.push(
-      <ul key={`ul-${key++}`} className="my-2 list-disc space-y-1 pl-5">
+      <ul key={`ul-${key++}`} className="my-3 list-disc space-y-1.5 pl-5 marker:text-zinc-300">
         {items.map((item, itemIndex) => (
           <li key={itemIndex}>{renderInline(item, `li-${key}-${itemIndex}`)}</li>
         ))}
@@ -84,7 +84,7 @@ export function CopilotMarkdown({ content }: { content: string }) {
     const text = paragraphBuffer.join("\n");
     paragraphBuffer = [];
     blocks.push(
-      <p key={`p-${key++}`} className="my-2 whitespace-pre-wrap leading-relaxed">
+      <p key={`p-${key++}`} className="my-3 whitespace-pre-wrap first:mt-0 last:mb-0">
         {renderInline(text, `p-${key}`)}
       </p>,
     );
@@ -104,9 +104,9 @@ export function CopilotMarkdown({ content }: { content: string }) {
       flushList();
       flushParagraph();
       const level = headingMatch[1].length;
-      const size = level <= 2 ? "text-base" : "text-sm";
+      const size = level <= 2 ? "text-[17px]" : "text-[15px]";
       blocks.push(
-        <p key={`h-${key++}`} className={`mt-3 mb-1 font-semibold text-zinc-900 ${size}`}>
+        <p key={`h-${key++}`} className={`mt-5 mb-2 font-semibold tracking-tight text-zinc-900 first:mt-0 ${size}`}>
           {renderInline(headingMatch[2], `h-${key}`)}
         </p>,
       );
@@ -132,12 +132,12 @@ export function CopilotMarkdown({ content }: { content: string }) {
       }
       index = cursor - 1;
       blocks.push(
-        <div key={`t-${key++}`} className="my-3 overflow-x-auto">
-          <table className="w-full border-collapse text-left text-xs">
+        <div key={`t-${key++}`} className="my-4 overflow-x-auto rounded-xl border border-zinc-200">
+          <table className="w-full border-collapse text-left text-[13px]">
             <thead>
-              <tr className="border-b border-zinc-200">
+              <tr className="border-b border-zinc-200 bg-zinc-50">
                 {header.map((cell, cellIndex) => (
-                  <th key={cellIndex} className="px-2 py-1.5 font-semibold text-zinc-700">
+                  <th key={cellIndex} className="px-3 py-2 font-medium text-zinc-600">
                     {renderInline(cell, `th-${key}-${cellIndex}`)}
                   </th>
                 ))}
@@ -147,7 +147,7 @@ export function CopilotMarkdown({ content }: { content: string }) {
               {rows.map((row, rowIndex) => (
                 <tr key={rowIndex} className="border-b border-zinc-100 last:border-0">
                   {row.map((cell, cellIndex) => (
-                    <td key={cellIndex} className="px-2 py-1.5 text-zinc-600">
+                    <td key={cellIndex} className="px-3 py-2 text-zinc-700">
                       {renderInline(cell, `td-${key}-${rowIndex}-${cellIndex}`)}
                     </td>
                   ))}
@@ -166,5 +166,5 @@ export function CopilotMarkdown({ content }: { content: string }) {
   flushList();
   flushParagraph();
 
-  return <div className="text-sm text-zinc-700">{blocks}</div>;
+  return <div className="text-[15px] leading-7 text-zinc-700">{blocks}</div>;
 }

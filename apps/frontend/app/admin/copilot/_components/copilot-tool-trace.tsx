@@ -43,11 +43,11 @@ export function CopilotToolTrace({
   const failures = entries.filter((entry) => !entry.ok).length;
 
   return (
-    <div className="mb-2">
+    <div className="mb-2.5">
       <button
         type="button"
         onClick={() => setIsOpen((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-50 px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
+        className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700"
       >
         {isOpen ? (
           <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -74,7 +74,7 @@ export function CopilotToolTrace({
       </button>
 
       {isOpen ? (
-        <ol className="mt-1.5 space-y-1 border-l border-zinc-200 pl-3">
+        <ol className="mt-2 ml-1 space-y-1.5 border-l border-zinc-200 pl-3.5">
           {entries.map((entry, index) => (
             <li key={index} className="text-xs">
               <div className="flex flex-wrap items-center gap-1.5">

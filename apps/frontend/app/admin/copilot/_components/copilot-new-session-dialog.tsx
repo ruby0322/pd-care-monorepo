@@ -33,10 +33,10 @@ export function CopilotNewSessionDialog({
   const options = VISIBILITY_OPTIONS.filter((option) => !option.adminOnly || role === "admin");
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-zinc-900/40 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-zinc-900/30 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-zinc-900">新對話</h2>
+          <h2 className="text-base font-semibold tracking-tight text-zinc-900">新對話</h2>
           <button
             type="button"
             onClick={onClose}
@@ -55,7 +55,7 @@ export function CopilotNewSessionDialog({
             maxLength={255}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="例如：三月感染趨勢分析"
-            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-900"
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none transition-colors focus:border-zinc-400"
           />
         </label>
 
@@ -64,7 +64,7 @@ export function CopilotNewSessionDialog({
           <select
             value={model}
             onChange={(event) => setModel(event.target.value)}
-            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-900"
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none transition-colors focus:border-zinc-400"
           >
             {models.map((option) => (
               <option key={option} value={option}>
@@ -114,7 +114,7 @@ export function CopilotNewSessionDialog({
             type="button"
             disabled={isSubmitting || !model}
             onClick={() => onCreate({ title: title.trim() || undefined, model, visibility })}
-            className="rounded-xl bg-zinc-900 px-4 py-2 text-sm text-white transition-colors hover:bg-zinc-800 disabled:opacity-50"
+            className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50"
           >
             {isSubmitting ? "建立中…" : "建立"}
           </button>

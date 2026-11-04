@@ -84,12 +84,36 @@ describe("CopilotMessage", () => {
     expect(screen.getByText("資料已截斷")).toBeInTheDocument();
   });
 
-  it("shows a thinking placeholder while a turn is still streaming", () => {
+  it("shows a streaming caret while a turn has produced no text yet", () => {
     render(
       <CopilotMessage
         message={{ key: "s", role: "assistant", content: "", toolTrace: [], isStreaming: true }}
       />,
     );
-    expect(screen.getByText("正在思考…")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "正在產生回覆" })).toBeInTheDocument();
+  });
+
+  it("offers to send artifact runtime errors back for repair", async () => {
+    const onRequestRepair = jest.fn();
+    const { container } = render(
+      <CopilotMessage
+        message={{ key: "a4", role: "assistant", content: "圖表如下。\n\n```html\n<p>c</p>\n```", toolTrace: [] }}
+        onRequestRepair={onRequestRepair}
+      />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+
+    const event = new MessageEvent("message", {
+      data: { type: "pdcare:error", kind: "script", message: "x is not defined (line 3:1)", detail: "stack" },
+    });
+    Object.defineProperty(event, "source", { value: iframe.contentWindow, enumerable: true });
+    window.dispatchEvent(event);
+
+    expect(await screen.findByText(/執行時發生錯誤/)).toBeInTheDocument();
+    expect(screen.getByText("x is not defined (line 3:1)")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /請 Copilot 修正/ }));
+    expect(onRequestRepair).toHaveBeenCalledWith([
+      expect.objectContaining({ kind: "script", message: "x is not defined (line 3:1)" }),
+    ]);
   });
 });
