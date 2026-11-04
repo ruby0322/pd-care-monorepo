@@ -73,7 +73,31 @@ jobs:
           python -m pip install -r apps/backend/requirements-dev.txt
 
       - name: Run backend tests
-        run: npm run test:backend
+        run: |
+          set -o pipefail
+          npm run test:backend 2>&1 | tee /tmp/backend-tests.log
+
+      # Job logs need repository admin rights, which makes a red CI run hard to triage for
+      # anyone without them. Mirror the failure lines into the job summary, which is readable
+      # by anyone who can see the run.
+      - name: Surface backend test failures
+        if: failure()
+        run: |
+          {
+            echo "### Backend test failures"
+            echo ""
+            echo '```'
+            grep -E '^(FAILED|ERROR)' /tmp/backend-tests.log || true
+            echo '```'
+            echo ""
+            echo "<details><summary>Last 120 log lines</summary>"
+            echo ""
+            echo '```'
+            tail -n 120 /tmp/backend-tests.log
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   frontend-test:
     name: Frontend unit tests
