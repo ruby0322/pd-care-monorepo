@@ -73,6 +73,9 @@ apply_namespace() {
   pg_pass="$(grep 'PDCARE_POSTGRES_PASSWORD:' "$secret_file" | sed -E 's/.*: "(.*)"/\1/')"
   rotate_postgres_password "$namespace" "$pg_pass"
 
+  # Stakater Reloader also restarts backend on a pd-care-secrets change
+  # (docs/deploy/argocd-cd.md §10). This explicit restart is kept so rotation
+  # works even if Reloader is down, and so `rollout status` below can gate on it.
   if kubectl get deployment backend -n "$namespace" >/dev/null 2>&1; then
     kubectl rollout restart deployment/backend -n "$namespace"
     kubectl rollout status deployment/backend -n "$namespace" --timeout=300s

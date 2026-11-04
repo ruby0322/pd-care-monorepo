@@ -11,6 +11,12 @@ This runbook verifies rolling upgrades for `pd-care-prod` frontend/backend witho
   - `backend-migrate` Job manifest
 - Minikube resources can briefly handle 4 backend pods during surge (3 ready + 1 surge).
 
+A ConfigMap/Secret-only change does not need the manual sequence below. Stakater
+Reloader patches the annotated `backend` / `frontend` pod templates, which runs
+the same `maxUnavailable: 0` rolling update — see
+[`argocd-cd.md`](argocd-cd.md) §10. The continuous availability check below is
+still the way to verify it.
+
 ## Backend deploy sequence (prod)
 
 ```bash

@@ -18,3 +18,16 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      # Keep ignoreDifferences fields out of the patch Argo CD sends, so a sync
+      # for an unrelated reason does not strip Reloader's annotation (which would
+      # itself bounce the pods).
+      - RespectIgnoreDifferences=true
+  # Reloader's `--reload-strategy=annotations` writes this pod-template
+  # annotation on the workloads it restarts. It is live-only state, absent from
+  # git, so `selfHeal: true` would otherwise revert it on every reload and
+  # fight Reloader.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from

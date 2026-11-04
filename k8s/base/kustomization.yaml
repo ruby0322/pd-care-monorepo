@@ -22,3 +22,7 @@ resources:
   - seaweedfs-s3-deployment.yaml
   - seaweedfs-s3-service.yaml
   - ingress.yaml
+  # Stakater Reloader (namespace-scoped: one instance per overlay namespace)
+  - reloader-serviceaccount.yaml
+  - reloader-rbac.yaml
+  - reloader-deployment.yaml

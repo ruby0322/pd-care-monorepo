@@ -1,0 +1,54 @@
+# Namespace-scoped RBAC for Reloader.
+#
+# Deliberately a Role, NOT a ClusterRole: each overlay renders its own Reloader
+# into its own namespace (`pd-care-dev` / `pd-care-prod`) and the controller is
+# pinned to that namespace via KUBERNETES_NAMESPACE, so it never needs
+# cluster-wide read or write access.
+#
+# Narrower than the upstream chart's RBAC in three places:
+#   * no `configmaps: create/update` — that rule only exists upstream so Reloader
+#     can publish its own meta-info ConfigMap. We do not set RELOADER_NAMESPACE,
+#     so it skips that write with a log warning instead.
+#   * no `batch/jobs: create/delete` — `--ignored-workload-types=jobs,cronjobs`
+#     means Reloader never recreates a Job. Prod's `backend-migrate` is an
+#     Argo CD PreSync hook and must stay Argo CD's to run.
+#   * no `extensions/deployments` — that API group was removed in k8s 1.16.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: reloader
+  labels:
+    app: reloader
+rules:
+  # Watch the config sources and hash their contents.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  # Patch the pod template of annotated workloads to trigger a rolling restart.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "statefulsets"]
+    verbs: ["get", "list", "update", "patch"]
+  # Read-only: Reloader lists these when a config source changes, then skips them
+  # because of --ignored-workload-types. Listing still requires get/list.
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list"]
+  # Reload events on the workload, so `kubectl describe deploy/backend` shows why
+  # it restarted.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: reloader
+  labels:
+    app: reloader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: reloader
+subjects:
+  - kind: ServiceAccount
+    name: reloader

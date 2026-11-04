@@ -1,0 +1,107 @@
+# Stakater Reloader: restarts workloads whose ConfigMap/Secret content changed.
+#
+# ConfigMap env vars are injected at pod start and never hot-reload, so before
+# this controller existed a `pd-care-config` edit synced "Healthy" in Argo CD
+# while the running pods kept the old values until someone remembered to run
+# `kubectl rollout restart`. Reloader closes that gap.
+#
+# One instance per app namespace: the overlays set `namespace:`, and
+# KUBERNETES_NAMESPACE pins the controller to the namespace it runs in, so dev
+# and prod never observe each other and no ClusterRole is needed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reloader
+  labels:
+    app: reloader
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: reloader
+  template:
+    metadata:
+      labels:
+        app: reloader
+    spec:
+      serviceAccountName: reloader
+      # Upstream image is public on ghcr.io/stakater, so no imagePullSecrets.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reloader
+          # Pinned to a tested upstream release. Never track `latest`: an
+          # unreviewed controller upgrade would land straight in prod via Argo CD.
+          image: ghcr.io/stakater/reloader:v1.4.23
+          imagePullPolicy: IfNotPresent
+          args:
+            # Default strategy injects a STAKATER_*_CONFIGMAP container env var,
+            # which Argo CD `selfHeal` would immediately revert — Reloader and
+            # Argo CD would then fight. The annotations strategy writes a pod
+            # template annotation instead, excluded via `ignoreDifferences` in
+            # k8s/argocd/{dev,prod}-application.yaml.
+            - --reload-strategy=annotations
+            # Prod's `backend-migrate` is an Argo CD PreSync hook Job. Reloader
+            # must never recreate it; only Argo CD runs migrations.
+            - --ignored-workload-types=jobs,cronjobs
+            - --log-format=json
+          env:
+            # Unset/empty means "watch every namespace". Pointing it at the pod's
+            # own namespace is what makes this instance namespace-scoped.
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: GOMAXPROCS
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.cpu
+                  divisor: "1"
+            - name: GOMEMLIMIT
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+                  divisor: "1"
+          ports:
+            - containerPort: 9090
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            # readOnlyRootFilesystem needs a writable /tmp.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

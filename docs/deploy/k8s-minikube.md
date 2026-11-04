@@ -292,6 +292,12 @@ For GitOps deployments, prefer Argo CD sync and the promotion workflows in
 [`argocd-cd.md`](argocd-cd.md). The commands below are a **manual fallback** when
 you need local image builds inside Minikube docker instead of GHCR pulls.
 
+These are **image** rollouts. For a `pd-care-config` / `pd-care-secrets` change
+you no longer need `kubectl rollout restart` at all: Stakater Reloader runs in
+both namespaces and restarts the annotated `backend` / `frontend` Deployments
+itself ([`argocd-cd.md`](argocd-cd.md) §10). Reach for a manual restart only if
+Reloader itself is unavailable.
+
 ### Prod frontend (`pd-care-prod`)
 
 ```bash

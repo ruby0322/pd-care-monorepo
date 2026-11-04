@@ -15,6 +15,11 @@ This runbook defines the GitOps delivery path for PD Care with:
 - Source of truth overlays:
   - `k8s/overlays/dev/kustomization.yaml`
   - `k8s/overlays/prod/kustomization.yaml`
+- Config-change restart controller (one namespace-scoped instance per overlay):
+  - `k8s/base/reloader-deployment.yaml`
+  - `k8s/base/reloader-rbac.yaml`
+  - `k8s/base/reloader-serviceaccount.yaml`
+  - See §10 for behaviour and RBAC.
 - Baseline overlays omit GHCR `images:` entries and use local image names
   (`pd-care-frontend:latest`, `pd-care-backend:latest`) until CD writes
   `dev-sha-...` / `sha-...` or `prod-sha-...` tags. Infra-only merges therefore
@@ -285,3 +290,112 @@ Rollback is Git-first:
 3. Argo CD reconciles back to the prior image tags.
 
 Do not delete PVCs or restart Postgres/SeaweedFS for frontend-only/backend-only rollbacks.
+
+## 10) ConfigMap and Secret changes (auto-restart via Reloader)
+
+### What changed
+
+Env vars sourced from a ConfigMap or Secret are injected **once, when the pod
+starts**. They do not hot-reload.
+
+- **Before:** editing `pd-care-config` (for example `THRESHOLD`) and merging it
+  made Argo CD sync the ConfigMap and report `Synced / Healthy` — while every
+  running pod kept the old value. The change only took effect after a manual
+  `kubectl rollout restart deploy/backend -n pd-care-prod` (and `deploy/frontend`).
+  Forgetting that step was silent: nothing in Argo CD looked wrong.
+- **Now:** [Stakater Reloader](https://github.com/stakater/Reloader) runs in each
+  app namespace and performs the rolling restart itself. **No manual
+  `rollout restart` is needed for config or secret changes.**
+
+### How it is wired
+
+| Piece | Where |
+| --- | --- |
+| Controller Deployment (pinned `ghcr.io/stakater/reloader:v1.4.23`) | [`k8s/base/reloader-deployment.yaml`](../../k8s/base/reloader-deployment.yaml) |
+| `Role` + `RoleBinding` + `ServiceAccount` | [`k8s/base/reloader-rbac.yaml`](../../k8s/base/reloader-rbac.yaml), [`k8s/base/reloader-serviceaccount.yaml`](../../k8s/base/reloader-serviceaccount.yaml) |
+| Opt-in annotation `reloader.stakater.com/auto: "true"` | [`k8s/base/backend-deployment.yaml`](../../k8s/base/backend-deployment.yaml), [`k8s/base/frontend-deployment.yaml`](../../k8s/base/frontend-deployment.yaml) |
+| Argo CD `ignoreDifferences` | [`k8s/argocd/dev-application.yaml`](../../k8s/argocd/dev-application.yaml), [`k8s/argocd/prod-application.yaml`](../../k8s/argocd/prod-application.yaml) |
+
+Reloader is part of `k8s/base`, so both Argo Applications already own and
+reconcile it — no extra Application, no bootstrap step, and nothing to add to
+`k8s/argocd/project.yaml`. The overlay `namespace:` field places one instance in
+`pd-care-dev` and one in `pd-care-prod`.
+
+**Opt-in, not cluster-wide.** Reloader only restarts workloads that carry
+`reloader.stakater.com/auto: "true"`; today that is `backend` and `frontend`, the
+two Deployments that consume `pd-care-config` via `envFrom`. `postgres` is not
+annotated on purpose (its only secret key is `initdb`-time, so a restart would
+drop connections and change nothing), and `--ignored-workload-types=jobs,cronjobs`
+guarantees the `backend-migrate` PreSync hook is never re-run by Reloader.
+
+### Scoping and RBAC
+
+Each instance is pinned to its own namespace by setting `KUBERNETES_NAMESPACE`
+from `metadata.namespace` (leaving it unset is what makes upstream Reloader watch
+the whole cluster). Consequently its permissions are a **namespaced `Role`, never
+a `ClusterRole`** — it has no cluster-wide read or write access at all, and the
+dev instance cannot see or touch `pd-care-prod`.
+
+| API group | Resources | Verbs | Why |
+| --- | --- | --- | --- |
+| `""` | `configmaps`, `secrets` | `get`, `list`, `watch` | Detect content changes and hash them |
+| `apps` | `deployments`, `daemonsets`, `statefulsets` | `get`, `list`, `update`, `patch` | Patch the pod template of annotated workloads |
+| `batch` | `jobs`, `cronjobs` | `get`, `list` | Reloader lists them on every change event, then skips them |
+| `""` | `events` | `create`, `patch` | Reload shows up in `kubectl describe deploy/backend` |
+
+Narrower than the upstream Helm chart in three places:
+
+- no `configmaps: create/update` — upstream needs it only to publish Reloader's
+  own meta-info ConfigMap. We leave `RELOADER_NAMESPACE` unset, so it skips that
+  write (one log warning at startup) and cannot write any ConfigMap.
+- no `batch/jobs: create/delete` — Reloader cannot delete or recreate a Job, so
+  it cannot touch `backend-migrate` even by accident.
+- no `extensions/deployments` — that API group was removed in Kubernetes 1.16.
+
+Reloader does need `get/list/watch` on **all** Secrets in its namespace,
+including `pd-care-secrets` and `ghcr-pull-secret`. That is inherent to hashing
+secret content; it is read-only and namespace-local.
+
+### Argo CD `selfHeal` interaction
+
+Reloader's default `env-vars` strategy injects a `STAKATER_*_CONFIGMAP` container
+env var. With `selfHeal: true` Argo CD would revert that immediately and the two
+controllers would fight, restarting pods in a loop. Two settings prevent that:
+
+- `--reload-strategy=annotations` — Reloader writes the pod-template annotation
+  `reloader.stakater.com/last-reloaded-from` instead of mutating the container.
+- `spec.ignoreDifferences` on `apps/Deployment` for
+  `/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from`,
+  plus `RespectIgnoreDifferences=true` in `syncOptions` so an unrelated sync does
+  not strip the annotation (which would itself bounce the pods).
+
+The Argo CD Applications are bootstrap-applied, not synced by an Application, so
+re-apply them after this change lands:
+
+```bash
+kubectl apply -f k8s/argocd/dev-application.yaml
+kubectl apply -f k8s/argocd/prod-application.yaml
+```
+
+### Verify
+
+```bash
+kubectl -n pd-care-prod get deploy reloader
+kubectl -n pd-care-prod logs deploy/reloader | head -20   # expect scoped-namespace startup lines
+
+# After a pd-care-config change syncs:
+kubectl -n pd-care-prod rollout status deploy/backend --timeout=600s
+kubectl -n pd-care-prod get deploy backend \
+  -o jsonpath='{.spec.template.metadata.annotations.reloader\.stakater\.com/last-reloaded-from}{"\n"}'
+kubectl -n pd-care-prod exec deploy/backend -- printenv THRESHOLD
+```
+
+If Reloader is down, the old manual path still works as a fallback:
+`kubectl rollout restart deploy/backend -n pd-care-prod`.
+
+### Upgrading Reloader
+
+The image tag is pinned in `k8s/base/reloader-deployment.yaml` and must never be
+`latest` — Argo CD auto-sync would otherwise push an unreviewed controller
+straight into prod. Bump the tag in a PR, confirm `pd-care-dev` stays healthy and
+a dev ConfigMap edit still restarts `backend`, then promote.

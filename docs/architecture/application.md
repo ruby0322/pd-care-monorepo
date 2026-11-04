@@ -149,6 +149,48 @@ Object storage: private SeaweedFS bucket; only `object_key` stored in Postgres.
 - **User / assignment admin** — roles, staff–patient assignments, registration review.
 - **Notifications** — staff notification bell and mark-read flows.
 
+## Runtime configuration
+
+Non-secret runtime settings live in one ConfigMap, `pd-care-config`
+([`k8s/base/configmap.yaml`](../../k8s/base/configmap.yaml), per-environment
+overrides in `k8s/overlays/{dev,prod}/patch-configmap.yaml`). Both app
+Deployments pull the whole map in with `envFrom`; secrets come in key by key
+with `valueFrom`.
+
+| Consumer | `pd-care-config` | `pd-care-secrets` |
+| --- | --- | --- |
+| `backend` Deployment | `envFrom` (all keys) | `valueFrom` (6 keys) |
+| `frontend` Deployment | `envFrom` (all keys) | — |
+| `backend-migrate` Job (prod PreSync hook) | `envFrom` (all keys) | `DATABASE_URL` |
+| `postgres` StatefulSet | — | `PDCARE_POSTGRES_PASSWORD` |
+| SeaweedFS Deployments | — | — |
+
+### Config changes restart their consumers automatically
+
+Env vars from a ConfigMap or Secret are copied into the container **once, at pod
+start**, and never hot-reload. A `THRESHOLD` edit used to merge, sync, and report
+`Synced / Healthy` in Argo CD while every running pod kept the old value until
+someone remembered to run `kubectl rollout restart deploy/backend`.
+
+[Stakater Reloader](https://github.com/stakater/Reloader)
+([`k8s/base/reloader-deployment.yaml`](../../k8s/base/reloader-deployment.yaml))
+now closes that gap. It watches `pd-care-config` and `pd-care-secrets`, and when
+their content changes it patches the pod template of every workload carrying
+`reloader.stakater.com/auto: "true"` — currently `backend` and `frontend` — which
+triggers the Deployment's normal rolling update. Prod keeps
+`maxUnavailable: 0`, so the restart is zero-downtime.
+
+Deliberately **not** annotated:
+
+- `postgres` — only reads `PDCARE_POSTGRES_PASSWORD`, which `initdb` consumes on
+  first boot only. Restarting would drop every connection and change nothing.
+- `backend-migrate` — an Argo CD PreSync hook. Reloader runs with
+  `--ignored-workload-types=jobs,cronjobs` so it can never re-run a migration.
+- SeaweedFS — consumes neither the ConfigMap nor the Secret.
+
+Operational detail, including the Argo CD `selfHeal` interaction, is in
+[`deploy/argocd-cd.md`](../deploy/argocd-cd.md) §10.
+
 ## Security boundaries
 
 - All clinical image reads go through the backend with auth + short-lived tokens.

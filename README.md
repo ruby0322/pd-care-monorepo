@@ -206,6 +206,15 @@ Separate CD workflows handle image build and GitOps promotion:
 - prod git-based promotion: [`.github/workflows/cd-promote-prod.yml`](.github/workflows/cd-promote-prod.yml)
 - runbook: [`docs/deploy/argocd-cd.md`](docs/deploy/argocd-cd.md)
 
+Config-only changes follow the same GitOps path. Editing `pd-care-config` (for
+example `THRESHOLD`) used to require a manual
+`kubectl rollout restart deploy/backend` afterwards, because ConfigMap env vars
+are injected at pod start and never hot-reload — Argo CD would report
+`Synced / Healthy` while the pods still ran the old value. [Stakater
+Reloader](https://github.com/stakater/Reloader) now runs in both app namespaces
+and performs that rolling restart automatically for `backend` and `frontend`. See
+[`docs/deploy/argocd-cd.md`](docs/deploy/argocd-cd.md) §10.
+
 ### Repository Layout
 
 ```text
