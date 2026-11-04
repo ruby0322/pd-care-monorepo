@@ -1,7 +1,7 @@
 """add copilot_sessions and copilot_messages (non-destructive)
 
-Revision ID: 20261104_08
-Revises: 20260821_07
+Revision ID: 20261104_10
+Revises: 20261101_09
 Create Date: 2026-11-04 21:00:00
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect
 
-revision = "20261104_08"
-down_revision = "20260821_07"
+revision = "20261104_10"
+down_revision = "20261101_09"
 branch_labels = None
 depends_on = None
 
