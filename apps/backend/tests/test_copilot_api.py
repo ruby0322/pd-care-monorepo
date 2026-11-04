@@ -420,6 +420,19 @@ def test_staff_can_read_cohort_analytics_without_patient_identity(tmp_path: Path
 
         series = client.get("/v1/staff/analytics/suspected-series", params={"lookback_days": 30}, headers=headers)
         assert series.status_code == 200
+        # Pin the point shape: these endpoints re-serialize shared service tuples, so a
+        # field added upstream must be surfaced here rather than silently defaulting.
+        point = next(item for item in series.json()["items"] if item["total_uploads"] > 0)
+        assert point["suspected_uploads"] == 1
+        assert point["labeled_uploads"] == 0
+        assert set(point) == {
+            "date",
+            "total_uploads",
+            "labeled_uploads",
+            "suspected_uploads",
+            "symptom_elevated_uploads",
+            "suspected_ratio",
+        }
         body = series.text
         for leaked in ("case_number", "P900001", "full_name", "patient_id", "line_user_id"):
             assert leaked not in body
