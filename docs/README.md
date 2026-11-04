@@ -15,6 +15,7 @@
 - [`admin-dashboard-prd.md`](product/admin-dashboard-prd.md) — admin dashboard scope and RBAC
 - [`dev-plan.md`](product/dev-plan.md) — phased implementation roadmap
 - [`history-overview-api-contract.md`](product/history-overview-api-contract.md) — staff 歷史總覽 API contract
+- [`pd-copilot.md`](product/pd-copilot.md) — PD Copilot tool allowlist, permission matrix, artifact sandbox
 - [`archive/prd.md`](archive/prd.md) — original human brief (historical)
 
 ## Backlog

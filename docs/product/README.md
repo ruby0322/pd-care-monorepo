@@ -6,6 +6,7 @@
 | [`admin-dashboard-prd.md`](admin-dashboard-prd.md) | Admin dashboard scope and RBAC |
 | [`dev-plan.md`](dev-plan.md) | Phased implementation roadmap |
 | [`history-overview-api-contract.md`](history-overview-api-contract.md) | Staff 歷史總覽 API contract |
+| [`pd-copilot.md`](pd-copilot.md) | PD Copilot: tool allowlist, permission matrix, artifact sandbox |
 
 Historical brief: [`../archive/prd.md`](../archive/prd.md).
 

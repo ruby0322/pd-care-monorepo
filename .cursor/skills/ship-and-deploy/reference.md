@@ -229,6 +229,22 @@ From `docker-compose.yml`:
 
 Observability override (`docker-compose.observability.yml`) adds Grafana (`3001`), Loki (`3100`), Prometheus (`9090`), Promtail.
 
+### PD Copilot env (backend)
+
+Off by default. Compose reads `PDCARE_COPILOT_*` / `PDCARE_OPENAI_API_KEY`; the backend
+consumes the unprefixed names. Local setup: `bash ops/dev/setup-copilot-env.sh`.
+
+| Variable | Compose default | Where it lives in K8s |
+| --- | --- | --- |
+| `COPILOT_ENABLED` | `false` | `k8s/base/configmap.yaml` |
+| `COPILOT_MODELS` / `COPILOT_DEFAULT_MODEL` | `gpt-6.1-terra,gpt-6.1-sol,gpt-6-luna` / `gpt-6.1-terra` | `k8s/base/configmap.yaml` |
+| `COPILOT_MAX_TOOL_ITERATIONS` / `COPILOT_REQUEST_TIMEOUT_SECONDS` / `COPILOT_PROXY_RATE_LIMIT_PER_MINUTE` | `12` / `180` / `60` | `k8s/base/configmap.yaml` |
+| `OPENAI_API_KEY` | empty | `pd-care-secrets` (deployment ref is `optional: true`) |
+
+Enabling PD Copilot on K8s needs **both** `COPILOT_ENABLED: "true"` in the ConfigMap and
+`OPENAI_API_KEY` in the applied secret; with the key missing the API reports the feature
+unavailable rather than failing the pod.
+
 ## Backend health checks
 
 ```bash
