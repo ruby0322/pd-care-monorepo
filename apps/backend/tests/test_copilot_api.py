@@ -530,14 +530,20 @@ def test_unknown_tool_is_rejected() -> None:
 
 
 def test_every_allowlisted_tool_points_at_a_registered_get_route(tmp_path: Path) -> None:
-    """A typo in a path template would otherwise only surface as a runtime 404."""
+    """A typo in a path template would otherwise only surface as a runtime 404.
+
+    Asserted against the OpenAPI schema rather than by walking ``app.routes``: newer
+    Starlette does not flatten included routers into ``app.routes``, so iterating it sees
+    only a handful of top-level routes and would miss every mounted path.
+    """
     with build_client(tmp_path, "tool-paths") as client:
-        registered = {
-            route.path
-            for route in client.app.routes
-            if hasattr(route, "path") and "GET" in (getattr(route, "methods", None) or set())
-        }
-    unresolved = [tool.name for tool in COPILOT_TOOLS if tool.path_template not in registered]
+        paths = client.app.openapi()["paths"]
+
+    # Sanity-check the introspection itself, so a future framework change breaks this test
+    # loudly instead of silently making the assertion below vacuous.
+    assert len(paths) > 50
+
+    unresolved = [tool.name for tool in COPILOT_TOOLS if "get" not in (paths.get(tool.path_template) or {})]
     assert unresolved == []
 
 
