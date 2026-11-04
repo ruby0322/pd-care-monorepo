@@ -90,32 +90,47 @@ Implementation: `app/services/upload.py` → `persist_patient_upload`.
 | Stage | Model | Config | Outcome |
 | --- | --- | --- | --- |
 | Presence pre-screen (optional) | CLIP embeddings + sklearn linear probe | `PRESCREEN_*` env | `rejected` if not exit-site; **fail-open** on inference errors |
-| Infection-oriented screen | CNN multiclass (PyTorch) | `MODEL_PATH`, `THRESHOLD` (`0.72`), class names | `suspected` or `normal` from infection class probability |
+| Infection-oriented screen | CNN multiclass (PyTorch) | `MODEL_PATH`, `THRESHOLD` (`0.5`), class names | `suspected` when `argmax == class_4` **or** `P(class_4) >= THRESHOLD`, else `normal` |
 | Low-level API | Same CNN | `/v1/predict` | Direct probabilities; not the patient upload path |
 
 `screening_result` values on `ai_results`: `normal`, `suspected`, `rejected`,
 `technical_error`.
 
-#### Infection decision threshold
+#### Infection decision rule
 
-`suspected` is decided by `infection_probability >= settings.threshold` in
-`app/services/model_loader.py`, where `infection_probability` is the softmax probability
-of `class_4` — the clinical exit-site score `>=4`, i.e. the infection-positive class.
-`THRESHOLD` is therefore a cut on `P(score >= 4)`.
+`suspected` is decided in `app/services/model_loader.py` by
 
-Current value **`0.72`**, raised from `0.5`. It was chosen from a threshold sweep on a
+```python
+is_infection_positive = (
+    predicted_class_index == settings.infection_class_index  # argmax == class_4
+    or infection_probability >= settings.threshold           # P(class_4) >= THRESHOLD
+)
+```
+
+where `infection_probability` is the softmax probability of `class_4` — the clinical
+exit-site score `>=4`, i.e. the infection-positive class.
+
+**The model's own top prediction always wins.** `THRESHOLD` is a *floor* that can only
+**add** positives on top of argmax; it can never turn an `argmax == class_4` image into
+`normal`. Any `P(class_4) >= 0.5` is already the argmax of a 5-class softmax, so at the
+deployed `THRESHOLD=0.5` the rule is effectively pure argmax (and identical at `0.72`).
+
+Current value **`0.5`**. This matches the research evaluation harness
+(`prepare.py`, `evaluate`, in `ntuh-pd-exit-site-classification`), which scores
+`model(x).argmax(dim=1)` and produced every published metric for this checkpoint. On the
 **deduplicated** held-out test set (n=388: 35 positive / 353 negative; dedup removed the
-84 test images that had a byte-identical copy in the training split). `0.72` lifts F1
-from `0.857` to `0.882` and accuracy from `97.42%` to `97.94%` by removing 2 false
-positives (5 -> 3), with **recall unchanged** at `0.857` (30 of 35). F1 and accuracy peak
-on the plateau `h = 0.717-0.748`; `0.72` sits at its low (safer) end.
+84 test images that had a byte-identical copy in the training split) the rule scores
+Precision `0.833` / Recall `0.857` / F1 `0.845`, unchanged between `h = 0.5` and
+`h = 0.72`.
 
-> [!WARNING]
-> `0.72` was selected on the test set it is scored on, so its advantage is
-> optimistically biased, and out-of-fold threshold selection is **still pending**. With
-> 35 positives, "recall unchanged" has wide uncertainty, and raising a screening
-> threshold is in principle a sensitivity-reducing direction. Reviewed and accepted by
-> the repo owner on this basis.
+> [!NOTE]
+> **Supersedes the earlier `THRESHOLD = 0.72` rationale** (F1 `0.882`). That figure came
+> from sweeping the bare `infection_probability >= threshold` rule, which could *veto* the
+> model's top prediction — and did: a production image with `argmax == class_4` and
+> `P(class_4) = 0.7151` was recorded as `screening_result = "normal"`. The swept rule is
+> not the one the model was validated under, so `0.882` is withdrawn and the threshold is
+> back at the pre-incident `0.5`; under floor semantics a *lower* threshold is strictly
+> more sensitive. Out-of-fold threshold selection is still pending.
 
 The deployed value is `THRESHOLD` in `k8s/base/configmap.yaml`; the in-code default is in
 `app/core/config.py`. It is unrelated to the `PRESCREEN_*` presence-gate threshold above.

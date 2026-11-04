@@ -280,7 +280,7 @@ Important backend environment variables:
 - `MODEL_URL`: checkpoint download URL
 - `MODEL_PATH`: local checkpoint path
 - `DEVICE`: must be `cpu` (GPU support is intentionally disabled)
-- `THRESHOLD`: infection screening threshold — decision cut on `P(class_4)`, default **`0.72`** (see [Model Notes](#model-notes))
+- `THRESHOLD`: infection screening **floor** on `P(class_4)`, default **`0.5`** — it can only add positives, never veto the model's own top class (see [Model Notes](#model-notes))
 - `MAX_UPLOAD_MB`: maximum upload size
 - `MODEL_BACKBONE`: fallback backbone for `state_dict` reconstruction
 - `MODEL_ARCH`: fallback architecture when `MODEL_BACKBONE=none`
@@ -432,7 +432,7 @@ Example response shape:
     "infection_class_index": 4,
     "infection_class_name": "class_4",
     "infection_probability": 0.97,
-    "threshold": 0.72,
+    "threshold": 0.5,
     "is_infection_positive": true
   }
 }
@@ -453,7 +453,8 @@ Example response shape:
 - 5 output classes: `class_0` through `class_4`, matching the clinical exit-site score `0, 1, 2, 3, >=4`
 - `class_4` (score `>=4`) is the infection-positive class
 - preprocessing uses `Resize(384) -> CenterCrop(384) -> ToTensor() -> ImageNet normalize`
-- **decision threshold: `THRESHOLD=0.72`** — a cut on `P(class_4)`, applied in `app/services/model_loader.py` (`infection_probability >= settings.threshold`)
+- **decision rule**: infection-positive when `argmax == class_4` **or** `P(class_4) >= THRESHOLD`, applied in `app/services/model_loader.py` (see [Infection decision rule](#infection-decision-rule))
+- **`THRESHOLD=0.5`** — a floor on `P(class_4)`, not an override of the model's own top class
 
 If a future checkpoint is exported as a plain `state_dict`, set `MODEL_BACKBONE` and related fallback environment variables correctly so the service can reconstruct the model before loading weights.
 
@@ -463,25 +464,47 @@ If a future checkpoint is exported as a plain `state_dict`, set `MODEL_BACKBONE`
 - At inference time the service embeds each image with **CLIP**, then applies the **sklearn linear probe** scored like logistic regression (`predict_proba` or `decision_function` fallback).
 - Does **not** use a YOLO detector in the deployed patient-upload path for this gate. Separate **YOLO-based detection** experimentation and training live in [`ntuh-pd-exit-site-detection`](https://github.com/ruby0322/ntuh-pd-exit-site-detection) and are not described here as runtime dependencies for presence compliance unless you intentionally wire something else later.
 
-#### Why `THRESHOLD = 0.72`
+<a id="infection-decision-rule"></a>
+#### Infection decision rule
 
-Raised from the previous `0.5` after a threshold sweep on a **deduplicated** held-out
-test set (n=388: 35 positive / 353 negative; dedup removed the 84 test images that had
-a byte-identical copy in the training split):
+```python
+is_infection_positive = (
+    predicted_class_index == settings.infection_class_index  # argmax == class_4
+    or infection_probability >= settings.threshold           # P(class_4) >= THRESHOLD
+)
+```
 
-| threshold | Precision | Recall | F1 | Accuracy | TP | FN | FP | TN |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.50 (previous) | 0.857 | 0.857 | 0.857 | 97.42% | 30 | 5 | 5 | 348 |
-| **0.72 (current)** | **0.909** | **0.857** | **0.882** | **97.94%** | 30 | 5 | 3 | 350 |
+The model's own top prediction always wins. `THRESHOLD` is a **floor** that can only
+**add** positives on top of argmax — it can never turn an `argmax == class_4` image into
+`normal`. Because any `P(class_4) >= 0.5` is already the argmax of a 5-class softmax, the
+rule is effectively pure argmax at the deployed `THRESHOLD=0.5`, and comes out identical
+at `0.72`.
 
-`0.72` removes 2 false positives with **no change in recall** (0.857, 30 of 35 in both
-cases). F1 and accuracy both peak on the plateau `h = 0.717-0.748`; `0.72` sits at the
-low (safer) end of that plateau.
+This matters because **every published metric for this checkpoint is an argmax number.**
+The research evaluation harness (`prepare.py`, `evaluate`, in
+[`ntuh-pd-exit-site-classification`](https://github.com/ruby0322/ntuh-pd-exit-site-classification))
+scores `model(x).argmax(dim=1)`. The service now implements the same rule the model was
+selected and validated under.
 
-> [!WARNING]
-> **This value was selected on the test set**, so its measured advantage over `0.5` is
-> optimistically biased. Proper out-of-fold threshold selection has **not** been run
-> yet and is still pending. The positive class has only 35 examples, so "recall is
-> unchanged" carries wide uncertainty — and raising a screening threshold is in
-> principle a sensitivity-reducing direction. Reviewed and accepted by the repo owner
-> on this basis; revisit once OOF validation exists.
+Measured on the **deduplicated** held-out test set (n=388: 35 positive / 353 negative;
+dedup removed the 84 test images that had a byte-identical copy in the training split):
+
+| rule | Precision | Recall | F1 |
+| --- | --- | --- | --- |
+| argmax (research harness) | 0.833 | 0.857 | 0.845 |
+| **argmax or `P >= 0.50`** (deployed) | **0.833** | **0.857** | **0.845** |
+| argmax or `P >= 0.72` | 0.833 | 0.857 | 0.845 |
+
+> [!NOTE]
+> **Supersedes the earlier `THRESHOLD = 0.72` rationale.** That change reported F1 `0.882`
+> from a sweep of the bare `infection_probability >= threshold` rule, which could *veto*
+> the model's top prediction. It did: a production image with `argmax == class_4` and
+> `P(class_4) = 0.7151` was recorded as `screening_result = "normal"` under `0.72`. The
+> sweep measured a rule the model was never selected or validated under, so its F1
+> advantage does not carry over and the `0.882` figure is withdrawn. `THRESHOLD` is back
+> at the pre-incident `0.5`; under the floor semantics a *lower* threshold is strictly
+> more sensitive.
+>
+> Out-of-fold threshold selection is still pending. With only 35 positives in the test
+> set, any threshold tuned on it stays optimistically biased, which is a second reason to
+> keep the threshold out of the position where it can contradict the model.

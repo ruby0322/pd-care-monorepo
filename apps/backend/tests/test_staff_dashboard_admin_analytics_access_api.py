@@ -820,7 +820,20 @@ def test_review_throughput_counts_distinct_uploads_per_day_and_reviewer(tmp_path
 
         taipei_tz = timezone(timedelta(hours=8))
         now = datetime.now(tz=timezone.utc)
-        today_key = now.astimezone(taipei_tz).date().isoformat()
+        taipei_now = now.astimezone(taipei_tz)
+        today_key = taipei_now.date().isoformat()
+
+        # Anchor every seeded review inside *today's* Taipei day. Offsetting
+        # backwards from `now` (now - 1h, -2h, ...) silently pushes reviews onto
+        # the previous Taipei day whenever the suite runs shortly after local
+        # midnight, which made this test fail for any run between 00:00 and
+        # 04:00 UTC+8 regardless of the code under test.
+        taipei_midnight = taipei_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elapsed_today = taipei_now - taipei_midnight
+
+        def today_at(fraction: float) -> datetime:
+            """A UTC instant that always falls on today's Taipei date."""
+            return (taipei_midnight + elapsed_today * fraction).astimezone(timezone.utc)
 
         # Nurse reviews two uploads today; one of them is revisited, which must not double count.
         first_upload = _seed_review(
@@ -828,21 +841,21 @@ def test_review_throughput_counts_distinct_uploads_per_day_and_reviewer(tmp_path
             reviewer_identity_id=nurse_id,
             patient_id=patient_id,
             object_key="patients/t/uploads/n1.jpg",
-            reviewed_at=now - timedelta(hours=2),
+            reviewed_at=today_at(0.6),
         )
         _seed_review(
             client,
             reviewer_identity_id=nurse_id,
             patient_id=patient_id,
             object_key="patients/t/uploads/n2.jpg",
-            reviewed_at=now - timedelta(hours=3),
+            reviewed_at=today_at(0.4),
         )
         _seed_review(
             client,
             reviewer_identity_id=nurse_id,
             patient_id=patient_id,
             object_key="ignored",
-            reviewed_at=now - timedelta(hours=1),
+            reviewed_at=today_at(0.8),
             upload_id=first_upload,
         )
         # Admin reviews the same upload the nurse did, so the clinic-wide day total stays distinct.
@@ -851,7 +864,7 @@ def test_review_throughput_counts_distinct_uploads_per_day_and_reviewer(tmp_path
             reviewer_identity_id=admin_id,
             patient_id=patient_id,
             object_key="ignored",
-            reviewed_at=now - timedelta(hours=4),
+            reviewed_at=today_at(0.2),
             upload_id=first_upload,
         )
 

@@ -160,6 +160,17 @@ def predict_bytes(loaded: LoadedModel, image_bytes: bytes, settings: Settings) -
     predicted_probability = float(probabilities[predicted_class_index].item())
     infection_probability = float(probabilities[settings.infection_class_index].item())
 
+    # Decision rule: the model's own top prediction always wins, and the probability
+    # threshold is a *floor* that can only add positives on top of it. A bare
+    # `infection_probability >= threshold` test could veto an `argmax == infection_class`
+    # prediction (e.g. P(class_4)=0.7151 with THRESHOLD=0.72 was reported "normal"), which
+    # contradicts the model and does not match the research evaluation harness -- every
+    # published metric for this checkpoint is an argmax number.
+    is_infection_positive = (
+        predicted_class_index == settings.infection_class_index
+        or infection_probability >= settings.threshold
+    )
+
     class_probabilities = [
         ClassProbability(
             class_index=index,
@@ -179,6 +190,6 @@ def predict_bytes(loaded: LoadedModel, image_bytes: bytes, settings: Settings) -
             infection_class_name=settings.class_names[settings.infection_class_index],
             infection_probability=infection_probability,
             threshold=settings.threshold,
-            is_infection_positive=infection_probability >= settings.threshold,
+            is_infection_positive=is_infection_positive,
         ),
     )
