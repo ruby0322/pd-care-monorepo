@@ -37,18 +37,49 @@ jobs:
       - name: Check changed paths
         id: paths
         run: |
-          # -m is required for merge commits; plain git show returns no paths on PR merges.
-          CHANGED_FILES="$(git show -m --pretty='' --name-only "${SOURCE_SHA}" | sed '/^$/d' | sort -u)"
-          echo "Changed files:"
-          echo "${CHANGED_FILES}"
-          FRONTEND_CHANGED=false
-          BACKEND_CHANGED=false
-          if echo "${CHANGED_FILES}" | grep -Eq '^apps/frontend/'; then
-            FRONTEND_CHANGED=true
-          fi
-          if echo "${CHANGED_FILES}" | grep -Eq '^apps/backend/'; then
-            BACKEND_CHANGED=true
-          fi
+          # Diff each component against the commit it is actually deployed at, as recorded in
+          # the dev overlay's image tags. Inspecting only the tip commit silently skipped a
+          # component whenever main advanced by more than one commit -- a fast-forward push of
+          # several commits showed only the last one, so a backend fix two commits back was
+          # never built. Comparing against the deployed sha is also self-correcting: a missed
+          # build is picked up on the next push instead of being lost.
+          overlay="k8s/overlays/dev/kustomization.yaml"
+          deployed_tag() {
+            awk -v img="$1" '
+              $1 == "-" && $2 == "name:" { current = $3 }
+              $1 == "newTag:" && current == img { print $2; exit }
+            ' "$overlay"
+          }
+          baseline_sha() {
+            # Tags look like sha-<40 hex> or dev-sha-<40 hex>; recover the commit.
+            printf '%s' "$1" | sed -E 's/^(dev-)?sha-//'
+          }
+
+          changed_since() {
+            local base="$1" path="$2"
+            if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              echo "  baseline '${base}' unresolvable; assuming changed" >&2
+              echo "true"
+              return
+            fi
+            if [ -n "$(git diff --name-only "${base}" "${SOURCE_SHA}" -- "$path")" ]; then
+              echo "true"
+            else
+              echo "false"
+            fi
+          }
+
+          FRONTEND_BASE="$(baseline_sha "$(deployed_tag pd-care-frontend)")"
+          BACKEND_BASE="$(baseline_sha "$(deployed_tag pd-care-backend)")"
+          echo "frontend deployed at: ${FRONTEND_BASE:-<none>}"
+          echo "backend  deployed at: ${BACKEND_BASE:-<none>}"
+
+          FRONTEND_CHANGED="$(changed_since "$FRONTEND_BASE" 'apps/frontend/')"
+          BACKEND_CHANGED="$(changed_since "$BACKEND_BASE" 'apps/backend/')"
+          echo "Changed files (frontend):"
+          git diff --name-only "${FRONTEND_BASE}" "${SOURCE_SHA}" -- 'apps/frontend/' 2>/dev/null | head -50 || true
+          echo "Changed files (backend):"
+          git diff --name-only "${BACKEND_BASE}" "${SOURCE_SHA}" -- 'apps/backend/' 2>/dev/null | head -50 || true
           SHOULD_RUN=false
           if [[ "${FRONTEND_CHANGED}" == "true" || "${BACKEND_CHANGED}" == "true" ]]; then
             SHOULD_RUN=true
