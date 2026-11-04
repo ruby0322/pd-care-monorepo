@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Link2,
   Menu,
+  Sparkles,
   UserCheck,
   Users,
   X,
@@ -181,6 +182,18 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
               極速審核
             </Link>
             <Link
+              href="/admin/copilot"
+              onClick={closeMobileSidebar}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/copilot"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <Sparkles className="w-4 h-4" strokeWidth={1.5} />
+              PD Copilot
+            </Link>
+            <Link
               href="/admin/history-overview"
               onClick={closeMobileSidebar}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
@@ -333,6 +346,21 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
             >
               <Bolt className="w-4 h-4" strokeWidth={1.5} />
               {!isSidebarCollapsed ? "極速審核" : null}
+            </Link>
+            <Link
+              href="/admin/copilot"
+              className={`flex items-center rounded-xl transition-colors text-sm ${
+                isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+              } ${
+                pathname === "/admin/copilot"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+              aria-label="PD Copilot"
+              title={isSidebarCollapsed ? "PD Copilot" : undefined}
+            >
+              <Sparkles className="w-4 h-4" strokeWidth={1.5} />
+              {!isSidebarCollapsed ? "PD Copilot" : null}
             </Link>
             <Link
               href="/admin/history-overview"

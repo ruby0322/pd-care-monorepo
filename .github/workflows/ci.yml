@@ -73,7 +73,32 @@ jobs:
           python -m pip install -r apps/backend/requirements-dev.txt
 
       - name: Run backend tests
-        run: npm run test:backend
+        run: |
+          set -o pipefail
+          npm run test:backend 2>&1 | tee /tmp/backend-tests.log
+
+      # Job logs need repository admin rights, which makes a red CI run hard to triage for
+      # anyone without them: the check-run annotations otherwise say only "exit code 1".
+      # Emit the failure lines as an annotation (readable by anyone who can see the run) and
+      # repeat them in the job summary for humans.
+      - name: Surface backend test failures
+        if: failure()
+        run: |
+          FAILS="$(grep -E '^(FAILED|ERROR)' /tmp/backend-tests.log | head -n 40 || true)"
+          if [ -z "$FAILS" ]; then
+            FAILS="$(tail -n 40 /tmp/backend-tests.log)"
+          fi
+          # Workflow commands are newline-delimited, so a multi-line annotation needs its
+          # newlines percent-encoded to survive as a single annotation.
+          ENCODED="$(printf '%s' "$FAILS" | python3 -c 'import sys; print(sys.stdin.read().replace("%","%25").replace("\r","%0D").replace("\n","%0A"))')"
+          echo "::error title=Backend test failures::$ENCODED"
+          {
+            echo "### Backend test failures"
+            echo ""
+            echo '```'
+            printf '%s\n' "$FAILS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   frontend-test:
     name: Frontend unit tests

@@ -48,6 +48,11 @@ PD Care is a peritoneal dialysis exit-site imaging and infection alert system. T
 - **Follow-up communication**
   - `LINEAlert` notification channel sends guidance alerts for suspected cases.
   - Alert messages are assistive only and do not constitute diagnosis.
+- **PD Copilot (read-only AI analysis)**
+  - Staff/admin chat assistant at `/admin/copilot` that decomposes a question, queries the existing authenticated staff API, and answers with Markdown plus optional self-contained HTML charts/tables.
+  - Tool calls run as the signed-in user over an allowlist of **GET-only** endpoints, so the assistant can never read beyond that user's own permissions and cannot write anything.
+  - Sessions carry a visibility setting (self / staff / admin); shared sessions are read-only transcripts for everyone but the owner.
+  - Disabled unless `COPILOT_ENABLED=true` and `OPENAI_API_KEY` are set. See [`docs/product/pd-copilot.md`](docs/product/pd-copilot.md).
 
 <a id="section-2-system-architecture"></a>
 ## 2) System Architecture
@@ -437,6 +442,22 @@ Example response shape:
   }
 }
 ```
+
+#### PD Copilot
+
+Read-only LLM analysis endpoints for staff/admin, disabled unless `COPILOT_ENABLED=true` and
+`OPENAI_API_KEY` are configured. Local setup: `bash ops/dev/setup-copilot-env.sh`.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /v1/copilot/models` | Env-driven model picker contents |
+| `GET` / `POST /v1/copilot/sessions` | List visible sessions / create one |
+| `GET` / `PATCH` / `DELETE /v1/copilot/sessions/{id}` | Read transcript / update / delete (writes are owner-only) |
+| `POST /v1/copilot/sessions/{id}/messages` | Owner-only; streams the turn as SSE |
+| `POST /v1/copilot/proxy` | Live-data bridge for generated HTML reports |
+
+De-identified cohort aggregates used by the assistant are also available directly at
+`GET /v1/staff/analytics/{suspected-series,suspected-summary,age-histogram,gender-distribution,active-users}`.
 
 <a id="section-4-deployment-notes"></a>
 ## 4) Deployment Notes

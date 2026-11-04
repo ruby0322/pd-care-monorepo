@@ -55,6 +55,14 @@ spec:
                 secretKeyRef:
                   name: pd-care-secrets
                   key: HF_TOKEN
+            # Optional so clusters whose applied secret predates PD Copilot keep rolling out;
+            # COPILOT_ENABLED=true without this key makes the feature report itself unavailable.
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pd-care-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
           resources:
             requests:
               cpu: 250m

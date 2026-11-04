@@ -1,0 +1,224 @@
+"use client";
+
+import { Code2, Download, Maximize2, RefreshCw, X, Zap } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { queryCopilotProxy } from "@/lib/api/copilot";
+
+import {
+  buildArtifactDocument,
+  isAllowedArtifactTool,
+  parseArtifactQuery,
+} from "./artifact-bridge";
+
+const MAX_CONCURRENT_QUERIES = 3;
+const MIN_QUERY_INTERVAL_MS = 400;
+
+type Props = {
+  html: string;
+  /** Live data is opt-in: an artifact only reaches the proxy once the user turns it on. */
+  liveEnabled: boolean;
+  onToggleLive: (next: boolean) => void;
+};
+
+export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive }: Props) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [height, setHeight] = useState(320);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showSource, setShowSource] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const inFlightRef = useRef(0);
+  const lastQueryAtRef = useRef(0);
+
+  const document_ = useMemo(() => buildArtifactDocument(html), [html]);
+
+  const reply = useCallback(
+    (frame: Window, id: string, payload: { ok: boolean; data?: unknown; error?: string }) => {
+      // targetOrigin must be "*": a sandboxed frame without allow-same-origin has an
+      // opaque origin that cannot be named. The payload only ever contains data this
+      // user is already authorised to read, and the user's token stays in the parent.
+      frame.postMessage({ type: "pdcare:result", id, ...payload }, "*");
+    },
+    [],
+  );
+
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      const frame = iframeRef.current;
+      if (!frame || event.source !== frame.contentWindow) {
+        return;
+      }
+
+      const heightPayload = event.data as { type?: string; height?: number } | null;
+      if (heightPayload && heightPayload.type === "pdcare:height" && typeof heightPayload.height === "number") {
+        const next = Math.min(Math.max(heightPayload.height + 8, 160), 2400);
+        setHeight((current) => (Math.abs(current - next) > 4 ? next : current));
+        return;
+      }
+
+      const query = parseArtifactQuery(event.data);
+      if (!query) {
+        return;
+      }
+      const target = frame.contentWindow;
+      if (!target) {
+        return;
+      }
+
+      if (!liveEnabled) {
+        reply(target, query.id, { ok: false, error: "即時資料未啟用，請先開啟「即時資料」。" });
+        return;
+      }
+      if (!isAllowedArtifactTool(query.tool)) {
+        setLastError(`圖表嘗試呼叫未授權的查詢「${query.tool}」，已封鎖。`);
+        reply(target, query.id, { ok: false, error: `Tool "${query.tool}" is not allowed.` });
+        return;
+      }
+      if (inFlightRef.current >= MAX_CONCURRENT_QUERIES) {
+        reply(target, query.id, { ok: false, error: "同時查詢過多，請稍後再試。" });
+        return;
+      }
+      const now = Date.now();
+      if (now - lastQueryAtRef.current < MIN_QUERY_INTERVAL_MS) {
+        reply(target, query.id, { ok: false, error: "查詢過於頻繁，請稍後再試。" });
+        return;
+      }
+
+      lastQueryAtRef.current = now;
+      inFlightRef.current += 1;
+      void queryCopilotProxy(query.tool, query.params)
+        .then((result) => {
+          if (!result.ok) {
+            reply(target, query.id, { ok: false, error: `查詢被拒絕（HTTP ${result.status ?? "?"}）。` });
+            return;
+          }
+          reply(target, query.id, { ok: true, data: result.data });
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "查詢失敗";
+          reply(target, query.id, { ok: false, error: message });
+        })
+        .finally(() => {
+          inFlightRef.current = Math.max(0, inFlightRef.current - 1);
+        });
+    }
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [liveEnabled, reply]);
+
+  function downloadHtml() {
+    const blob = new Blob([document_], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const anchor = window.document.createElement("a");
+    anchor.href = url;
+    anchor.download = `pd-copilot-report-${Date.now()}.html`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Exactly one iframe carries the ref, because the bridge only answers messages whose
+  // `event.source` is that frame. Moving it into the fullscreen overlay remounts it
+  // (a reload), which is preferable to a second frame whose queries silently hang.
+  const frame = (
+    <iframe
+      key={reloadKey}
+      ref={iframeRef}
+      // No allow-same-origin: the frame gets an opaque origin, so it cannot touch
+      // localStorage, cookies, or the parent DOM. Combined with connect-src 'none' in
+      // the injected CSP, the postMessage bridge is its only path to data.
+      sandbox="allow-scripts"
+      srcDoc={document_}
+      title="PD Copilot 報表"
+      className="w-full border-0 bg-white"
+      style={{ height: isFullscreen ? "100%" : `${height}px` }}
+    />
+  );
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-100 bg-zinc-50 px-3 py-2">
+        <span className="text-xs font-medium text-zinc-500">報表</span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onToggleLive(!liveEnabled)}
+            className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
+              liveEnabled ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+            }`}
+            title="允許此報表即時向後端查詢資料"
+          >
+            <Zap className="h-3.5 w-3.5" strokeWidth={1.5} />
+            即時資料
+          </button>
+          <button
+            type="button"
+            onClick={() => setReloadKey((key) => key + 1)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+            aria-label="重新整理報表"
+          >
+            <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSource((value) => !value)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+            aria-label="檢視 HTML 原始碼"
+          >
+            <Code2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            onClick={downloadHtml}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+            aria-label="下載 HTML"
+          >
+            <Download className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsFullscreen(true)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+            aria-label="全螢幕檢視"
+          >
+            <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </button>
+        </div>
+      </div>
+
+      {lastError ? (
+        <p className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">{lastError}</p>
+      ) : null}
+
+      {showSource ? (
+        <pre className="max-h-80 overflow-auto bg-zinc-900 px-3 py-3 text-xs leading-relaxed text-zinc-100">
+          <code>{html}</code>
+        </pre>
+      ) : isFullscreen ? (
+        <div className="flex h-[200px] items-center justify-center text-xs text-zinc-400">報表已在全螢幕中開啟</div>
+      ) : (
+        frame
+      )}
+
+      {isFullscreen ? (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-zinc-900/60 p-4">
+          <div className="flex flex-1 flex-col overflow-hidden rounded-2xl bg-white">
+            <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-2">
+              <span className="text-sm font-medium text-zinc-700">PD Copilot 報表</span>
+              <button
+                type="button"
+                onClick={() => setIsFullscreen(false)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+                aria-label="關閉全螢幕"
+              >
+                <X className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">{frame}</div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
