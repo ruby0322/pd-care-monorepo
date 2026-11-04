@@ -280,7 +280,7 @@ Important backend environment variables:
 - `MODEL_URL`: checkpoint download URL
 - `MODEL_PATH`: local checkpoint path
 - `DEVICE`: must be `cpu` (GPU support is intentionally disabled)
-- `THRESHOLD`: infection screening threshold
+- `THRESHOLD`: infection screening threshold — decision cut on `P(class_4)`, default **`0.72`** (see [Model Notes](#model-notes))
 - `MAX_UPLOAD_MB`: maximum upload size
 - `MODEL_BACKBONE`: fallback backbone for `state_dict` reconstruction
 - `MODEL_ARCH`: fallback architecture when `MODEL_BACKBONE=none`
@@ -432,7 +432,7 @@ Example response shape:
     "infection_class_index": 4,
     "infection_class_name": "class_4",
     "infection_probability": 0.97,
-    "threshold": 0.5,
+    "threshold": 0.72,
     "is_infection_positive": true
   }
 }
@@ -450,9 +450,10 @@ Example response shape:
 
 **Infection-oriented classifier (multiclass backbone)** — production screening path:
 
-- 5 output classes: `class_0` through `class_4`
-- `class_4` is the infection-positive class
+- 5 output classes: `class_0` through `class_4`, matching the clinical exit-site score `0, 1, 2, 3, >=4`
+- `class_4` (score `>=4`) is the infection-positive class
 - preprocessing uses `Resize(384) -> CenterCrop(384) -> ToTensor() -> ImageNet normalize`
+- **decision threshold: `THRESHOLD=0.72`** — a cut on `P(class_4)`, applied in `app/services/model_loader.py` (`infection_probability >= settings.threshold`)
 
 If a future checkpoint is exported as a plain `state_dict`, set `MODEL_BACKBONE` and related fallback environment variables correctly so the service can reconstruct the model before loading weights.
 
@@ -461,3 +462,26 @@ If a future checkpoint is exported as a plain `state_dict`, set `MODEL_BACKBONE`
 - Loads a Hugging Face **snapshot** (probe weights + bundle metadata such as CLIP checkpoint id and decision threshold); default repo id is set in `docker-compose.yml` (`ruby0322/pd-exit-site-clip-linear-probe`).
 - At inference time the service embeds each image with **CLIP**, then applies the **sklearn linear probe** scored like logistic regression (`predict_proba` or `decision_function` fallback).
 - Does **not** use a YOLO detector in the deployed patient-upload path for this gate. Separate **YOLO-based detection** experimentation and training live in [`ntuh-pd-exit-site-detection`](https://github.com/ruby0322/ntuh-pd-exit-site-detection) and are not described here as runtime dependencies for presence compliance unless you intentionally wire something else later.
+
+#### Why `THRESHOLD = 0.72`
+
+Raised from the previous `0.5` after a threshold sweep on a **deduplicated** held-out
+test set (n=388: 35 positive / 353 negative; dedup removed the 84 test images that had
+a byte-identical copy in the training split):
+
+| threshold | Precision | Recall | F1 | Accuracy | TP | FN | FP | TN |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.50 (previous) | 0.857 | 0.857 | 0.857 | 97.42% | 30 | 5 | 5 | 348 |
+| **0.72 (current)** | **0.909** | **0.857** | **0.882** | **97.94%** | 30 | 5 | 3 | 350 |
+
+`0.72` removes 2 false positives with **no change in recall** (0.857, 30 of 35 in both
+cases). F1 and accuracy both peak on the plateau `h = 0.717-0.748`; `0.72` sits at the
+low (safer) end of that plateau.
+
+> [!WARNING]
+> **This value was selected on the test set**, so its measured advantage over `0.5` is
+> optimistically biased. Proper out-of-fold threshold selection has **not** been run
+> yet and is still pending. The positive class has only 35 examples, so "recall is
+> unchanged" carries wide uncertainty — and raising a screening threshold is in
+> principle a sensitivity-reducing direction. Reviewed and accepted by the repo owner
+> on this basis; revisit once OOF validation exists.

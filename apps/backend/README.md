@@ -99,7 +99,7 @@ Example response shape:
     "infection_class_index": 4,
     "infection_class_name": "class_4",
     "infection_probability": 0.97,
-    "threshold": 0.5,
+    "threshold": 0.72,
     "is_infection_positive": true
   }
 }
@@ -114,10 +114,42 @@ Important settings:
 - `MODEL_URL`: direct download URL for the checkpoint
 - `MODEL_PATH`: local on-disk checkpoint location
 - `DEVICE`: must be `cpu` (GPU support is intentionally disabled)
-- `THRESHOLD`: infection probability threshold for screening output
+- `THRESHOLD`: infection probability threshold for screening output, default **`0.72`** (see [Infection decision threshold](#infection-decision-threshold))
 - `MAX_UPLOAD_MB`: maximum accepted upload size
 - `MODEL_BACKBONE`: fallback reconstruction backbone, default `mobilenet_v3_large`
 - `MODEL_ARCH`: fallback reconstruction arch when `MODEL_BACKBONE=none`
+
+## Infection decision threshold
+
+The screening decision is `infection_probability >= settings.threshold` in
+`app/services/model_loader.py`, where `infection_probability` is the softmax
+probability of `class_4` (clinical exit-site score `>=4`, the infection-positive
+class). So `THRESHOLD` is literally a cut on `P(score >= 4)`.
+
+Current value: **`0.72`** (raised from `0.5`).
+
+Evidence — threshold sweep on a **deduplicated** held-out test set (n=388: 35 positive
+/ 353 negative; dedup removed the 84 test images that had a byte-identical copy in the
+training split):
+
+| threshold | Precision | Recall | F1 | Accuracy | TP | FN | FP | TN |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.50 (previous) | 0.857 | 0.857 | 0.857 | 97.42% | 30 | 5 | 5 | 348 |
+| **0.72 (current)** | **0.909** | **0.857** | **0.882** | **97.94%** | 30 | 5 | 3 | 350 |
+
+`0.72` removes 2 false positives with **no change in recall** (0.857, 30 of 35 in both
+cases). F1 and accuracy both peak on the plateau `h = 0.717-0.748`; `0.72` is at the
+low (safer) end of that plateau.
+
+> [!WARNING]
+> **Test-selected value.** `0.72` was chosen on the same test set it is reported on, so
+> its advantage over `0.5` is optimistically biased. Out-of-fold threshold selection is
+> **still pending**. With only 35 positive examples, "recall is unchanged" carries wide
+> uncertainty, and raising a screening threshold is in principle a sensitivity-reducing
+> direction. Reviewed and accepted by the repo owner on this basis.
+
+The deployed value lives in `k8s/base/configmap.yaml`; the in-code default is in
+`app/core/config.py`.
 
 ## Docker
 
