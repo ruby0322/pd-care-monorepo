@@ -152,6 +152,14 @@ ${html}
 </html>`;
 }
 
+/**
+ * True when the markup calls the live-data bridge. Such a report is inert without it, so
+ * the thread enables live data for it by default rather than rendering a dead dashboard.
+ */
+export function usesLiveBridge(html: string): boolean {
+  return /\bpdcare\s*\.\s*query\s*\(/.test(html) || /window\s*\.\s*pdcare\b/.test(html);
+}
+
 export type ArtifactErrorMessage = {
   type: "pdcare:error";
   kind: string;

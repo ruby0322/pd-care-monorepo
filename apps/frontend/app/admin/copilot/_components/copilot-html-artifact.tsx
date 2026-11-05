@@ -23,9 +23,16 @@ type Props = {
   onToggleLive: (next: boolean) => void;
   /** Lets the thread offer to send the failure back so the assistant can repair its own HTML. */
   onRequestRepair?: (errors: ArtifactErrorMessage[]) => void;
+  /**
+   * Fires once per rendered report when its own JS throws, so the assistant can repair
+   * without the reader having to notice and click. Returns false when the thread declines
+   * (attempt cap reached, read-only, or a turn already running), which keeps the manual
+   * button as the fallback.
+   */
+  onAutoRepair?: (errors: ArtifactErrorMessage[]) => boolean;
 };
 
-export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequestRepair }: Props) {
+export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequestRepair, onAutoRepair }: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [height, setHeight] = useState(320);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -33,6 +40,9 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequest
   const [reloadKey, setReloadKey] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
   const [runtimeErrors, setRuntimeErrors] = useState<ArtifactErrorMessage[]>([]);
+  const [blockedWhileOff, setBlockedWhileOff] = useState(false);
+  const [autoRepairState, setAutoRepairState] = useState<"idle" | "sent" | "declined">("idle");
+  const autoRepairFiredRef = useRef(false);
   const inFlightRef = useRef(0);
   const lastQueryAtRef = useRef(0);
 
@@ -80,7 +90,8 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequest
       }
 
       if (!liveEnabled) {
-        reply(target, query.id, { ok: false, error: "即時資料未啟用，請先開啟「即時資料」。" });
+        setBlockedWhileOff(true);
+        reply(target, query.id, { ok: false, error: "即時資料未啟用，請在報表右上角開啟「即時資料」。" });
         return;
       }
       if (!isAllowedArtifactTool(query.tool)) {
@@ -121,6 +132,26 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequest
     return () => window.removeEventListener("message", onMessage);
   }, [liveEnabled, reply]);
 
+  // Only script/promise faults are the report's own bug. A failed query means rate
+  // limiting, missing permission or live data switched off -- regenerating the HTML cannot
+  // fix any of those, so it stays a visible error rather than a silent retry.
+  const repairableErrors = runtimeErrors.filter((item) => item.kind === "script" || item.kind === "promise");
+
+  useEffect(() => {
+    if (!onAutoRepair || autoRepairFiredRef.current || repairableErrors.length === 0) {
+      return;
+    }
+    // Wait a beat so a report that throws several times reports them in one turn.
+    const timer = window.setTimeout(() => {
+      if (autoRepairFiredRef.current) {
+        return;
+      }
+      autoRepairFiredRef.current = true;
+      setAutoRepairState(onAutoRepair(repairableErrors) ? "sent" : "declined");
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [onAutoRepair, repairableErrors]);
+
   function downloadHtml() {
     const blob = new Blob([document_], { type: "text/html" });
     const url = URL.createObjectURL(blob);
@@ -156,7 +187,14 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequest
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => onToggleLive(!liveEnabled)}
+            onClick={() => {
+              if (!liveEnabled) {
+                setBlockedWhileOff(false);
+                setRuntimeErrors([]);
+                setReloadKey((key) => key + 1);
+              }
+              onToggleLive(!liveEnabled);
+            }}
             className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
               liveEnabled ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
             }`}
@@ -208,6 +246,27 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequest
         <p className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">{lastError}</p>
       ) : null}
 
+      {blockedWhileOff && !liveEnabled ? (
+        <div className="flex items-center gap-2 border-b border-amber-100 bg-amber-50 px-3 py-2.5">
+          <Zap className="h-3.5 w-3.5 shrink-0 text-amber-600" strokeWidth={1.5} />
+          <p className="flex-1 text-xs text-amber-800">
+            這份報表需要即時資料才能顯示內容，目前為關閉狀態。
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setBlockedWhileOff(false);
+              setRuntimeErrors([]);
+              setReloadKey((key) => key + 1);
+              onToggleLive(true);
+            }}
+            className="shrink-0 rounded-lg bg-amber-600 px-2 py-1 text-xs text-white transition-colors hover:bg-amber-700"
+          >
+            啟用
+          </button>
+        </div>
+      ) : null}
+
       {runtimeErrors.length > 0 ? (
         <div className="border-b border-rose-100 bg-rose-50 px-3 py-2.5">
           <div className="flex items-start gap-2">
@@ -222,7 +281,12 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequest
                 ))}
               </ul>
             </div>
-            {onRequestRepair ? (
+            {autoRepairState === "sent" ? (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700">
+                <Wrench className="h-3 w-3 animate-pulse" strokeWidth={1.5} />
+                已回報，Copilot 修正中
+              </span>
+            ) : onRequestRepair ? (
               <button
                 type="button"
                 onClick={() => onRequestRepair(runtimeErrors)}

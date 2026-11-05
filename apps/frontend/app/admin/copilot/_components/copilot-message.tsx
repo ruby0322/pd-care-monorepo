@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import type { CopilotToolTraceEntry } from "@/lib/api/copilot";
 
-import { parseAssistantContent, type ArtifactErrorMessage } from "./artifact-bridge";
+import { parseAssistantContent, usesLiveBridge, type ArtifactErrorMessage } from "./artifact-bridge";
 import { CopilotHtmlArtifact } from "./copilot-html-artifact";
 import { CopilotMarkdown } from "./copilot-markdown";
 import { CopilotToolTrace } from "./copilot-tool-trace";
@@ -22,12 +22,14 @@ export type CopilotMessageViewModel = {
 export function CopilotMessage({
   message,
   onRequestRepair,
+  onAutoRepair,
 }: {
   message: CopilotMessageViewModel;
   onRequestRepair?: (errors: ArtifactErrorMessage[]) => void;
+  onAutoRepair?: (errors: ArtifactErrorMessage[]) => boolean;
 }) {
-  // Live data is opt-in per artifact and resets when the message re-renders from scratch.
-  const [liveArtifacts, setLiveArtifacts] = useState<Record<number, boolean>>({});
+  // Overrides only: the default comes from whether the report actually uses the bridge.
+  const [liveOverrides, setLiveOverrides] = useState<Record<number, boolean>>({});
 
   if (message.role === "user") {
     return (
@@ -55,9 +57,10 @@ export function CopilotMessage({
             <CopilotHtmlArtifact
               key={index}
               html={segment.value}
-              liveEnabled={liveArtifacts[index] ?? false}
-              onToggleLive={(next) => setLiveArtifacts((current) => ({ ...current, [index]: next }))}
+              liveEnabled={liveOverrides[index] ?? usesLiveBridge(segment.value)}
+              onToggleLive={(next) => setLiveOverrides((current) => ({ ...current, [index]: next }))}
               onRequestRepair={onRequestRepair}
+              onAutoRepair={message.isStreaming ? undefined : onAutoRepair}
             />
           ),
         )}

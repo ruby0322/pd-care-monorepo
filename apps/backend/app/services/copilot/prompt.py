@@ -57,7 +57,11 @@ const data = await window.pdcare.query("get_cohort_suspected_series", {{ lookbac
 
 `window.pdcare.query(toolName, params)` 回傳該工具的 JSON（與你自己呼叫的格式相同），由前端代為帶使用者權限發送。
 可用的 toolName 與參數就是上面那份清單。iframe 本身無法對外連線，這個 bridge 是唯一取得資料的途徑。
-請在 HTML 中附上明顯的「重新整理」按鈕或自動輪詢（間隔至少 30 秒），並處理 bridge 回傳錯誤的情況。
+請在 HTML 中附上明顯的「重新整理」按鈕或自動輪詢（間隔至少 30 秒）。
+
+bridge 失敗時，**把 error.message 原文顯示出來**，不要換成自己編的說法。那段訊息會說明真正的原因
+（例如即時資料被關閉、權限不足、查詢過於頻繁），使用者才知道下一步該做什麼；寫成「資料連線不可用」
+之類的泛用句子會把可以自行排除的問題變成死路。
 只有在使用者明確要求即時／可重新整理時才用 bridge；一次性的分析請直接把查到的數字寫進 HTML。
 
 ### HTML 錯誤修正

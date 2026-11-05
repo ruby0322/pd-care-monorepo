@@ -1,4 +1,5 @@
 import {
+  usesLiveBridge,
   ARTIFACT_ALLOWED_TOOLS,
   buildArtifactDocument,
   isAllowedArtifactTool,
@@ -41,6 +42,19 @@ describe("parseArtifactQuery", () => {
     expect(parseArtifactQuery({ type: "pdcare:height", height: 10 })).toBeNull();
     expect(parseArtifactQuery({ type: "pdcare:query", tool: "t" })).toBeNull();
     expect(parseArtifactQuery({ type: "pdcare:query", id: "q1" })).toBeNull();
+  });
+});
+
+describe("usesLiveBridge", () => {
+  it("detects reports that call the bridge", () => {
+    expect(usesLiveBridge('const d = await window.pdcare.query("get_today_attention", {});')).toBe(true);
+    expect(usesLiveBridge("pdcare.query('x')")).toBe(true);
+    expect(usesLiveBridge("pdcare . query ( 'x' )")).toBe(true);
+  });
+
+  it("leaves static reports alone", () => {
+    expect(usesLiveBridge("<p>靜態數字 42</p>")).toBe(false);
+    expect(usesLiveBridge("<script>const pdcareNote = 1;</script>")).toBe(false);
   });
 });
 
