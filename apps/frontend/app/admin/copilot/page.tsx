@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowDown,
   ArrowUp,
   Eye,
   Lock,
@@ -49,6 +50,9 @@ const SUGGESTIONS = [
   { title: "即時趨勢圖表", prompt: "做一份近 90 天感染趨勢的即時圖表" },
 ];
 
+/** A broken report gets this many automatic repair rounds before it falls back to the button. */
+const MAX_AUTO_REPAIRS = 2;
+
 type StreamingState = {
   text: string;
   toolTrace: CopilotToolTraceEntry[];
@@ -70,7 +74,9 @@ export default function CopilotPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [isRailOpen, setIsRailOpen] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
-  const threadEndRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
+  const autoRepairCountRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -142,9 +148,18 @@ export default function CopilotPage() {
     return persisted;
   }, [activeDetail, streaming]);
 
+  // Only follow the stream while the reader is already at the bottom, and jump
+  // instantly: a smooth scroll restarts on every token, so the animations pile up and
+  // fight both each other and any manual scrolling.
   useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+    if (!isPinnedToBottom) {
+      return;
+    }
+    const node = scrollRef.current;
+    if (node) {
+      node.scrollTop = node.scrollHeight;
+    }
+  }, [messages, isPinnedToBottom]);
 
   const canWrite = activeDetail?.session.can_write ?? false;
   const isTranscriptPending = activeSessionId !== null && (isLoadingDetail || activeDetail === null);
@@ -185,10 +200,14 @@ export default function CopilotPage() {
     }
   }
 
-  async function handleSend(content: string) {
+  async function handleSend(content: string, options?: { isAutoRepair?: boolean }) {
     const trimmed = content.trim();
     if (!trimmed || activeSessionId === null || streaming || !canWrite) {
       return;
+    }
+    if (!options?.isAutoRepair) {
+      // A fresh question starts the repair budget over.
+      autoRepairCountRef.current = 0;
     }
     const sessionId = activeSessionId;
     setInput("");
@@ -273,20 +292,39 @@ export default function CopilotPage() {
     }
   }
 
-  /** Feeds a failing artifact's own runtime errors back so the assistant can repair its HTML. */
-  function handleRequestRepair(errors: ArtifactErrorMessage[]) {
+  function buildRepairPrompt(errors: ArtifactErrorMessage[]): string {
     const lines = errors.slice(0, 5).map((item) => `- [${item.kind}] ${item.message}`);
     const detailBlock = errors.find((item) => item.detail)?.detail;
-    void handleSend(
-      [
-        "上一份報表在瀏覽器執行時發生錯誤：",
-        "",
-        ...lines,
-        ...(detailBlock ? ["", "```", detailBlock.slice(0, 800), "```"] : []),
-        "",
-        "請修正根因並重新輸出完整的 ```html 區塊，保留原本的分析結論與數據。",
-      ].join("\n"),
-    );
+    return [
+      "上一份報表在瀏覽器執行時發生錯誤：",
+      "",
+      ...lines,
+      ...(detailBlock ? ["", "```", detailBlock.slice(0, 800), "```"] : []),
+      "",
+      "請修正根因並重新輸出完整的 ```html 區塊，保留原本的分析結論與數據。",
+    ].join("\n");
+  }
+
+  /** Manual fallback: the reader asks for a repair explicitly. */
+  function handleRequestRepair(errors: ArtifactErrorMessage[]) {
+    autoRepairCountRef.current = 0;
+    void handleSend(buildRepairPrompt(errors));
+  }
+
+  /**
+   * Automatic repair. Capped, because the assistant regenerating a report that throws again
+   * would otherwise loop indefinitely on an error it cannot fix.
+   */
+  function handleAutoRepair(errors: ArtifactErrorMessage[]): boolean {
+    if (!canWrite || streaming || activeSessionId === null) {
+      return false;
+    }
+    if (autoRepairCountRef.current >= MAX_AUTO_REPAIRS) {
+      return false;
+    }
+    autoRepairCountRef.current += 1;
+    void handleSend(buildRepairPrompt(errors), { isAutoRepair: true });
+    return true;
   }
 
   if (isCopilotEnabled === false) {
@@ -420,7 +458,15 @@ export default function CopilotPage() {
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          ref={scrollRef}
+          onScroll={(event) => {
+            const node = event.currentTarget;
+            const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+            setIsPinnedToBottom(distanceFromBottom < 80);
+          }}
+          className="relative min-h-0 flex-1 overflow-y-auto"
+        >
           <div className="mx-auto w-full max-w-3xl px-4 py-8">
             {activeSessionId === null ? (
               <div className="flex flex-col items-center py-16 text-center">
@@ -471,17 +517,37 @@ export default function CopilotPage() {
             ) : (
               <div className="space-y-7">
                 {messages.map((message) => (
-                  <CopilotMessage key={message.key} message={message} onRequestRepair={handleRequestRepair} />
+                  <CopilotMessage
+                    key={message.key}
+                    message={message}
+                    onRequestRepair={handleRequestRepair}
+                    onAutoRepair={handleAutoRepair}
+                  />
                 ))}
               </div>
             )}
-            <div ref={threadEndRef} className="h-px" />
           </div>
         </div>
 
         {/* Composer */}
         {activeSessionId !== null ? (
-          <div className="shrink-0 bg-gradient-to-t from-white via-white to-transparent px-4 pb-4">
+          <div className="relative shrink-0 bg-gradient-to-t from-white via-white to-transparent px-4 pb-4">
+            {!isPinnedToBottom && messages.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const node = scrollRef.current;
+                  if (node) {
+                    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+                  }
+                  setIsPinnedToBottom(true);
+                }}
+                className="absolute -top-5 left-1/2 inline-flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow-md transition-colors hover:text-zinc-900"
+                aria-label="捲動到最新訊息"
+              >
+                <ArrowDown className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+            ) : null}
             <div className="mx-auto w-full max-w-3xl">
               <form
                 className={`flex items-end gap-2 rounded-2xl border bg-white p-2 pl-4 shadow-sm transition-colors ${
