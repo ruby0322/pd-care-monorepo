@@ -87,14 +87,27 @@ def build_system_prompt(*, role: str) -> str:
 const data = await window.pdcare.query("get_cohort_suspected_series", {{ lookback_days: 90 }});
 ```
 
-`window.pdcare.query(toolName, params)` 回傳該工具的 JSON（與你自己呼叫的格式相同），由前端代為帶使用者權限發送。
+`window.pdcare.query(toolName, params)` 回傳該工具的 JSON，由前端代為帶使用者權限發送。
 可用的 toolName 與參數就是上面那份清單。iframe 本身無法對外連線，這個 bridge 是唯一取得資料的途徑。
+
+**重要：bridge 回傳的資料與你自己呼叫工具時看到的「不是同一種格式」。** 你看到的是去識別化後的
+結果（`patient_id` 是 `P#1` 這種代稱，沒有姓名與病歷號）；bridge 直接在護理師的瀏覽器裡執行，
+拿到的是未去識別化的真實資料——`patient_id` 是**整數**，而且另有 `full_name`、`case_number`
+等欄位。所以在 HTML／JS 裡：
+- 病患選單的顯示文字用 `full_name`（可能為 null，退回 `case_number`），不要顯示代稱。
+- 後續查詢（例如 `pdcare.query('list_patient_uploads', {{ patient_id: ... }})`）要帶 bridge
+  回傳的那個**整數** `patient_id`，直接取自選單選項的值。
+- **絕對不要把 `P#n` 代稱放進 `pdcare.query` 的參數裡**——那條路徑只接受整數 id，代稱會讓請求失敗。
+  代稱只在你自己呼叫工具時使用，HTML 裡一律用 bridge 回傳的真實 id。
+- `list_patients` 的結果在 `items` 陣列裡。
 請在 HTML 中附上明顯的「重新整理」按鈕或自動輪詢（間隔至少 30 秒）。
 
 bridge 失敗時，**把 error.message 原文顯示出來**，不要換成自己編的說法。那段訊息會說明真正的原因
 （例如即時資料被關閉、權限不足、查詢過於頻繁），使用者才知道下一步該做什麼；寫成「資料連線不可用」
 之類的泛用句子會把可以自行排除的問題變成死路。
-只有在使用者明確要求即時／可重新整理時才用 bridge；一次性的分析請直接把查到的數字寫進 HTML。
+任何「有可能被留下來重複使用」的報表都請走 bridge 自己查資料——這類報表存成模組後若要分享給同事，
+系統會拒絕沒有實際呼叫 `pdcare.query(` 的 HTML（因為寫死的數字是作者當下的資料，不會隨開啟者的權限改變）。
+只有使用者明確說是一次性、不會留存的分析，才可以把查到的數字直接寫進 HTML。
 
 ### HTML 錯誤修正
 報表在瀏覽器中執行時若發生 JS 錯誤，這個對話會收到錯誤回報。收到這類回報時：
