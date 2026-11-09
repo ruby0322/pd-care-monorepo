@@ -94,6 +94,50 @@ export async function deleteCopilotSession(sessionId: number): Promise<void> {
   await apiClient.delete(`/v1/copilot/sessions/${sessionId}`);
 }
 
+export type CopilotModuleSummary = {
+  module_id: number;
+  title: string;
+  description: string | null;
+  visibility: CopilotVisibility;
+  owner_identity_id: number;
+  owner_name: string | null;
+  is_owner: boolean;
+  can_write: boolean;
+  source_session_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CopilotModuleDetail = CopilotModuleSummary & {
+  html: string;
+};
+
+export async function fetchCopilotModules(): Promise<CopilotModuleSummary[]> {
+  const response = await apiClient.get<{ items: CopilotModuleSummary[] }>("/v1/copilot/modules");
+  return response.data.items;
+}
+
+export async function createCopilotModule(payload: {
+  title: string;
+  description?: string;
+  html: string;
+  visibility: CopilotVisibility;
+  source_session_id?: number;
+  source_message_id?: number;
+}): Promise<CopilotModuleDetail> {
+  const response = await apiClient.post<CopilotModuleDetail>("/v1/copilot/modules", payload);
+  return response.data;
+}
+
+export async function fetchCopilotModule(moduleId: number): Promise<CopilotModuleDetail> {
+  const response = await apiClient.get<CopilotModuleDetail>(`/v1/copilot/modules/${moduleId}`);
+  return response.data;
+}
+
+export async function deleteCopilotModule(moduleId: number): Promise<void> {
+  await apiClient.delete(`/v1/copilot/modules/${moduleId}`);
+}
+
 export type CopilotProxyResult = {
   tool: string;
   ok: boolean;

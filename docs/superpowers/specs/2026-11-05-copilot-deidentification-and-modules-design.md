@@ -104,7 +104,22 @@ Table `copilot_modules`: owner, title, description, `html`, visibility
 
 **A module stores code, never data.** Every figure it shows is fetched at run time through
 `/v1/copilot/proxy` under the viewer's own token, so opening a colleague's module shows only
-patients assigned to the viewer. This falls out of the existing proxy; no new enforcement.
+patients assigned to the viewer.
+
+This paragraph originally read "this falls out of the existing proxy; no new enforcement",
+which was wrong, and the branch review caught it: nothing stopped a *static* report with an
+inline snapshot of identified rows from being saved and shared, and such a report never
+touches the proxy at all. A module shared beyond its owner is therefore rejected at save and
+update time unless its HTML actually calls the bridge. That check is a filter, not a proof —
+bridge-using HTML can still embed a snapshot — so the property holds by convention plus a
+save-time floor, not by construction.
+
+**Running a shared module is deliberate.** A module the viewer does not own is never
+auto-selected and does not execute until the viewer asks it to, with the author named. The
+first implementation auto-selected the newest visible module and ran it on page load, which
+meant visiting the page executed a colleague's arbitrary JavaScript under the viewer's own
+token. One deliberate click still does that, which is a sharing-posture question rather than
+a bug, and is recorded as an open residual.
 
 **Parameters are self-contained.** The module's own HTML renders its controls — a patient
 `<select>` populated from `pdcare.query('list_patients')`, a date range, a lookback. The

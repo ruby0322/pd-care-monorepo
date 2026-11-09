@@ -14,7 +14,10 @@
 
 ## Global Constraints
 
-- A module stores code only. No query results are persisted with it.
+- A module stores code only. No query results are persisted with it. (This constraint was
+  stated without an enforcement point; the branch review found that a static snapshot could
+  be saved and shared. A shared module is now rejected at save time unless it calls the
+  bridge — see the spec.)
 - Visibility is `private` / `staff` / `admin`, matching sessions; `admin` requires the admin role; writes are owner-only.
 - A module invisible to the caller returns `404`, not `403`, so it is not discoverable.
 - The runner must reuse `buildArtifactDocument` — no second sandbox implementation.

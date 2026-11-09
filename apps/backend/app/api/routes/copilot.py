@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -17,6 +18,11 @@ from app.schemas.copilot import (
     CopilotMessageCreateRequest,
     CopilotMessageItem,
     CopilotModelsResponse,
+    CopilotModuleCreateRequest,
+    CopilotModuleDetail,
+    CopilotModuleListResponse,
+    CopilotModuleSummary,
+    CopilotModuleUpdateRequest,
     CopilotProxyRequest,
     CopilotProxyResponse,
     CopilotSessionCreateRequest,
@@ -28,16 +34,21 @@ from app.schemas.copilot import (
 from app.services.copilot.agent import CopilotUnavailableError, build_openai_client, run_agent_turn
 from app.services.copilot.sessions import (
     append_message,
+    assert_shared_module_fetches_live,
     assert_visibility_allowed,
     copilot_proxy_rate_limiter,
+    create_module,
     create_session,
     derive_title,
+    get_owned_module,
     get_owned_session,
+    get_readable_module,
     get_readable_session,
     history_pairs,
     label_for_handle,
     list_handles,
     list_messages,
+    list_visible_modules,
     list_visible_sessions,
     message_count,
     owner_name,
@@ -242,6 +253,181 @@ async def delete_copilot_session(
         row = get_owned_session(
             session,
             session_id=session_id,
+            identity_id=principal.identity_id,
+            role=principal.role,
+        )
+        session.delete(row)
+        session.commit()
+    finally:
+        session.close()
+
+
+def _to_module_summary(row, *, owner_display: str | None, identity_id: int) -> CopilotModuleSummary:
+    is_owner = row.owner_identity_id == identity_id
+    return CopilotModuleSummary(
+        module_id=row.id,
+        title=row.title,
+        description=row.description,
+        visibility=row.visibility,  # type: ignore[arg-type]
+        owner_identity_id=row.owner_identity_id,
+        owner_name=owner_display,
+        is_owner=is_owner,
+        can_write=is_owner,
+        source_session_id=row.source_session_id,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _to_module_detail(row, *, owner_display: str | None, identity_id: int) -> CopilotModuleDetail:
+    return CopilotModuleDetail(
+        **_to_module_summary(row, owner_display=owner_display, identity_id=identity_id).model_dump(),
+        html=row.html,
+    )
+
+
+@router.get("/v1/copilot/modules", response_model=CopilotModuleListResponse)
+async def list_copilot_modules(
+    request: Request,
+    credentials=Depends(bearer_scheme),
+) -> CopilotModuleListResponse:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = list_visible_modules(session, identity_id=principal.identity_id, role=principal.role)
+        return CopilotModuleListResponse(
+            items=[
+                _to_module_summary(row, owner_display=display, identity_id=principal.identity_id)
+                for row, display in rows
+            ]
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/copilot/modules", response_model=CopilotModuleDetail, status_code=status.HTTP_201_CREATED)
+async def create_copilot_module(
+    request: Request,
+    payload: CopilotModuleCreateRequest,
+    credentials=Depends(bearer_scheme),
+) -> CopilotModuleDetail:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    assert_visibility_allowed(payload.visibility, role=principal.role)
+    assert_shared_module_fetches_live(payload.html, visibility=payload.visibility)
+    session = get_session(request)
+    try:
+        row = create_module(
+            session,
+            owner_identity_id=principal.identity_id,
+            title=payload.title.strip() or payload.title,
+            description=(payload.description.strip() or None) if payload.description else None,
+            html=payload.html,
+            visibility=payload.visibility,
+            source_session_id=payload.source_session_id,
+            source_message_id=payload.source_message_id,
+        )
+        return _to_module_detail(
+            row,
+            owner_display=owner_name(session, identity_id=principal.identity_id),
+            identity_id=principal.identity_id,
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/copilot/modules/{module_id}", response_model=CopilotModuleDetail)
+async def get_copilot_module(
+    request: Request,
+    module_id: int,
+    credentials=Depends(bearer_scheme),
+) -> CopilotModuleDetail:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        row = get_readable_module(
+            session,
+            module_id=module_id,
+            identity_id=principal.identity_id,
+            role=principal.role,
+        )
+        return _to_module_detail(
+            row,
+            owner_display=owner_name(session, identity_id=row.owner_identity_id),
+            identity_id=principal.identity_id,
+        )
+    finally:
+        session.close()
+
+
+@router.patch("/v1/copilot/modules/{module_id}", response_model=CopilotModuleDetail)
+async def update_copilot_module(
+    request: Request,
+    module_id: int,
+    payload: CopilotModuleUpdateRequest,
+    credentials=Depends(bearer_scheme),
+) -> CopilotModuleDetail:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        row = get_owned_module(
+            session,
+            module_id=module_id,
+            identity_id=principal.identity_id,
+            role=principal.role,
+        )
+        if payload.visibility is not None:
+            assert_visibility_allowed(payload.visibility, role=principal.role)
+        # Checked against the state this PATCH would leave behind, before anything is
+        # mutated: promoting a static module to `staff` and replacing a shared module's
+        # HTML with a static version are the same defect as saving one. A PATCH that
+        # touches neither field is exempt, so renaming a row that predates this rule
+        # stays possible — the check exists to stop the state being *entered*, and a
+        # title edit does not enter it.
+        if payload.html is not None or payload.visibility is not None:
+            assert_shared_module_fetches_live(
+                payload.html if payload.html is not None else row.html,
+                visibility=payload.visibility if payload.visibility is not None else row.visibility,
+            )
+
+        if payload.title is not None:
+            row.title = payload.title.strip() or row.title
+        if payload.description is not None:
+            row.description = payload.description.strip() or None
+        if payload.html is not None:
+            row.html = payload.html
+        if payload.visibility is not None:
+            row.visibility = payload.visibility
+        # The list is ordered by `updated_at`, and the API hands it to clients as the
+        # module's last-changed time; `server_default=func.now()` only covers the insert.
+        row.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return _to_module_detail(
+            row,
+            owner_display=owner_name(session, identity_id=row.owner_identity_id),
+            identity_id=principal.identity_id,
+        )
+    finally:
+        session.close()
+
+
+@router.delete("/v1/copilot/modules/{module_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_copilot_module(
+    request: Request,
+    module_id: int,
+    credentials=Depends(bearer_scheme),
+) -> None:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        row = get_owned_module(
+            session,
+            module_id=module_id,
             identity_id=principal.identity_id,
             role=principal.role,
         )

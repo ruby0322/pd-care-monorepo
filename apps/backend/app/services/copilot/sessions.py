@@ -8,6 +8,7 @@ is a read-only transcript for everybody else.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from collections import deque
@@ -18,7 +19,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import CopilotIdentityHandle, CopilotMessage, CopilotSession, LiffIdentity, Patient
+from app.db.models import CopilotIdentityHandle, CopilotMessage, CopilotModule, CopilotSession, LiffIdentity, Patient
 from app.schemas.copilot import CopilotHandleLabel
 from app.services.auth import AuthPrincipal
 
@@ -67,14 +68,84 @@ def assert_visibility_allowed(visibility: str, *, role: str) -> None:
         )
 
 
-def can_read(session_row: CopilotSession, *, identity_id: int, role: str) -> bool:
-    if session_row.owner_identity_id == identity_id:
+# Mirror of the frontend's `usesLiveBridge` (`artifact-bridge.ts`): `pdcare.query(` or a
+# reference to `window.pdcare`.
+_LIVE_BRIDGE_PATTERNS = (
+    re.compile(r"\bpdcare\s*\.\s*query\s*\("),
+    re.compile(r"window\s*\.\s*pdcare\b"),
+)
+
+
+def uses_live_bridge(html: str) -> bool:
+    """True when this markup reaches for the artifact's live-data bridge.
+
+    Ported from the frontend (where it decides whether to switch live data on by default)
+    because the save path is the only place that can stop a *shared* module from being a
+    shared *dataset*. A module is supposed to store code: every figure it shows is fetched
+    when it runs, through ``/v1/copilot/proxy`` under the viewer's own token, which is why
+    opening a colleague's module surfaces only the patients assigned to *that* viewer.
+    HTML with its numbers inlined as literals does none of that -- it shows the author's
+    cohort to everyone who opens it, and the proxy is never called, so none of the
+    assignment scoping enforced on every other read path applies.
+
+    Necessary, not sufficient: HTML can call the bridge *and* still embed a snapshot of
+    the author's rows alongside. This rules out the wholly static report; it does not
+    prove that a module carries no data.
+    """
+    return any(pattern.search(html) for pattern in _LIVE_BRIDGE_PATTERNS)
+
+
+def assert_shared_module_fetches_live(html: str, *, visibility: str) -> None:
+    """A module visible to anyone but its owner has to fetch its own data at run time.
+
+    ``private`` is exempt: whatever such a module displays is the owner's own data either
+    way, and nobody else can open it. Applied on create *and* on update, since promoting
+    an existing static module to ``staff`` publishes exactly the same rows.
+    """
+    if visibility == "private" or uses_live_bridge(html):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail=(
+            "要分享的模組必須在每次開啟時自行查詢資料，才會顯示開啟者自己的病人。"
+            "這份報表的數字是儲存當下寫死的內容，請改存為「僅自己」，"
+            "或請 Copilot 改寫成開啟時即時查詢的版本。"
+        ),
+    )
+
+
+def _can_read_shared(*, owner_identity_id: int, visibility: str, identity_id: int, role: str) -> bool:
+    """The shared visibility rule behind every ``can_read*``/``get_readable_*`` helper.
+
+    Factored out of :func:`can_read` so :class:`CopilotModule` rows -- which carry the
+    same ``owner_identity_id``/``visibility`` shape as :class:`CopilotSession` rows -- can
+    reuse the exact same rule rather than a second copy of it.
+    """
+    if owner_identity_id == identity_id:
         return True
-    if session_row.visibility == "staff":
+    if visibility == "staff":
         return role in {"staff", "admin"}
-    if session_row.visibility == "admin":
+    if visibility == "admin":
         return role == "admin"
     return False
+
+
+def can_read(session_row: CopilotSession, *, identity_id: int, role: str) -> bool:
+    return _can_read_shared(
+        owner_identity_id=session_row.owner_identity_id,
+        visibility=session_row.visibility,
+        identity_id=identity_id,
+        role=role,
+    )
+
+
+def can_read_module(module_row: CopilotModule, *, identity_id: int, role: str) -> bool:
+    return _can_read_shared(
+        owner_identity_id=module_row.owner_identity_id,
+        visibility=module_row.visibility,
+        identity_id=identity_id,
+        role=role,
+    )
 
 
 def create_session(
@@ -155,6 +226,81 @@ def list_visible_sessions(
         .order_by(CopilotSession.updated_at.desc(), CopilotSession.id.desc())
     )
     return [(row[0], row[1], int(row[2] or 0)) for row in session.execute(stmt).all()]
+
+
+def create_module(
+    session: Session,
+    *,
+    owner_identity_id: int,
+    title: str,
+    description: str | None,
+    html: str,
+    visibility: str,
+    source_session_id: int | None,
+    source_message_id: int | None,
+) -> CopilotModule:
+    row = CopilotModule(
+        owner_identity_id=owner_identity_id,
+        title=title,
+        description=description,
+        html=html,
+        visibility=visibility,
+        source_session_id=source_session_id,
+        source_message_id=source_message_id,
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def get_readable_module(
+    session: Session,
+    *,
+    module_id: int,
+    identity_id: int,
+    role: str,
+) -> CopilotModule:
+    row = session.get(CopilotModule, module_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Copilot module not found")
+    if not can_read_module(row, identity_id=identity_id, role=role):
+        # 404 rather than 403: a non-visible module should not be discoverable.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Copilot module not found")
+    return row
+
+
+def get_owned_module(session: Session, *, module_id: int, identity_id: int, role: str) -> CopilotModule:
+    row = get_readable_module(session, module_id=module_id, identity_id=identity_id, role=role)
+    if row.owner_identity_id != identity_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the module owner can modify this module",
+        )
+    return row
+
+
+def list_visible_modules(
+    session: Session,
+    *,
+    identity_id: int,
+    role: str,
+) -> list[tuple[CopilotModule, str | None]]:
+    visible_shared = ["staff"] if role in {"staff", "admin"} else []
+    if role == "admin":
+        visible_shared.append("admin")
+
+    conditions = [CopilotModule.owner_identity_id == identity_id]
+    if visible_shared:
+        conditions.append(CopilotModule.visibility.in_(visible_shared))
+
+    stmt = (
+        select(CopilotModule, func.coalesce(LiffIdentity.real_name, LiffIdentity.display_name))
+        .join(LiffIdentity, LiffIdentity.id == CopilotModule.owner_identity_id, isouter=True)
+        .where(or_(*conditions))
+        .order_by(CopilotModule.updated_at.desc(), CopilotModule.id.desc())
+    )
+    return [(row[0], row[1]) for row in session.execute(stmt).all()]
 
 
 def owner_name(session: Session, *, identity_id: int) -> str | None:

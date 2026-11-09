@@ -161,6 +161,7 @@ export default function CopilotPage() {
       role: message.role,
       content: message.content,
       toolTrace: message.tool_trace,
+      messageId: message.message_id,
     }));
     if (streaming) {
       persisted.push({
@@ -561,6 +562,8 @@ export default function CopilotPage() {
                     key={message.key}
                     message={message}
                     handles={activeHandles}
+                    role={role}
+                    sessionId={activeSessionId ?? undefined}
                     onRequestRepair={handleRequestRepair}
                     onAutoRepair={handleAutoRepair}
                   />

@@ -413,6 +413,17 @@ def test_copilot_is_unavailable_when_disabled(tmp_path: Path) -> None:
         assert client.post(
             "/v1/copilot/proxy", json={"tool": "get_today_attention", "params": {}}, headers=headers
         ).status_code == 503
+        # Modules are gated too: with Copilot off, a module page that loaded anyway would
+        # list modules whose every query then failed at the proxy with no explanation.
+        assert client.get("/v1/copilot/modules", headers=headers).status_code == 503
+        assert client.post(
+            "/v1/copilot/modules",
+            json={"title": "m", "html": "<p>x</p>", "visibility": "private"},
+            headers=headers,
+        ).status_code == 503
+        assert client.get("/v1/copilot/modules/1", headers=headers).status_code == 503
+        assert client.patch("/v1/copilot/modules/1", json={"title": "m"}, headers=headers).status_code == 503
+        assert client.delete("/v1/copilot/modules/1", headers=headers).status_code == 503
 
 
 # --------------------------------------------------------------------------------------

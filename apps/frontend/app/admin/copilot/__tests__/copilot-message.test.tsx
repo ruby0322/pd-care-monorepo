@@ -6,9 +6,11 @@ import { CopilotMarkdown } from "@/app/admin/copilot/_components/copilot-markdow
 
 jest.mock("@/lib/api/copilot", () => ({
   queryCopilotProxy: jest.fn(),
+  createCopilotModule: jest.fn(),
 }));
 
 const { queryCopilotProxy } = jest.requireMock("@/lib/api/copilot") as { queryCopilotProxy: jest.Mock };
+const { createCopilotModule } = jest.requireMock("@/lib/api/copilot") as { createCopilotModule: jest.Mock };
 
 describe("CopilotMarkdown", () => {
   it("renders a GFM table", () => {
@@ -245,6 +247,43 @@ describe("CopilotMessage", () => {
     expect(screen.getByText("見下表")).toBeInTheDocument();
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     expect(iframe.srcdoc).toContain("<p>P#3</p>");
+  });
+
+  it("offers to save a rendered report as a module", async () => {
+    createCopilotModule.mockReset();
+    createCopilotModule.mockResolvedValue({
+      module_id: 1,
+      title: "感染趨勢",
+      description: null,
+      visibility: "private",
+      owner_identity_id: 1,
+      owner_name: null,
+      is_owner: true,
+      can_write: true,
+      source_session_id: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      html: "<p>chart</p>",
+    });
+
+    render(
+      <CopilotMessage
+        message={{
+          key: "save1",
+          role: "assistant",
+          content: "結論在圖中。\n\n```html\n<p>chart</p>\n```",
+          toolTrace: [],
+        }}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "儲存為模組" }));
+    await userEvent.type(screen.getByPlaceholderText("例如：三月感染趨勢分析"), "感染趨勢");
+    await userEvent.click(screen.getByRole("button", { name: "儲存" }));
+
+    expect(createCopilotModule).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "感染趨勢", html: "<p>chart</p>", visibility: "private" }),
+    );
   });
 
   it("offers to send artifact runtime errors back for repair", async () => {

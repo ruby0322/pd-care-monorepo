@@ -207,3 +207,33 @@ class CopilotIdentityHandle(Base):
             "session_id", "entity_type", "entity_id", name="uq_copilot_identity_handles_session_entity"
         ),
     )
+
+
+class CopilotModule(Base):
+    __tablename__ = "copilot_modules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_identity_id: Mapped[int] = mapped_column(
+        ForeignKey("liff_identities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Meant to hold code, not data: rendered client-side, re-fetching everything it shows at
+    # run time through /v1/copilot/proxy under the *viewer's* own token. A module shared
+    # beyond its owner is checked for that at save time
+    # (`assert_shared_module_fetches_live`), which rules out a wholly static report but
+    # cannot prove the HTML embeds no snapshot. Never persist query results alongside a
+    # module.
+    html: Mapped[str] = mapped_column(Text, nullable=False)
+    # private = owner only, staff = any staff/admin, admin = admin only.
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", index=True)
+    # Provenance only -- a module must keep working after its source session/message is gone,
+    # so both null out on delete rather than block it or cascade into the module.
+    source_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("copilot_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    source_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("copilot_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

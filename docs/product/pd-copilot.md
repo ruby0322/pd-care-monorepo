@@ -119,6 +119,63 @@ in [`artifact-bridge.ts`](../../apps/frontend/app/admin/copilot/_components/arti
 The system prompt separately forbids putting patient identifiers in error strings. Neither is
 a guarantee on its own: the first is, and the generated code is not ours to trust.
 
+### Saved modules
+
+A nurse can turn a generated report into a reusable **module** via 「儲存為模組」on the chat
+message, picking a title, description and the same `private`/`staff`/`admin` visibility used
+for sessions. `/admin/modules` lists every module the signed-in user can see and runs the
+selected one in the same sandboxed iframe used in chat (see "HTML artifact sandbox" below),
+with live data forced on — a module has no point if it only ever shows the day it was saved.
+
+**A module you do not own does not run until you ask it to.** Opening the page selects one of
+your *own* modules, or nothing at all; it never auto-runs whichever colleague saved most
+recently, even though that module may sit at the top of the list. Selecting someone else's
+module shows its title, description and author alongside an explicit 「執行此模組」 button, and
+only that click mounts the frame. The reason is the bridge: a module's HTML is code a colleague
+wrote, running in *your* browser, and the parent answers its `pdcare.query` calls with **your**
+token — so it reads whatever you can read, not what the author could. That is a capability
+worth granting deliberately. The consent covers that one module and is dropped when the
+selection changes, so one click cannot arm the next shared module.
+
+**The row stores a document, not a result set.** `copilot_modules` holds `title`,
+`description`, `html`, `visibility`, and which session/message it was saved from. There is no
+column for query output — but `html` is a document the model wrote, so it is the one place data
+could still be sitting, and the rest of this section is about how much that is constrained. A module
+is meant to fetch every figure it shows at *run* time through `/v1/copilot/proxy` under **the
+viewer's own token**, the same exempt, fully-identified path a live chat artifact already uses
+(see "De-identification boundary" above). When it does, sharing it shares a capability — "run
+this analysis" — not a dataset: opening a colleague's module re-runs its code with the viewer's
+own permissions, so it surfaces only the patients assigned to *that* viewer.
+
+Two things push reports into that shape, and neither makes it certain. The system prompt tells
+the model to write reports that query for themselves (below). And the save path refuses what it
+can detect: a module whose visibility is not `private` is rejected with a `422` — on save and on
+any update that would promote it — unless its HTML actually calls the bridge
+(`assert_shared_module_fetches_live` in
+[`sessions.py`](../../apps/backend/app/services/copilot/sessions.py)), because a self-contained
+report shared with colleagues *is* a shared dataset: it shows the author's cohort to everyone,
+and assignment scoping never gets a say because the proxy is never called. A `private` module is
+exempt — whatever it displays is the owner's own data anyway. **That check is a filter, not a
+proof:** HTML can call the bridge *and* still embed a snapshot of the author's rows beside the
+live ones, and nothing inspects what a report actually renders. Treat "a module carries no data"
+as the convention the system steers towards, not as an invariant it enforces.
+
+The same reasoning is why a module should never be built around one specific patient: the model that
+authors the report only ever sees de-identified handles (`P#1`), and even if it could see a
+real id, hard-coding one would point every future viewer, on every future run, at that same
+patient regardless of who they are or what changed. A module reaches a specific patient only
+through a runtime picker — a `<select>` the report populates from `pdcare.query('list_patients')`
+and the nurse operates after opening the module — never a value baked in when it was saved.
+The system prompt ([`prompt.py`](../../apps/backend/app/services/copilot/prompt.py)) tells the
+model this convention directly: a report worth keeping renders its own controls (patient
+picker, date range, lookback) instead of hard-coding the values that happened to be in scope
+when it was generated.
+
+A saved module has no live chat session behind it, so the automatic repair path (see "HTML
+artifact sandbox" below) does not apply to it. Every module on the page carries a link back to
+Copilot, where the nurse can ask the assistant to fix and re-save it; a module that fails at
+run time also shows its error inline, so there is something to paste into that conversation.
+
 ### Session visibility
 
 `private` = owner only · `staff` = any staff/admin · `admin` = admin only (and only an admin
@@ -172,6 +229,8 @@ the deployment so clusters whose applied secret predates PD Copilot keep rolling
 | `PATCH` / `DELETE /v1/copilot/sessions/{id}` | Owner only. |
 | `POST /v1/copilot/sessions/{id}/messages` | Owner only. SSE: `tool_call`, `tool_result`, `token`, `message_saved`, `error`, `done`. |
 | `POST /v1/copilot/proxy` | Live-artifact bridge; same allowlist, same caller token, rate-limited. |
+| `GET` / `POST /v1/copilot/modules` | List visible modules / save one from a report. |
+| `GET` / `PATCH` / `DELETE /v1/copilot/modules/{id}` | Read any visible module; write is owner only. |
 
 Streaming is consumed with `fetch` + `ReadableStream` rather than the shared axios client,
 whose 15s timeout and response buffering do not suit SSE.

@@ -2,14 +2,17 @@
 
 import { Sparkles } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
-import type { CopilotHandleLabel, CopilotToolTraceEntry } from "@/lib/api/copilot";
+import { getReadableApiError } from "@/lib/api/client";
+import { createCopilotModule, type CopilotHandleLabel, type CopilotToolTraceEntry, type CopilotVisibility } from "@/lib/api/copilot";
 
 import { parseAssistantContent, usesLiveBridge, type ArtifactErrorMessage } from "./artifact-bridge";
 import { CopilotHtmlArtifact } from "./copilot-html-artifact";
 import { CopilotMarkdown } from "./copilot-markdown";
 import { CopilotToolTrace } from "./copilot-tool-trace";
 import { applyHandleLabels } from "./handle-labels";
+import { SaveModuleDialog } from "./save-module-dialog";
 
 export type CopilotMessageViewModel = {
   key: string;
@@ -18,22 +21,54 @@ export type CopilotMessageViewModel = {
   toolTrace: CopilotToolTraceEntry[];
   pendingTool?: string | null;
   isStreaming?: boolean;
+  /** The persisted message id, when this view model backs a saved (non-streaming) message. */
+  messageId?: number;
 };
 
 export function CopilotMessage({
   message,
   handles,
+  role = "staff",
+  sessionId,
   onRequestRepair,
   onAutoRepair,
 }: {
   message: CopilotMessageViewModel;
   /** Session-scoped handle -> label map, resolved per viewer. Defaults to empty. */
   handles?: Record<string, CopilotHandleLabel>;
+  /** Gates the admin-only visibility option in the save-as-module dialog. */
+  role?: "staff" | "admin";
+  /** Recorded as the new module's provenance when the artifact came from this session. */
+  sessionId?: number;
   onRequestRepair?: (errors: ArtifactErrorMessage[]) => void;
   onAutoRepair?: (errors: ArtifactErrorMessage[]) => boolean;
 }) {
   // Overrides only: the default comes from whether the report actually uses the bridge.
   const [liveOverrides, setLiveOverrides] = useState<Record<number, boolean>>({});
+  const [saveHtml, setSaveHtml] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleSaveModule(payload: { title: string; description?: string; visibility: CopilotVisibility }) {
+    if (saveHtml === null) {
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await createCopilotModule({
+        title: payload.title,
+        description: payload.description,
+        html: saveHtml,
+        visibility: payload.visibility,
+        source_session_id: sessionId,
+        source_message_id: message.messageId,
+      });
+      setSaveHtml(null);
+    } catch (error) {
+      toast.error(getReadableApiError(error));
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   if (message.role === "user") {
     return (
@@ -65,6 +100,7 @@ export function CopilotMessage({
               onToggleLive={(next) => setLiveOverrides((current) => ({ ...current, [index]: next }))}
               onRequestRepair={onRequestRepair}
               onAutoRepair={message.isStreaming ? undefined : onAutoRepair}
+              onSaveAsModule={setSaveHtml}
             />
           ),
         )}
@@ -76,6 +112,14 @@ export function CopilotMessage({
           />
         ) : null}
       </div>
+      {saveHtml !== null ? (
+        <SaveModuleDialog
+          role={role}
+          isSubmitting={isSaving}
+          onClose={() => setSaveHtml(null)}
+          onSave={(payload) => void handleSaveModule(payload)}
+        />
+      ) : null}
     </div>
   );
 }
