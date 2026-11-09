@@ -10,7 +10,6 @@ from app.api.deps.auth import (
     bearer_scheme,
     get_current_principal,
     get_session,
-    load_identity,
     require_staff_or_admin,
 )
 from app.core.logging import get_logger
@@ -36,11 +35,14 @@ from app.services.copilot.sessions import (
     get_owned_session,
     get_readable_session,
     history_pairs,
+    label_for_handle,
+    list_handles,
     list_messages,
     list_visible_sessions,
     message_count,
     owner_name,
     parse_tool_trace,
+    resolve_handles,
     touch_session,
 )
 from app.services.copilot.tools import CopilotToolError, dispatch_tool_call, resolve_tool
@@ -187,6 +189,7 @@ async def get_copilot_session(
                 )
                 for message in messages
             ],
+            handles=resolve_handles(session, copilot_session_id=row.id, principal=principal),
         )
     finally:
         session.close()
@@ -274,13 +277,14 @@ async def post_copilot_message(
         )
         model = row.model
         history = history_pairs(list_messages(session, session_id=row.id))
-        identity = load_identity(session, principal)
-        display_name = identity.real_name or identity.display_name
         user_message = append_message(session, session_id=row.id, role="user", content=payload.content)
         if len(history) == 0 and (row.title == "新對話" or not row.title.strip()):
             row.title = derive_title(payload.content)
             session.commit()
         user_message_id = user_message.id
+        # Handles already minted in earlier turns of this session: never re-announce
+        # them, only ones first minted during *this* turn.
+        known_handles = {handle_row.handle for handle_row in list_handles(session, copilot_session_id=row.id)}
     finally:
         session.close()
 
@@ -294,6 +298,37 @@ async def post_copilot_message(
 
     app = request.app
 
+    def _newly_minted_handle_events() -> list[bytes]:
+        """Diff the handles minted so far against `known_handles`, emitting one `handle`
+        event per handle first seen during this turn, labelled for this same principal.
+
+        Opens its own short-lived session, mirroring `_deidentify_for_session` in
+        `tools.py`: the handle rows it reads were just committed by that same helper on
+        its own session, so a fresh read here sees them.
+        """
+        handle_session = app.state.db_session_factory()
+        try:
+            events: list[bytes] = []
+            for handle_row in list_handles(handle_session, copilot_session_id=session_id):
+                if handle_row.handle in known_handles:
+                    continue
+                known_handles.add(handle_row.handle)
+                label = label_for_handle(
+                    handle_session,
+                    principal=principal,
+                    entity_type=handle_row.entity_type,
+                    entity_id=handle_row.entity_id,
+                )
+                events.append(
+                    _sse(
+                        "handle",
+                        {"handle": handle_row.handle, "entity_type": handle_row.entity_type, "label": label},
+                    )
+                )
+            return events
+        finally:
+            handle_session.close()
+
     async def event_stream() -> AsyncIterator[bytes]:
         yield _sse("user_message", {"message_id": user_message_id})
         turn: dict | None = None
@@ -303,17 +338,22 @@ async def post_copilot_message(
                 app=app,
                 model=model,
                 role=principal.role,
-                display_name=display_name,
                 history=history,
                 user_message=payload.content,
                 authorization=authorization,
                 max_tool_iterations=settings.copilot_max_tool_iterations,
                 tool_result_max_bytes=settings.copilot_tool_result_max_bytes,
+                copilot_session_id=session_id,
             ):
                 if event.type == "turn":
                     turn = event.data
                     continue
                 yield _sse(event.type, event.data)
+                if event.type == "tool_result":
+                    # A tool result is exactly when `deidentify_payload` may have just
+                    # minted new handles; announce them right after.
+                    for handle_event in _newly_minted_handle_events():
+                        yield handle_event
         except Exception as exc:  # noqa: BLE001 - the stream has already started; report and close cleanly
             LOGGER.exception("Copilot turn failed for session %s", session_id)
             yield _sse("error", {"message": f"分析過程發生錯誤：{exc}"})
@@ -378,12 +418,15 @@ async def post_copilot_proxy(
 
     try:
         tool = resolve_tool(payload.tool, role=principal.role)
+        # Generated reports render to the signed-in nurse in their own browser, so the
+        # proxy keeps full identified data — it must never de-identify.
         result = await dispatch_tool_call(
             app=request.app,
             tool=tool,
             arguments=payload.params,
             authorization=_authorization_header(request),
             max_bytes=settings.copilot_tool_result_max_bytes,
+            deidentify_for_session_id=None,
         )
     except CopilotToolError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

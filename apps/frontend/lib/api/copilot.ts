@@ -41,9 +41,21 @@ export type CopilotMessageItem = {
   created_at: string;
 };
 
+/**
+ * A de-identified handle's real-world label, resolved for one viewer. `label` is
+ * `null` whenever the viewer may not see the underlying entity (e.g. a patient not
+ * assigned to this staff member) — that is a permission denial, not a missing value,
+ * so the UI must render the bare handle rather than treating it as "unknown".
+ */
+export type CopilotHandleLabel = {
+  entity_type: string;
+  label: string | null;
+};
+
 export type CopilotSessionDetail = {
   session: CopilotSessionSummary;
   messages: CopilotMessageItem[];
+  handles: Record<string, CopilotHandleLabel>;
 };
 
 export async function fetchCopilotModels(): Promise<CopilotModelsResponse> {
@@ -100,6 +112,7 @@ export type CopilotStreamEvent =
   | { type: "tool_call"; tool: string; params: Record<string, unknown> }
   | { type: "tool_result"; tool: string; ok: boolean; status: number | null; truncated: boolean; duration_ms: number }
   | { type: "message_saved"; message_id: number; content: string; tool_trace: CopilotToolTraceEntry[] }
+  | { type: "handle"; handle: string; entity_type: string; label: string | null }
   | { type: "error"; message: string }
   | { type: "done" };
 

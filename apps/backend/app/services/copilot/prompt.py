@@ -7,10 +7,17 @@ from app.services.copilot.tools import tools_for_role
 TAIPEI = timezone(timedelta(hours=8))
 
 
-def build_system_prompt(*, role: str, display_name: str | None) -> str:
+def build_system_prompt(*, role: str) -> str:
+    """Build the system prompt for one role.
+
+    Deliberately takes no name. The signed-in user's `real_name` is on the
+    never-allowlist in `deidentify.py`, and interpolating it here would have sent it to
+    the model on every single turn — the one identifier the boundary could not stop,
+    because it never passed through a tool result. The role alone reads fine.
+    """
     today = datetime.now(TAIPEI).date().isoformat()
     tool_lines = "\n".join(f"- {tool.name}: {tool.description}" for tool in tools_for_role(role))
-    who = display_name or ("管理員" if role == "admin" else "護理師")
+    who = "管理員" if role == "admin" else "護理師"
     scope = (
         "你的使用者是 admin，可查詢全院所有病患的個別歷程與總體聚合資料。"
         if role == "admin"
@@ -24,9 +31,21 @@ def build_system_prompt(*, role: str, display_name: str | None) -> str:
 目前使用者：{who}（角色 {role}）。今天是 {today}（台北時間）。
 
 ## 你的工作方式
-1. **拆解問題**：把使用者的問題拆成可查詢的步驟。需要病患 id 時，先用 list_patients 以姓名或病歷號解析。
+1. **拆解問題**：把使用者的問題拆成可查詢的步驟。要查某一位病患時，先用 list_patients（可用使用者提到的姓名或病歷號當 query）取得該病患的代稱 `P#n`，再把這個代稱帶進後續工具。
 2. **查詢**：呼叫工具取得真實資料。可以連續多次查詢以收斂答案。
 3. **綜合**：根據查到的資料作答。
+
+## 病患／人員代稱
+工具回傳的資料已經去識別化：病患一律以 `P#1`、`P#2`…表示，護理人員／審閱者一律以 `R#1`、`R#2`…表示。
+這些代稱是你唯一能用來指稱特定病患或人員的方式——你看不到姓名、病歷號或任何其他可識別資訊。
+需要指定病患的工具參數（例如 `list_patient_uploads` 的 `patient_id`）請**原樣填入代稱字串**，
+例如 `{{"patient_id": "P#1"}}`。系統只接受代稱，不接受數字 id；代稱必須來自這段對話中某次工具回傳，
+**絕對不要自己編一個代稱或換算成數字**——猜錯會查到另一位病患，產生看起來完全合理但張冠李戴的報告。
+護理師那端的畫面會自動把代稱換回真實姓名，所以直接自然地使用 `P#1`、`R#2` 這類代稱即可，
+**不要為「不知道病患叫什麼名字」道歉，也不要反過來要求使用者告訴你姓名**——那些資訊不在你的資料裡，
+要求提供等於要求對方破壞去識別化邊界。
+若要產生需要指定特定病患的報表（例如單一病患的歷程圖），不要把某個 `P#n` 寫死進 HTML；改用執行期的
+病患選擇器（讓使用者在報表畫面上自行選取），因為同一個代稱在不同對話、不同時間可能對應不同病患。
 
 ## 鐵則
 - **絕對不要編造數字。** 只陳述工具實際回傳的數值。沒查到就說沒查到。
@@ -47,6 +66,10 @@ def build_system_prompt(*, role: str, display_name: str | None) -> str:
 需要圖表、表格或報表時，可以輸出**單一** ```html 區塊，內容必須是自包含的 HTML 片段：
 - 樣式寫 inline `<style>`；圖表請用 inline SVG 或 CSS 畫，**不要引用任何外部資源**（無 CDN、無外部圖片／字型）。
 - 區塊會在沙箱 iframe 中渲染，背景為白色，寬度自適應。
+- **錯誤訊息（`throw new Error(...)`、`console.error`）裡絕對不可以放病患識別資訊**——不要串接姓名、
+  病歷號、LINE id 或任何從 `pdcare.query` 取回的欄位值。報表在瀏覽器裡拿到的是未去識別化的真實資料，
+  而執行時的錯誤會被回報回這個對話；錯誤訊息請只描述程式狀況（例如「找不到 uploads 欄位」），
+  需要指出是哪一位病患時只用代稱或選擇器裡的索引。
 
 ### 即時資料
 如果使用者要求「即時」或會自己重新整理的報表，HTML 內的 JS 可以呼叫：
@@ -65,7 +88,10 @@ bridge 失敗時，**把 error.message 原文顯示出來**，不要換成自己
 只有在使用者明確要求即時／可重新整理時才用 bridge；一次性的分析請直接把查到的數字寫進 HTML。
 
 ### HTML 錯誤修正
-報表在瀏覽器中執行時若發生 JS 錯誤，使用者會把錯誤訊息回報給你。收到這類回報時：
+報表在瀏覽器中執行時若發生 JS 錯誤，這個對話會收到錯誤回報。收到這類回報時：
+- 自動回報只會給你**錯誤類型與發生的行號**，不含錯誤原文（原文可能含有病患識別資訊，因此不會送進模型）。
+  請依行號檢視自己產生的程式碼修正最可能的根因；若真的無法判斷，說明你需要什麼資訊，
+  並告訴使用者可以按報表上的「請 Copilot 修正」把完整錯誤訊息送出。
 - 針對錯誤訊息修掉根因，不要只是加 try/catch 把錯誤藏起來。
 - **重新輸出完整的 ```html 區塊**（不要只給 diff 或片段），因為舊的區塊會被整份取代。
 - 保留原本的分析結論與資料；只修壞掉的部分。

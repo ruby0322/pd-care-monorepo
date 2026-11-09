@@ -25,6 +25,7 @@ import {
   fetchCopilotSession,
   fetchCopilotSessions,
   streamCopilotMessage,
+  type CopilotHandleLabel,
   type CopilotSessionDetail,
   type CopilotSessionSummary,
   type CopilotToolTraceEntry,
@@ -33,7 +34,11 @@ import {
 import { getStaffRole } from "@/lib/auth/staff-session";
 import { useClientSnapshot } from "@/lib/utils/use-client-snapshot";
 
-import type { ArtifactErrorMessage } from "./_components/artifact-bridge";
+import {
+  buildAutoRepairPrompt,
+  buildManualRepairPrompt,
+  type ArtifactErrorMessage,
+} from "./_components/artifact-bridge";
 import { CopilotMessage, type CopilotMessageViewModel } from "./_components/copilot-message";
 import { CopilotNewSessionDialog } from "./_components/copilot-new-session-dialog";
 
@@ -67,6 +72,19 @@ export default function CopilotPage() {
   const [sessions, setSessions] = useState<CopilotSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [detail, setDetail] = useState<CopilotSessionDetail | null>(null);
+  // Handle -> label map for one session, held in page state (rather than derived inline)
+  // because a handle can be minted mid-turn, after its own text has already streamed in:
+  // the `handle` SSE event lands late and this state update is what makes the
+  // already-rendered text pick up the label on the next render.
+  //
+  // It carries its own `sessionId` and is read through `activeHandles` below, the same
+  // staleness guard `detail` gets from `activeDetail`. A flat map could outlive its
+  // session: switching from A to B while B's fetch fails (the catch only toasts) left A's
+  // map in place, and B's `P#1` then rendered under A's patient's name — one patient's
+  // data labelled with another patient's identity, which is worse than showing no label.
+  const [handles, setHandles] = useState<{ sessionId: number; map: Record<string, CopilotHandleLabel> } | null>(
+    null,
+  );
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState<StreamingState | null>(null);
@@ -108,8 +126,13 @@ export default function CopilotPage() {
   const loadDetail = useCallback(async (sessionId: number) => {
     setIsLoadingDetail(true);
     try {
-      setDetail(await fetchCopilotSession(sessionId));
+      const result = await fetchCopilotSession(sessionId);
+      setDetail(result);
+      setHandles({ sessionId, map: result.handles });
     } catch (error) {
+      // Keyed to the session that failed, not left as whatever was there before: no labels
+      // is correct here, a previous session's labels never are.
+      setHandles({ sessionId, map: {} });
       toast.error(getReadableApiError(error));
     } finally {
       setIsLoadingDetail(false);
@@ -127,6 +150,10 @@ export default function CopilotPage() {
   }, [activeSessionId, loadDetail]);
 
   const activeDetail = detail !== null && detail.session.session_id === activeSessionId ? detail : null;
+  const activeHandles = useMemo<Record<string, CopilotHandleLabel>>(
+    () => (handles !== null && handles.sessionId === activeSessionId ? handles.map : {}),
+    [handles, activeSessionId],
+  );
 
   const messages = useMemo<CopilotMessageViewModel[]>(() => {
     const persisted = (activeDetail?.messages ?? []).map<CopilotMessageViewModel>((message) => ({
@@ -270,6 +297,25 @@ export default function CopilotPage() {
                 return current;
             }
           });
+          if (event.type === "handle") {
+            // Minted mid-turn, after its own handle may already have streamed into
+            // `text` as a bare "P#3" — merging it here is what makes the already
+            // -rendered text pick up the label once this re-renders. Merged only into
+            // *this* session's map: if the reader switched away mid-stream, the handle
+            // belongs to the session being streamed, not the one on screen, and the
+            // final `loadDetail` below refetches whichever one is displayed.
+            setHandles((current) =>
+              current !== null && current.sessionId === sessionId
+                ? {
+                    sessionId,
+                    map: {
+                      ...current.map,
+                      [event.handle]: { entity_type: event.entity_type, label: event.label },
+                    },
+                  }
+                : current,
+            );
+          }
           if (event.type === "error") {
             toast.error(event.message);
           }
@@ -292,28 +338,22 @@ export default function CopilotPage() {
     }
   }
 
-  function buildRepairPrompt(errors: ArtifactErrorMessage[]): string {
-    const lines = errors.slice(0, 5).map((item) => `- [${item.kind}] ${item.message}`);
-    const detailBlock = errors.find((item) => item.detail)?.detail;
-    return [
-      "上一份報表在瀏覽器執行時發生錯誤：",
-      "",
-      ...lines,
-      ...(detailBlock ? ["", "```", detailBlock.slice(0, 800), "```"] : []),
-      "",
-      "請修正根因並重新輸出完整的 ```html 區塊，保留原本的分析結論與數據。",
-    ].join("\n");
-  }
-
-  /** Manual fallback: the reader asks for a repair explicitly. */
+  /**
+   * Manual fallback: the reader asks for a repair explicitly, so the full error text goes
+   * with it — a human has already read it on screen and chosen to send it.
+   */
   function handleRequestRepair(errors: ArtifactErrorMessage[]) {
     autoRepairCountRef.current = 0;
-    void handleSend(buildRepairPrompt(errors));
+    void handleSend(buildManualRepairPrompt(errors));
   }
 
   /**
    * Automatic repair. Capped, because the assistant regenerating a report that throws again
    * would otherwise loop indefinitely on an error it cannot fix.
+   *
+   * Sends `buildAutoRepairPrompt`, which carries only the error type and location: this
+   * fires with no nurse action at all, and the error text it would otherwise quote was
+   * produced inside a frame holding identified patient data.
    */
   function handleAutoRepair(errors: ArtifactErrorMessage[]): boolean {
     if (!canWrite || streaming || activeSessionId === null) {
@@ -323,7 +363,7 @@ export default function CopilotPage() {
       return false;
     }
     autoRepairCountRef.current += 1;
-    void handleSend(buildRepairPrompt(errors), { isAutoRepair: true });
+    void handleSend(buildAutoRepairPrompt(errors), { isAutoRepair: true });
     return true;
   }
 
@@ -520,6 +560,7 @@ export default function CopilotPage() {
                   <CopilotMessage
                     key={message.key}
                     message={message}
+                    handles={activeHandles}
                     onRequestRepair={handleRequestRepair}
                     onAutoRepair={handleAutoRepair}
                   />

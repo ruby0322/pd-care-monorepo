@@ -41,9 +41,22 @@ class CopilotMessageItem(BaseModel):
     created_at: datetime
 
 
+class CopilotHandleLabel(BaseModel):
+    """A de-identified handle's real-world label, resolved for one viewer.
+
+    ``label`` is ``None`` whenever the viewer cannot see the underlying entity (e.g. a
+    patient not assigned to this staff member) -- that is a denial, not an error, so
+    the frontend renders the bare handle rather than treating the key as missing.
+    """
+
+    entity_type: str
+    label: str | None = None
+
+
 class CopilotSessionDetailResponse(BaseModel):
     session: CopilotSessionSummary
     messages: list[CopilotMessageItem]
+    handles: dict[str, CopilotHandleLabel] = Field(default_factory=dict)
 
 
 class CopilotSessionCreateRequest(BaseModel):

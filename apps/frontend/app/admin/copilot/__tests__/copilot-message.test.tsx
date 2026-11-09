@@ -215,6 +215,38 @@ describe("CopilotMessage", () => {
     }
   });
 
+  it("substitutes a handle for its resolved label in assistant prose", () => {
+    render(
+      <CopilotMessage
+        message={{ key: "h1", role: "assistant", content: "P#3 近一個月上傳 5 次", toolTrace: [] }}
+        handles={{ "P#3": { entity_type: "patient", label: "王小明 (P123456)" } }}
+      />,
+    );
+    expect(screen.getByText("王小明 (P123456) 近一個月上傳 5 次")).toBeInTheDocument();
+  });
+
+  it("renders the bare handle when the viewer may not see that label", () => {
+    render(
+      <CopilotMessage
+        message={{ key: "h2", role: "assistant", content: "P#3 需追蹤", toolTrace: [] }}
+        handles={{ "P#3": { entity_type: "patient", label: null } }}
+      />,
+    );
+    expect(screen.getByText("P#3 需追蹤")).toBeInTheDocument();
+  });
+
+  it("leaves a handle-shaped string inside an html artifact untouched", () => {
+    const { container } = render(
+      <CopilotMessage
+        message={{ key: "h3", role: "assistant", content: "見下表\n\n```html\n<p>P#3</p>\n```", toolTrace: [] }}
+        handles={{ "P#3": { entity_type: "patient", label: "王小明" } }}
+      />,
+    );
+    expect(screen.getByText("見下表")).toBeInTheDocument();
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    expect(iframe.srcdoc).toContain("<p>P#3</p>");
+  });
+
   it("offers to send artifact runtime errors back for repair", async () => {
     const onRequestRepair = jest.fn();
     const { container } = render(

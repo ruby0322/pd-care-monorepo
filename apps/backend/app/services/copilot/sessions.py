@@ -18,7 +18,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import CopilotMessage, CopilotSession, LiffIdentity
+from app.db.models import CopilotIdentityHandle, CopilotMessage, CopilotSession, LiffIdentity, Patient
+from app.schemas.copilot import CopilotHandleLabel
+from app.services.auth import AuthPrincipal
 
 VISIBILITIES = ("private", "staff", "admin")
 
@@ -229,3 +231,146 @@ def parse_tool_trace(raw: str | None) -> list[dict[str, Any]]:
 def derive_title(content: str) -> str:
     first_line = content.strip().splitlines()[0] if content.strip() else "新對話"
     return first_line[:60] or "新對話"
+
+
+# --------------------------------------------------------------------------------------
+# Handle -> label resolution: the per-viewer re-identification boundary.
+#
+# A `CopilotIdentityHandle` row is the opaque (handle, entity_type, entity_id) mapping
+# `deidentify_payload` minted for the model. The nurse viewing a transcript still needs
+# to read real names, so these helpers turn each handle back into a label *for this one
+# viewer* -- a patient handle is only labelled when the viewer can see that patient
+# (admin, or an assigned staff member); a denied label is `None`, never an HTTPException,
+# because a handle that exists in the transcript must always appear in the response, just
+# without a name attached.
+# --------------------------------------------------------------------------------------
+
+
+def list_handles(session: Session, *, copilot_session_id: int) -> list[CopilotIdentityHandle]:
+    return list(
+        session.execute(
+            select(CopilotIdentityHandle).where(CopilotIdentityHandle.session_id == copilot_session_id)
+        ).scalars()
+    )
+
+
+def _patient_label(patient: Patient | None) -> str | None:
+    if patient is None:
+        return None
+    if patient.full_name:
+        return "{0} ({1})".format(patient.full_name, patient.case_number)
+    return patient.case_number
+
+
+def _identity_label(identity: LiffIdentity | None) -> str | None:
+    if identity is None:
+        return None
+    return identity.real_name or identity.display_name
+
+
+def _accessible_patient_ids(session: Session, *, principal: AuthPrincipal) -> set[int] | None:
+    """`get_accessible_patient_ids`, imported at call time rather than at module scope.
+
+    `app.api.routes.staff_parts.shared` lives under the `app.api` package, and
+    `app/api/__init__.py` unconditionally imports `app.api.router`, which unconditionally
+    imports `app.api.routes.copilot` -- which imports *this* module (`sessions.py`) for
+    `append_message`, `resolve_handles`, etc. A module-level import of `shared` here is
+    therefore a genuine cycle, not a hypothetical one: it only "works" when something
+    else (e.g. `app.main`) has already fully imported `app.api` before anything first
+    touches `app.services.copilot.sessions`. Reproduced directly --
+    `python3 -c "from app.services.copilot.sessions import resolve_handles"` in a bare
+    process raises `ImportError: cannot import name 'append_message' from partially
+    initialized module 'app.services.copilot.sessions'` -- because that import order
+    re-enters this module (via the chain above) before any of its own names, including
+    the ones `copilot.py` asks for, are defined yet. Deferring the import to call time
+    sidesteps it: by the time any route handler actually runs, the whole app has long
+    since finished importing.
+    """
+    from app.api.routes.staff_parts.shared import get_accessible_patient_ids
+
+    return get_accessible_patient_ids(session, role=principal.role, identity_id=principal.identity_id)
+
+
+def label_for_handle(
+    session: Session,
+    *,
+    principal: AuthPrincipal,
+    entity_type: str,
+    entity_id: int,
+) -> str | None:
+    """Resolve one handle's label for `principal`, or `None` if they may not see it.
+
+    `entity_type == "patient"` is gated on patient-assignment scoping (via
+    `get_accessible_patient_ids`, which every caller of this module's routes already
+    passed to reach here). `entity_type == "identity"` (a reviewer handle) carries a
+    staff name, not patient data, so it is never gated per-patient -- only the
+    staff-or-admin role on the route, which the caller already enforced.
+
+    Single-row resolver for the SSE path, where at most a handful of handles are newly
+    minted per tool call. `resolve_handles` below resolves a whole session's worth of
+    handles at once and batches its permission check and row lookups instead of calling
+    this in a loop -- calling this per row there would re-derive the same
+    accessible-patient set and re-fetch the same rows once per handle.
+    """
+    if entity_type == "patient":
+        accessible = _accessible_patient_ids(session, principal=principal)
+        if accessible is not None and entity_id not in accessible:
+            return None
+        return _patient_label(session.get(Patient, entity_id))
+    return _identity_label(session.get(LiffIdentity, entity_id))
+
+
+def resolve_handles(
+    session: Session,
+    *,
+    copilot_session_id: int,
+    principal: AuthPrincipal,
+) -> dict[str, CopilotHandleLabel]:
+    """Resolve every handle minted so far in this copilot session, for one viewer.
+
+    Computes the viewer's accessible-patient set once (rather than re-deriving the
+    identical set once per patient handle) and batches the patient and identity row
+    lookups into one query each (rather than one `session.get` per handle). This runs
+    on every session open, so it is worth not leaving the obvious per-row N+1 in place
+    even though handle counts are small today.
+    """
+    rows = list_handles(session, copilot_session_id=copilot_session_id)
+    if not rows:
+        return {}
+
+    patient_ids = {row.entity_id for row in rows if row.entity_type == "patient"}
+    identity_ids = {row.entity_id for row in rows if row.entity_type != "patient"}
+
+    # `None` means admin (every patient accessible); only computed when there is at
+    # least one patient handle to check it against.
+    accessible = _accessible_patient_ids(session, principal=principal) if patient_ids else None
+    visible_patient_ids = patient_ids if accessible is None else (patient_ids & accessible)
+
+    patients_by_id: dict[int, Patient] = {}
+    if visible_patient_ids:
+        patients_by_id = {
+            patient.id: patient
+            for patient in session.execute(
+                select(Patient).where(Patient.id.in_(visible_patient_ids))
+            ).scalars()
+        }
+
+    identities_by_id: dict[int, LiffIdentity] = {}
+    if identity_ids:
+        identities_by_id = {
+            identity.id: identity
+            for identity in session.execute(
+                select(LiffIdentity).where(LiffIdentity.id.in_(identity_ids))
+            ).scalars()
+        }
+
+    handles: dict[str, CopilotHandleLabel] = {}
+    for row in rows:
+        if row.entity_type == "patient":
+            # Denied or dangling (patient deleted after the handle was minted) both
+            # land here as a simple dict miss -- no exception either way.
+            label = _patient_label(patients_by_id.get(row.entity_id))
+        else:
+            label = _identity_label(identities_by_id.get(row.entity_id))
+        handles[row.handle] = CopilotHandleLabel(entity_type=row.entity_type, label=label)
+    return handles

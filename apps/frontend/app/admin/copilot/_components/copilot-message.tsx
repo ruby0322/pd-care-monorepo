@@ -3,12 +3,13 @@
 import { Sparkles } from "lucide-react";
 import { useState } from "react";
 
-import type { CopilotToolTraceEntry } from "@/lib/api/copilot";
+import type { CopilotHandleLabel, CopilotToolTraceEntry } from "@/lib/api/copilot";
 
 import { parseAssistantContent, usesLiveBridge, type ArtifactErrorMessage } from "./artifact-bridge";
 import { CopilotHtmlArtifact } from "./copilot-html-artifact";
 import { CopilotMarkdown } from "./copilot-markdown";
 import { CopilotToolTrace } from "./copilot-tool-trace";
+import { applyHandleLabels } from "./handle-labels";
 
 export type CopilotMessageViewModel = {
   key: string;
@@ -21,10 +22,13 @@ export type CopilotMessageViewModel = {
 
 export function CopilotMessage({
   message,
+  handles,
   onRequestRepair,
   onAutoRepair,
 }: {
   message: CopilotMessageViewModel;
+  /** Session-scoped handle -> label map, resolved per viewer. Defaults to empty. */
+  handles?: Record<string, CopilotHandleLabel>;
   onRequestRepair?: (errors: ArtifactErrorMessage[]) => void;
   onAutoRepair?: (errors: ArtifactErrorMessage[]) => boolean;
 }) {
@@ -52,7 +56,7 @@ export function CopilotMessage({
         <CopilotToolTrace entries={message.toolTrace} pendingTool={message.pendingTool} />
         {segments.map((segment, index) =>
           segment.kind === "text" ? (
-            <CopilotMarkdown key={index} content={segment.value} />
+            <CopilotMarkdown key={index} content={applyHandleLabels(segment.value, handles ?? {})} />
           ) : (
             <CopilotHtmlArtifact
               key={index}

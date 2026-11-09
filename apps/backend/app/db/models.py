@@ -184,3 +184,26 @@ class CopilotMessage(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CopilotIdentityHandle(Base):
+    __tablename__ = "copilot_identity_handles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("copilot_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # e.g. "P#1", "R#1" — the opaque label the model is shown in place of a real id.
+    handle: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Namespace the handle counter runs in, e.g. "patient", "identity".
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    # The real database id (patients.id, liff_identities.id, ...) this handle stands in for.
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "handle", name="uq_copilot_identity_handles_session_handle"),
+        UniqueConstraint(
+            "session_id", "entity_type", "entity_id", name="uq_copilot_identity_handles_session_entity"
+        ),
+    )

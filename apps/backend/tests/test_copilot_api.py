@@ -5,18 +5,21 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import AIResult, LiffIdentity, Patient, StaffPatientAssignment, Upload
+from app.db.models import AIResult, Annotation, LiffIdentity, Patient, StaffPatientAssignment, Upload
 from app.main import create_app
 from app.services.auth.token_service import AuthTokenService
 from app.api.routes import copilot as copilot_routes
+from app.services.copilot.deidentify import deidentify_payload
 from app.services.copilot.sessions import copilot_proxy_rate_limiter
 from app.services.copilot.agent import echoable_output_item
-from app.services.copilot.tools import COPILOT_TOOLS, CopilotToolError, resolve_tool
+from app.services.copilot.tools import COPILOT_TOOLS, CopilotToolError, dispatch_tool_call, resolve_tool
+from app.services.taipei_dates import to_taipei_date
 from tests.db_test_utils import migrated_sqlite_database_url
 
 
@@ -614,13 +617,66 @@ def test_every_allowlisted_tool_points_at_a_registered_get_route(tmp_path: Path)
     assert unresolved == []
 
 
-def test_tool_schemas_declare_path_params_as_required_integers() -> None:
+def test_identified_tool_schemas_declare_path_params_as_required_integers() -> None:
+    """The proxy path never de-identified anything, so real integer ids are correct there."""
     for tool in COPILOT_TOOLS:
-        schema = tool.json_schema()
+        schema = tool.json_schema(deidentified=False)
         assert schema["additionalProperties"] is False, tool.name
         for name in tool.path_params:
             assert schema["properties"][name]["type"] == "integer", tool.name
             assert name in schema["required"], tool.name
+
+
+def test_deidentified_tool_schemas_declare_patient_id_as_a_handle_string() -> None:
+    """On the agent path the model has only ever seen `P#1`, so the schema must ask for that.
+
+    The failure this pins is not a broken call: a structured-output model told to produce a
+    required *integer* will invent one, and an invented id that happens to name another
+    patient assigned to this nurse returns a coherent per-patient narrative under the wrong
+    name — a wrong-patient clinical display produced by the safety mechanism itself.
+    """
+    handle_params = 0
+    for tool in COPILOT_TOOLS:
+        schema = tool.json_schema(deidentified=True)
+        assert schema["additionalProperties"] is False, tool.name
+        for name in tool.path_params:
+            assert name in schema["required"], tool.name
+            prop = schema["properties"][name]
+            assert prop["type"] == "string", tool.name
+            assert prop["pattern"] == "^P#[0-9]+$", tool.name
+            assert "P#1" in prop["description"], tool.name
+            handle_params += 1
+    # Guards against the assertions above passing vacuously if `path_params` ever empties.
+    assert handle_params > 0
+
+
+def test_tool_declares_every_query_param_the_route_requires(tmp_path: Path) -> None:
+    """A tool whose route has a required query parameter it never declares will 422 on
+    every call, because ``build_query`` only sends arguments the model actually supplied.
+
+    ``test_every_allowlisted_tool_points_at_a_registered_get_route`` only proves the path
+    template resolves to a registered GET route — exactly why ``get_workbench_dashboard``
+    (missing ``local_date``/``week_start``) passed that test while 422ing at runtime. This
+    test instead cross-checks each tool's declared query schema against the route's actual
+    required query parameters, taken from the OpenAPI schema FastAPI derives from the real
+    route signature.
+    """
+    with build_client(tmp_path, "tool-query-params") as client:
+        paths = client.app.openapi()["paths"]
+
+    for tool in COPILOT_TOOLS:
+        route_params = paths[tool.path_template]["get"].get("parameters", [])
+        required_query_names = {
+            param["name"] for param in route_params if param.get("in") == "query" and param.get("required")
+        }
+        declared_query_names = set(tool.query_params)
+        missing = required_query_names - declared_query_names
+        assert not missing, f"{tool.name} doesn't declare query params {missing} that its route requires"
+        not_marked_required = required_query_names - set(tool.required)
+        assert not not_marked_required, (
+            f"{tool.name} declares {not_marked_required} but doesn't mark them required, "
+            "so a model call omitting them would still be accepted by the schema and then 422 at the route"
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -675,6 +731,30 @@ def test_agent_turn_dispatches_tool_and_persists_transcript(tmp_path: Path, monk
         assert all(not name.startswith("delete") for name in offered)
 
 
+def test_system_prompt_leaks_no_user_name_to_the_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The signed-in nurse's own `real_name` must not ride along on every turn.
+
+    It is on `FORBIDDEN_FIELDS`, so no tool result could ever carry it — but the system
+    prompt used to interpolate it as `目前使用者：{who}`, which no tool-result filter can
+    reach. The role alone is all the prompt needs.
+    """
+    fake = install_fake_openai(monkeypatch, [text_turn("好。")])
+    with build_client(tmp_path, "prompt-no-name") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff", name="林美玲")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+        response = client.post(
+            f"/v1/copilot/sessions/{session_id}/messages", json={"content": "你好"}, headers=headers
+        )
+        assert response.status_code == 200, response.text
+
+    assert len(fake.responses.calls) == 1
+    whole_request = json.dumps(fake.responses.calls[0], ensure_ascii=False, default=str)
+    assert "林美玲" not in whole_request
+    # The role still reaches the model, so the prompt is not merely blank where the name was.
+    assert "護理師" in fake.responses.calls[0]["instructions"]
+
+
 def test_agent_turn_keeps_narration_emitted_before_a_tool_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -709,27 +789,37 @@ def test_agent_turn_keeps_narration_emitted_before_a_tool_call(
 
 
 def test_agent_turn_surfaces_permission_denial_to_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    install_fake_openai(
-        monkeypatch,
-        [
-            [completed(calls=[_FakeFunctionCall("list_patient_uploads", {"patient_id": 999999})])],
-            text_turn("這位病患未分配給你，我無法查看。"),
-        ],
-    )
+    """A handle that resolves but hits assignment scoping comes back as data, not a crash.
+
+    The handle is minted first (as a listing tool would), then spent against a patient this
+    nurse is not assigned to — e.g. an assignment revoked mid-conversation, or a shared
+    transcript. The route's own `403` is what must reach the model.
+    """
     with build_client(tmp_path, "agent-denied") as client:
         staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
         headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
         session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+        unassigned_patient_id = seed_patient(client, case_number="P900405")
+        handle = mint_patient_handle(
+            client, copilot_session_id=session_id, patient_id=unassigned_patient_id
+        )
+        install_fake_openai(
+            monkeypatch,
+            [
+                [completed(calls=[_FakeFunctionCall("list_patient_uploads", {"patient_id": handle})])],
+                text_turn("這位病患未分配給你，我無法查看。"),
+            ],
+        )
 
         response = client.post(
             f"/v1/copilot/sessions/{session_id}/messages",
-            json={"content": "給我看病患 999999 的歷程"},
+            json={"content": "給我看這位病患的歷程"},
             headers=headers,
         )
         events = read_sse(response)
         tool_result = next(data for kind, data in events if kind == "tool_result")
         assert tool_result["ok"] is False
-        assert tool_result["status"] == 404
+        assert tool_result["status"] == 403
         # A denial is a normal outcome, not a stream failure.
         assert not any(kind == "error" for kind, _ in events)
 
@@ -776,3 +866,518 @@ def test_agent_turn_stops_at_tool_iteration_limit(tmp_path: Path, monkeypatch: p
         assert sum(1 for kind, _ in events if kind == "tool_call") == 2
         assert any(kind == "error" for kind, _ in events)
         assert events[-1][0] == "done"
+
+
+# --------------------------------------------------------------------------------------
+# De-identification boundary: no patient identifier reaches the model
+# --------------------------------------------------------------------------------------
+
+# Three different kinds of direct patient identifier, seeded onto one patient below:
+# a free-text full name, a case number, and the patient's own LINE user id. None of these
+# may ever appear in a tool result handed to the model.
+PII = ("王小明", "P123456", "U_PATIENT_A")
+
+PATIENT_LEVEL = [t.name for t in COPILOT_TOOLS if not t.name.startswith("get_cohort_")]
+
+
+def _seed_leak_fixture(client: TestClient) -> tuple[int, int, str, dict[str, str]]:
+    """Seed a staff identity plus a patient carrying every needle in `PII`, assigned to that staff.
+
+    Returns (staff_identity_id, patient_id, local_date, auth_headers). `local_date` is the
+    Taipei calendar date the seeded upload falls on, for tools that require it.
+    """
+    staff_id = seed_identity(client, line_user_id="U_STAFF_LEAK", role="staff", name="護理師")
+    now = datetime.now(timezone.utc)
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        patient = Patient(case_number="P123456", birth_date="1980-01-02", full_name="王小明")
+        session.add(patient)
+        session.flush()
+        session.add(
+            LiffIdentity(
+                line_user_id="U_PATIENT_A",
+                display_name="王小明",
+                real_name="王小明",
+                picture_url=None,
+                patient_id=patient.id,
+                role="patient",
+            )
+        )
+        upload = Upload(
+            patient_id=patient.id,
+            object_key="uploads/P123456.jpg",
+            content_type="image/jpeg",
+            created_at=now,
+        )
+        session.add(upload)
+        session.flush()
+        session.add(
+            AIResult(
+                upload_id=upload.id,
+                predicted_class="class_4",
+                probability=0.91,
+                threshold=0.5,
+                screening_result="suspected",
+                model_version="test-v1",
+            )
+        )
+        session.add(
+            Annotation(
+                patient_id=patient.id,
+                upload_id=upload.id,
+                reviewer_identity_id=staff_id,
+                label="suspected",
+                # Free text can smuggle a name past the field allowlist if the allowlist
+                # ever let `comment` through; this pins that it never does.
+                comment="王小明 自述有異常",
+            )
+        )
+        session.commit()
+        patient_id = patient.id
+    assign(client, staff_identity_id=staff_id, patient_id=patient_id)
+    local_date = to_taipei_date(now).isoformat()
+    headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF_LEAK")
+    return staff_id, patient_id, local_date, headers
+
+
+PATIENT_PATH_TOOLS = {
+    "get_patient_detail",
+    "list_patient_uploads",
+    "get_patient_upload_calendar",
+    "list_patient_annotations",
+}
+
+
+def _extra_arguments(tool_name: str, *, patient_ref: int | str, local_date: str) -> dict[str, Any]:
+    """Every argument a tool needs to actually reach its route with the leak fixture's data.
+
+    `patient_ref` is the real id on the identified path and the `P#n` handle on the
+    de-identified one, because that is the only form the boundary accepts inbound.
+    `get_workbench_dashboard` needs *both* `local_date` and `week_start`: its route
+    requires them, and omitting them 422'd the call, which made the leak sweep pass
+    without any patient payload ever being filtered.
+    """
+    if tool_name in PATIENT_PATH_TOOLS:
+        return {"patient_id": patient_ref}
+    if tool_name == "get_history_overview":
+        return {"local_date": local_date}
+    if tool_name == "get_workbench_dashboard":
+        return {"local_date": local_date, "week_start": local_date}
+    return {}
+
+
+def mint_patient_handle(client: TestClient, *, copilot_session_id: int, patient_id: int) -> str:
+    """Issue the outbound handle for `patient_id`, the way a real tool result would.
+
+    Inbound resolution only accepts handles this conversation has already issued, so a test
+    that wants to *spend* one has to issue it first — the same order the agent loop goes in
+    (a listing tool mints `P#1`, then a per-patient tool spends it).
+    """
+    session_factory = client.app.state.db_session_factory
+    with session_factory() as session:
+        minted = deidentify_payload(
+            session, copilot_session_id=copilot_session_id, payload={"patient_id": patient_id}
+        )
+        session.commit()
+    return minted["patient_id"]
+
+
+def dispatch_for_test(tmp_path: Path, tool_name: str, *, deidentify_for_session_id: int | None):
+    """Seed the PII fixture, then run exactly one `dispatch_tool_call` for `tool_name`.
+
+    Mirrors how `run_agent_turn` calls `dispatch_tool_call` for the agent path, but without
+    the OpenAI round-trip, so every allowlisted tool can be swept cheaply.
+    """
+    import asyncio
+
+    async def _run():
+        with build_client(tmp_path, f"leak-{tool_name}") as client:
+            _staff_id, patient_id, local_date, headers = _seed_leak_fixture(client)
+            tool = resolve_tool(tool_name, role="staff")
+            patient_ref: int | str = patient_id
+            if deidentify_for_session_id is not None and tool_name in PATIENT_PATH_TOOLS:
+                patient_ref = mint_patient_handle(
+                    client, copilot_session_id=deidentify_for_session_id, patient_id=patient_id
+                )
+            arguments = _extra_arguments(tool_name, patient_ref=patient_ref, local_date=local_date)
+            return await dispatch_tool_call(
+                app=client.app,
+                tool=tool,
+                arguments=arguments,
+                authorization=headers["Authorization"],
+                max_bytes=10_000_000,
+                deidentify_for_session_id=deidentify_for_session_id,
+            )
+
+    return asyncio.run(_run())
+
+
+def post_proxy(tmp_path: Path, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Seed the PII fixture, then hit `/v1/copilot/proxy` with a real staff token."""
+    copilot_proxy_rate_limiter.reset()
+    with build_client(tmp_path, f"proxy-leak-{tool_name}") as client:
+        _staff_id, _patient_id, _local_date, headers = _seed_leak_fixture(client)
+        response = client.post(
+            "/v1/copilot/proxy",
+            json={"tool": tool_name, "params": params},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+
+def run_one_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    arguments_factory=None,
+) -> FakeOpenAI:
+    """Seed the PII fixture, then run one real agent turn that calls `tool_name`.
+
+    The session's handle for the seeded patient is minted up front (as a listing tool would
+    have done on an earlier turn) and handed to `arguments_factory`, because a handle is the
+    only form the inbound boundary accepts for `patient_id`.
+
+    Returns the `FakeOpenAI` stub so the caller can inspect exactly what was sent back to
+    the (fake) model on the follow-up request — the thing this whole boundary exists to keep
+    identifier-free.
+    """
+    if arguments_factory is None:
+        arguments_factory = lambda _handle: {}  # noqa: E731
+
+    with build_client(tmp_path, f"agent-leak-{tool_name}") as client:
+        _staff_id, patient_id, _local_date, headers = _seed_leak_fixture(client)
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+        handle = mint_patient_handle(client, copilot_session_id=session_id, patient_id=patient_id)
+        arguments = arguments_factory(handle)
+        fake = install_fake_openai(
+            monkeypatch,
+            [
+                [completed(calls=[_FakeFunctionCall(tool_name, arguments)])],
+                text_turn("完成。"),
+            ],
+        )
+        response = client.post(
+            f"/v1/copilot/sessions/{session_id}/messages",
+            json={"content": "請分析這位病患"},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+    return fake
+
+
+@pytest.mark.parametrize("tool_name", PATIENT_LEVEL)
+def test_no_patient_level_tool_leaks_identifiers_to_the_model(tmp_path: Path, tool_name: str) -> None:
+    result = dispatch_for_test(tmp_path, tool_name, deidentify_for_session_id=1)
+    # `ok` is asserted, not waived: the fixture supplies every argument each of these tools
+    # needs, so a rejected call here means the sweep filtered nothing and the needle
+    # assertions below would pass vacuously. That is exactly how `get_workbench_dashboard`
+    # hid behind a 422 for the whole of this branch. The deliberate error path has its own
+    # test (`test_rejected_tool_call_leaks_no_detail_but_keeps_error_and_status`).
+    assert result.ok is True, f"{tool_name} never returned data: {result.content}"
+    for needle in PII:
+        assert needle not in result.content, f"{tool_name} leaked {needle}"
+
+
+def test_rejected_tool_call_leaks_no_detail_but_keeps_error_and_status(tmp_path: Path) -> None:
+    """A de-identified rejection must still say it's an error, without leaking its detail text.
+
+    `error` + `status` is enough for the model to know it hit a permission boundary (the
+    system prompt tells it what a 403/404 means); `detail` carries unbounded
+    `str(exc)`/response-body text that could echo an identifier straight back, so it must
+    never survive the filter.
+    """
+    import asyncio
+
+    async def _run() -> Any:
+        with build_client(tmp_path, "leak-rejected") as client:
+            _staff_id, _patient_id, _local_date, headers = _seed_leak_fixture(client)
+            tool = resolve_tool("get_patient_detail", role="staff")
+            # A handle for a patient this nurse was never assigned to: the handle resolves
+            # (it was minted in this conversation), and the route is what rejects the call.
+            # An *unresolvable* handle would be rejected before dispatch and so would never
+            # exercise the de-identified error payload this test is about.
+            unassigned_patient_id = seed_patient(client, case_number="P900404")
+            handle = mint_patient_handle(
+                client, copilot_session_id=1, patient_id=unassigned_patient_id
+            )
+            return await dispatch_tool_call(
+                app=client.app,
+                tool=tool,
+                arguments={"patient_id": handle},
+                authorization=headers["Authorization"],
+                max_bytes=10_000_000,
+                deidentify_for_session_id=1,
+            )
+
+    result = asyncio.run(_run())
+    assert result.ok is False, result.content
+    body = json.loads(result.content)
+    assert body.get("error") is True
+    assert body.get("status") == result.status_code
+    assert "detail" not in body, body
+
+
+def test_proxy_still_returns_identified_data(tmp_path: Path) -> None:
+    """The proxy route must NOT de-identify: generated reports render to the signed-in nurse."""
+    body = post_proxy(tmp_path, "list_patients", {})
+    assert "P123456" in json.dumps(body, ensure_ascii=False)
+
+
+def test_agent_turn_sends_no_identifiers_to_the_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = run_one_turn(
+        tmp_path,
+        monkeypatch,
+        "list_patient_uploads",
+        arguments_factory=lambda handle: {"patient_id": handle},
+    )
+    assert len(fake.responses.calls) == 2
+    sent = json.dumps(fake.responses.calls[1]["input"], ensure_ascii=False, default=str)
+    for needle in PII:
+        assert needle not in sent, f"leaked {needle}"
+
+
+# --------------------------------------------------------------------------------------
+# Inbound direction: the model can spend the handles it was given, and only those
+# --------------------------------------------------------------------------------------
+
+
+def test_agent_turn_resolves_a_handle_from_an_earlier_tool_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The round trip: `list_patients` mints `P#1`, then the model spends `P#1`.
+
+    This is the loop the branch shipped without. Outbound de-identification alone leaves the
+    model holding a token it cannot use, and a schema demanding an integer then pushes it to
+    invent one.
+    """
+    with build_client(tmp_path, "agent-handle-roundtrip") as client:
+        _staff_id, _patient_id, _local_date, headers = _seed_leak_fixture(client)
+        install_fake_openai(
+            monkeypatch,
+            [
+                [completed(calls=[_FakeFunctionCall("list_patients", {}, call_id="call_list")])],
+                # The model has seen nothing but "P#1" at this point, and passes it straight back.
+                [
+                    completed(
+                        calls=[
+                            _FakeFunctionCall(
+                                "list_patient_uploads", {"patient_id": "P#1"}, call_id="call_uploads"
+                            )
+                        ]
+                    )
+                ],
+                text_turn("這位病患近期有一筆疑似感染。"),
+            ],
+        )
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+        response = client.post(
+            f"/v1/copilot/sessions/{session_id}/messages",
+            json={"content": "請分析這位病患的上傳歷程"},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        events = read_sse(response)
+
+    results = [data for kind, data in events if kind == "tool_result"]
+    assert [item["tool"] for item in results] == ["list_patients", "list_patient_uploads"]
+    # The second call is the assertion that matters: ok means the handle resolved to the
+    # real row id and the route returned that patient's uploads.
+    assert all(item["ok"] is True for item in results), results
+    assert all(item["status"] == 200 for item in results), results
+
+    trace = next(data for kind, data in events if kind == "message_saved")["tool_trace"]
+    # The persisted trace keeps the handle, not the real id it resolved to.
+    assert trace[1]["params"] == {"patient_id": "P#1"}
+
+
+def test_agent_turn_rejects_an_unknown_handle_instead_of_guessing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A handle this conversation never minted is a rejection, never a nearby patient."""
+    fake = run_one_turn(
+        tmp_path,
+        monkeypatch,
+        "list_patient_uploads",
+        arguments_factory=lambda _handle: {"patient_id": "P#97"},
+    )
+    assert len(fake.responses.calls) == 2
+    sent = json.dumps(fake.responses.calls[1]["input"], ensure_ascii=False, default=str)
+    assert "P#97" in sent
+    assert "not known in this conversation" in sent
+    # Nothing was fetched, so no patient data (identified or not) came back.
+    assert "screening_result" not in sent
+    for needle in PII:
+        assert needle not in sent, f"leaked {needle}"
+
+
+def test_agent_turn_rejects_an_integer_where_a_handle_is_required(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An invented integer must not be coerced, even when it names a real assigned patient.
+
+    The fixture's patient is the only one seeded, so its real id is a number a model under
+    schema pressure would plausibly produce. Accepting it is the wrong-patient display this
+    fix exists to prevent, so the dispatch rejects every non-handle on this path.
+    """
+    with build_client(tmp_path, "agent-handle-integer") as client:
+        _staff_id, patient_id, _local_date, headers = _seed_leak_fixture(client)
+        install_fake_openai(
+            monkeypatch,
+            [
+                [completed(calls=[_FakeFunctionCall("list_patient_uploads", {"patient_id": patient_id})])],
+                text_turn("參數有誤。"),
+            ],
+        )
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+        response = client.post(
+            f"/v1/copilot/sessions/{session_id}/messages",
+            json={"content": f"查病患 {patient_id}"},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        events = read_sse(response)
+
+    tool_result = next(data for kind, data in events if kind == "tool_result")
+    assert tool_result["ok"] is False
+    # Rejected before dispatch: no HTTP status at all, so the route was never reached.
+    assert tool_result["status"] is None
+
+
+# --------------------------------------------------------------------------------------
+# Per-viewer re-identification: handle -> label resolution
+# --------------------------------------------------------------------------------------
+
+
+def test_owner_sees_labels_for_assigned_patients(tmp_path: Path) -> None:
+    with build_client(tmp_path, "handle-labels-owner") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        patient_id = seed_patient(client, case_number="P123456")
+        assign(client, staff_identity_id=staff_id, patient_id=patient_id)
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as db_session:
+            deidentify_payload(db_session, copilot_session_id=session_id, payload={"patient_id": patient_id})
+            db_session.commit()
+
+        detail = client.get(f"/v1/copilot/sessions/{session_id}", headers=headers)
+        assert detail.status_code == 200
+        assert detail.json()["handles"] == {
+            "P#1": {"entity_type": "patient", "label": "病患 P123456 (P123456)"}
+        }
+
+
+def test_unassigned_viewer_gets_no_label(tmp_path: Path) -> None:
+    with build_client(tmp_path, "handle-labels-denied") as client:
+        owner_id = seed_identity(client, line_user_id="U_OWNER", role="staff")
+        viewer_id = seed_identity(client, line_user_id="U_VIEWER", role="staff")
+        patient_id = seed_patient(client, case_number="P900010")
+        assign(client, staff_identity_id=owner_id, patient_id=patient_id)
+        owner_headers = headers_for(client, owner_id, role="staff", line_user_id="U_OWNER")
+        viewer_headers = headers_for(client, viewer_id, role="staff", line_user_id="U_VIEWER")
+
+        session_id = client.post(
+            "/v1/copilot/sessions", json={"visibility": "staff"}, headers=owner_headers
+        ).json()["session_id"]
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as db_session:
+            deidentify_payload(db_session, copilot_session_id=session_id, payload={"patient_id": patient_id})
+            db_session.commit()
+
+        detail = client.get(f"/v1/copilot/sessions/{session_id}", headers=viewer_headers)
+        assert detail.status_code == 200
+        # Denied: the handle still appears, but with no label -- never an error, never omitted.
+        assert detail.json()["handles"] == {"P#1": {"entity_type": "patient", "label": None}}
+
+
+def test_admin_sees_patient_label_without_assignment(tmp_path: Path) -> None:
+    with build_client(tmp_path, "handle-label-admin") as client:
+        admin_id = seed_identity(client, line_user_id="U_ADMIN", role="admin")
+        patient_id = seed_patient(client, case_number="P800001")
+        headers = headers_for(client, admin_id, role="admin", line_user_id="U_ADMIN")
+
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as db_session:
+            deidentify_payload(db_session, copilot_session_id=session_id, payload={"patient_id": patient_id})
+            db_session.commit()
+
+        detail = client.get(f"/v1/copilot/sessions/{session_id}", headers=headers)
+        assert detail.json()["handles"] == {
+            "P#1": {"entity_type": "patient", "label": "病患 P800001 (P800001)"}
+        }
+
+
+def test_handle_label_falls_back_to_case_number_without_full_name(tmp_path: Path) -> None:
+    with build_client(tmp_path, "handle-label-fallback") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as db_session:
+            patient = Patient(case_number="P700001", birth_date="1980-01-02", full_name=None)
+            db_session.add(patient)
+            db_session.commit()
+            patient_id = patient.id
+        assign(client, staff_identity_id=staff_id, patient_id=patient_id)
+
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+        with session_factory() as db_session:
+            deidentify_payload(db_session, copilot_session_id=session_id, payload={"patient_id": patient_id})
+            db_session.commit()
+
+        detail = client.get(f"/v1/copilot/sessions/{session_id}", headers=headers)
+        assert detail.json()["handles"] == {"P#1": {"entity_type": "patient", "label": "P700001"}}
+
+
+def test_reviewer_handle_label_uses_identity_real_name(tmp_path: Path) -> None:
+    with build_client(tmp_path, "handle-label-reviewer") as client:
+        owner_id = seed_identity(client, line_user_id="U_OWNER", role="staff", name="王護理師")
+        viewer_id = seed_identity(client, line_user_id="U_VIEWER", role="staff")
+        owner_headers = headers_for(client, owner_id, role="staff", line_user_id="U_OWNER")
+        viewer_headers = headers_for(client, viewer_id, role="staff", line_user_id="U_VIEWER")
+
+        session_id = client.post(
+            "/v1/copilot/sessions", json={"visibility": "staff"}, headers=owner_headers
+        ).json()["session_id"]
+
+        session_factory = client.app.state.db_session_factory
+        with session_factory() as db_session:
+            deidentify_payload(db_session, copilot_session_id=session_id, payload={"reviewer_identity_id": owner_id})
+            db_session.commit()
+
+        # Reviewer labels are staff names, not patient data: no per-patient assignment
+        # gates them, only the (already-enforced) staff-or-admin role on this route.
+        detail = client.get(f"/v1/copilot/sessions/{session_id}", headers=viewer_headers)
+        assert detail.json()["handles"] == {"R#1": {"entity_type": "identity", "label": "王護理師"}}
+
+
+def test_sse_emits_handle_label_event_on_first_mint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with build_client(tmp_path, "handle-label-sse") as client:
+        # `list_patients` (unlike `list_patient_uploads`) echoes `patient_id` on each row,
+        # since the row itself identifies which patient it is -- that is what gives
+        # `deidentify_payload` something to mint a handle from on this call.
+        _staff_id, _patient_id, _local_date, headers = _seed_leak_fixture(client)
+        install_fake_openai(
+            monkeypatch,
+            [
+                [completed(calls=[_FakeFunctionCall("list_patients", {})])],
+                text_turn("完成。"),
+            ],
+        )
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+        response = client.post(
+            f"/v1/copilot/sessions/{session_id}/messages",
+            json={"content": "請分析這位病患"},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        events = read_sse(response)
+        handle_events = [data for kind, data in events if kind == "handle"]
+        # `_seed_leak_fixture` seeds the patient's full_name as "王小明" and case_number
+        # as "P123456", and the staff viewer is assigned to this patient.
+        assert handle_events == [{"handle": "P#1", "entity_type": "patient", "label": "王小明 (P123456)"}]
