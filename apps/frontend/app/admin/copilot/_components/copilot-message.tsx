@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { getReadableApiError } from "@/lib/api/client";
 import { createCopilotModule, type CopilotHandleLabel, type CopilotToolTraceEntry, type CopilotVisibility } from "@/lib/api/copilot";
 
-import { parseAssistantContent, usesLiveBridge, type ArtifactErrorMessage } from "./artifact-bridge";
+import { callsLiveBridge, parseAssistantContent, usesLiveBridge, type ArtifactErrorMessage } from "./artifact-bridge";
 import { CopilotHtmlArtifact } from "./copilot-html-artifact";
 import { CopilotMarkdown } from "./copilot-markdown";
 import { CopilotToolTrace } from "./copilot-tool-trace";
@@ -115,6 +115,7 @@ export function CopilotMessage({
       {saveHtml !== null ? (
         <SaveModuleDialog
           role={role}
+          canShare={callsLiveBridge(saveHtml)}
           isSubmitting={isSaving}
           onClose={() => setSaveHtml(null)}
           onSave={(payload) => void handleSaveModule(payload)}

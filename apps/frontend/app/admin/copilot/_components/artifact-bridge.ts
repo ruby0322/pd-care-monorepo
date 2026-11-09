@@ -174,6 +174,21 @@ export function usesLiveBridge(html: string): boolean {
 }
 
 /**
+ * Stricter than `usesLiveBridge`: an actual `pdcare.query(` call, not a mention.
+ *
+ * `usesLiveBridge` may stay loose because it only decides whether to switch live data on
+ * by default, and a bare `window.pdcare` reference is a fair hint. Sharing is a different
+ * question — a module that never calls the bridge shows its author's rows to everyone who
+ * opens it — so the backend requires a call before it will store a module at anything but
+ * `private` visibility. This mirrors that rule so the nurse learns it in the save dialog
+ * instead of from a `422` after submitting. The backend remains the authority; this is a
+ * hint, and it deliberately errs towards the same answer rather than a friendlier one.
+ */
+export function callsLiveBridge(html: string): boolean {
+  return /\bpdcare\s*\.\s*query\s*\(/.test(html);
+}
+
+/**
  * One runtime fault reported by an artifact.
  *
  * `message` and `detail` come out of a frame that was handed *identified* patient data, so

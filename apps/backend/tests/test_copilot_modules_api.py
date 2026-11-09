@@ -324,6 +324,38 @@ def test_a_title_only_patch_on_a_legacy_shared_static_module_is_allowed(tmp_path
         ).status_code == 422
 
 
+def test_a_static_module_that_only_mentions_the_bridge_is_rejected(tmp_path: Path) -> None:
+    """A mention of the bridge is not a call to it.
+
+    The frontend's `usesLiveBridge` also accepts a bare `window.pdcare` reference, which is
+    harmless there -- it only picks the default state of a toggle. On the save path it would
+    be the entire hole: a wholly static table carrying that text in a comment fetches
+    nothing, so every viewer sees the author's cohort and assignment scoping never runs.
+    """
+    with build_client(tmp_path, "bridge-mention") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+
+        mentions_only = (
+            "<html><body><!-- window.pdcare -->"
+            "<table><tr><td>王小明</td><td>suspected</td></tr></table></body></html>"
+        )
+
+        rejected = client.post(
+            "/v1/copilot/modules",
+            json={"title": "靜態表", "html": mentions_only, "visibility": "staff"},
+            headers=headers,
+        )
+        assert rejected.status_code == 422
+
+        # The owner may still keep it for themselves.
+        assert client.post(
+            "/v1/copilot/modules",
+            json={"title": "靜態表", "html": mentions_only, "visibility": "private"},
+            headers=headers,
+        ).status_code == 201
+
+
 def test_a_shared_module_shows_each_viewer_only_their_own_patients(tmp_path: Path) -> None:
     """Sharing a module shares a capability, not a dataset.
 

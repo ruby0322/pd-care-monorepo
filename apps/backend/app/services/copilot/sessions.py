@@ -68,16 +68,16 @@ def assert_visibility_allowed(visibility: str, *, role: str) -> None:
         )
 
 
-# Mirror of the frontend's `usesLiveBridge` (`artifact-bridge.ts`): `pdcare.query(` or a
-# reference to `window.pdcare`.
-_LIVE_BRIDGE_PATTERNS = (
-    re.compile(r"\bpdcare\s*\.\s*query\s*\("),
-    re.compile(r"window\s*\.\s*pdcare\b"),
-)
+# Deliberately stricter than the frontend's `usesLiveBridge` (`artifact-bridge.ts`), which
+# also accepts a bare `window.pdcare` reference. That looseness is fine there -- it only
+# decides whether to switch live data on by default -- but here it would be the whole hole:
+# `<!-- window.pdcare -->` in an otherwise static table satisfies a bare-reference match
+# and nothing is ever fetched. The save path requires an actual call.
+_LIVE_BRIDGE_CALL = re.compile(r"\bpdcare\s*\.\s*query\s*\(")
 
 
 def uses_live_bridge(html: str) -> bool:
-    """True when this markup reaches for the artifact's live-data bridge.
+    """True when this markup actually calls the artifact's live-data bridge.
 
     Ported from the frontend (where it decides whether to switch live data on by default)
     because the save path is the only place that can stop a *shared* module from being a
@@ -88,11 +88,15 @@ def uses_live_bridge(html: str) -> bool:
     cohort to everyone who opens it, and the proxy is never called, so none of the
     assignment scoping enforced on every other read path applies.
 
+    A call, not a mention: matching a bare ``window.pdcare`` reference would let
+    ``<!-- window.pdcare -->`` pasted into a static table through, which is exactly the
+    case this check exists to stop.
+
     Necessary, not sufficient: HTML can call the bridge *and* still embed a snapshot of
     the author's rows alongside. This rules out the wholly static report; it does not
     prove that a module carries no data.
     """
-    return any(pattern.search(html) for pattern in _LIVE_BRIDGE_PATTERNS)
+    return _LIVE_BRIDGE_CALL.search(html) is not None
 
 
 def assert_shared_module_fetches_live(html: str, *, visibility: str) -> None:

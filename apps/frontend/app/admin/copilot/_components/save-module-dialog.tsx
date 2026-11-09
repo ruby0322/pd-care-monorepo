@@ -9,11 +9,18 @@ import { VISIBILITY_OPTIONS } from "./copilot-new-session-dialog";
 
 export function SaveModuleDialog({
   role,
+  canShare,
   isSubmitting,
   onClose,
   onSave,
 }: {
   role: "staff" | "admin";
+  /**
+   * Whether this report may be saved at anything but `private`. False for a report whose
+   * figures are baked in: the backend refuses to store one as shared, because it would show
+   * the author's rows to every viewer instead of each viewer's own.
+   */
+  canShare: boolean;
   isSubmitting: boolean;
   onClose: () => void;
   onSave: (payload: { title: string; description?: string; visibility: CopilotVisibility }) => void;
@@ -70,8 +77,12 @@ export function SaveModuleDialog({
             {options.map((option) => (
               <label
                 key={option.value}
-                className={`flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2 transition-colors ${
-                  visibility === option.value ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 hover:bg-zinc-50"
+                className={`flex items-start gap-2.5 rounded-xl border px-3 py-2 transition-colors ${
+                  !canShare && option.value !== "private"
+                    ? "cursor-not-allowed border-zinc-200 opacity-50"
+                    : visibility === option.value
+                      ? "cursor-pointer border-zinc-900 bg-zinc-50"
+                      : "cursor-pointer border-zinc-200 hover:bg-zinc-50"
                 }`}
               >
                 <input
@@ -79,6 +90,7 @@ export function SaveModuleDialog({
                   name="module-visibility"
                   value={option.value}
                   checked={visibility === option.value}
+                  disabled={!canShare && option.value !== "private"}
                   onChange={() => setVisibility(option.value)}
                   className="mt-0.5"
                 />
@@ -89,7 +101,15 @@ export function SaveModuleDialog({
               </label>
             ))}
           </div>
-          <p className="mt-2 text-xs text-zinc-400">分享出去的模組對其他人唯讀；日後更新內容請重新儲存。</p>
+          {canShare ? (
+            <p className="mt-2 text-xs text-zinc-400">分享出去的模組對其他人唯讀；日後更新內容請重新儲存。</p>
+          ) : (
+            <p className="mt-2 text-xs text-amber-600">
+              這份報表的數字是產生當下就寫死的，沒有在執行時重新查詢，所以只能存成「僅自己」——
+              分享出去的話每個人看到的都會是你的病患資料，而不是他們自己的。
+              想分享請回到對話，請 Copilot 改成執行時自行查詢資料的版本。
+            </p>
+          )}
         </fieldset>
 
         <div className="flex justify-end gap-2">
