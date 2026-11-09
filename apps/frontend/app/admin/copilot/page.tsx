@@ -123,19 +123,37 @@ export default function CopilotPage() {
     };
   }, []);
 
+  // Tracks the most recently *requested* session, independent of resolution order. The
+  // `activeDetail` / `activeHandles` guards below already stop a mismatched payload being
+  // *displayed*, but they do not stop it being stored: a slow fetch for session A landing
+  // after a fast one for B still wrote `detail = A` and flipped `isLoadingDetail` off, so
+  // `activeDetail` evaluated null with nothing in flight and the thread sat as a skeleton
+  // until the nurse clicked the session again. `handleSend`'s trailing `loadDetail` is a
+  // second producer of that interleaving. Same guard as `/admin/modules`.
+  const latestRequestedSessionIdRef = useRef<number | null>(null);
+
   const loadDetail = useCallback(async (sessionId: number) => {
+    latestRequestedSessionIdRef.current = sessionId;
     setIsLoadingDetail(true);
     try {
       const result = await fetchCopilotSession(sessionId);
+      if (latestRequestedSessionIdRef.current !== sessionId) {
+        return;
+      }
       setDetail(result);
       setHandles({ sessionId, map: result.handles });
     } catch (error) {
+      if (latestRequestedSessionIdRef.current !== sessionId) {
+        return;
+      }
       // Keyed to the session that failed, not left as whatever was there before: no labels
       // is correct here, a previous session's labels never are.
       setHandles({ sessionId, map: {} });
       toast.error(getReadableApiError(error));
     } finally {
-      setIsLoadingDetail(false);
+      if (latestRequestedSessionIdRef.current === sessionId) {
+        setIsLoadingDetail(false);
+      }
     }
   }, []);
 
