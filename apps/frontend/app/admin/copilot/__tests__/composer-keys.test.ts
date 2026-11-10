@@ -38,7 +38,7 @@ describe("shouldSendOnEnter", () => {
     expect(shouldSendOnEnter(keyEvent({ keyCode: 229 }), false)).toBe(false);
   });
 
-  it("does not send a Process key", () => {
+  it("does not send a key the IME claimed as its own (reported as \"Process\")", () => {
     expect(shouldSendOnEnter(keyEvent({ key: "Process", keyCode: 229 }), false)).toBe(false);
   });
 

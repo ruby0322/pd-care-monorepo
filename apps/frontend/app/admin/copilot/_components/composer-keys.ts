@@ -5,7 +5,7 @@ import type { KeyboardEvent } from "react";
 // and Safari fires compositionend *before* the keydown so both flags are already clear.
 // `isComposing` covers the first two; the caller's own composition flag covers Safari.
 function isImeCandidateKey(event: KeyboardEvent<HTMLElement>): boolean {
-  return event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.key === "Process";
+  return event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
 }
 
 export function shouldSendOnEnter(event: KeyboardEvent<HTMLElement>, isComposing: boolean): boolean {

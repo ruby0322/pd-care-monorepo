@@ -121,6 +121,26 @@ describe("copilot composer with a CJK IME", () => {
     );
   });
 
+  /**
+   * Committing one word and starting the next within the same task leaves the first
+   * `compositionend`'s timer still pending. Without a generation guard it ran afterwards and
+   * cleared the flag mid-compose, and Safari -- the one engine that needs the flag, since it
+   * clears `isComposing` before this keydown -- would then have sent the message.
+   */
+  it("does not send when a stale compositionend timer lands during the next composition", async () => {
+    const textarea = await renderComposer();
+    compose(textarea, "病人");
+    fireEvent.compositionEnd(textarea);
+    fireEvent.compositionStart(textarea);
+    fireEvent.change(textarea, { target: { value: "病人近況" } });
+    await flushTimers();
+
+    fireEvent.keyDown(textarea, { key: "Enter", keyCode: 13 });
+    await flushTimers();
+
+    expect(streamCopilotMessage).not.toHaveBeenCalled();
+  });
+
   it("still inserts a newline on Shift+Enter", async () => {
     const textarea = await renderComposer();
     fireEvent.change(textarea, { target: { value: "第一行" } });

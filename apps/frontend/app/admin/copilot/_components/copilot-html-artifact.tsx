@@ -42,12 +42,17 @@ type Props = {
    */
   onSaveAsModule?: (html: string) => void;
   /**
-   * True while the assistant is still writing this block. The report is not rendered at all
-   * until it is complete: an unterminated `<script>` runs anyway at end of document, so a
-   * frame fed every streamed token re-executes a truncated report and reloads under the
-   * reader's cursor. The source is shown instead, so the write is still visible.
+   * Set while the block's fence is still open, which is the one state in which the report is
+   * not mounted at all: an unterminated `<script>` runs anyway at end of document, so a frame
+   * fed an unfinished block executes a truncated report -- per streamed token while writing,
+   * reloading under the reader's cursor. The source is shown instead.
+   *
+   * `"writing"` is the model still streaming it. `"truncated"` is a turn that ended without
+   * closing the fence (stopped by the reader, or cut off), which stays unmounted for the same
+   * reason: there is nothing to run but half a report, and running it would report faults
+   * against code the model never finished writing.
    */
-  isGenerating?: boolean;
+  incomplete?: "writing" | "truncated";
 };
 
 export function CopilotHtmlArtifact({
@@ -57,7 +62,7 @@ export function CopilotHtmlArtifact({
   onRequestRepair,
   onAutoRepair,
   onSaveAsModule,
-  isGenerating = false,
+  incomplete,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const draftRef = useRef<HTMLPreElement | null>(null);
@@ -73,7 +78,7 @@ export function CopilotHtmlArtifact({
   const inFlightRef = useRef(0);
   const lastQueryAtRef = useRef(0);
 
-  const document_ = useMemo(() => (isGenerating ? "" : buildArtifactDocument(html)), [html, isGenerating]);
+  const document_ = useMemo(() => (incomplete ? "" : buildArtifactDocument(html)), [html, incomplete]);
 
   const reply = useCallback(
     (frame: Window, id: string, payload: { ok: boolean; data?: unknown; error?: string }) => {
@@ -87,14 +92,14 @@ export function CopilotHtmlArtifact({
 
   // Keeps the newest line of a report being written in view, the way a reader follows it.
   useEffect(() => {
-    if (!isGenerating) {
+    if (incomplete !== "writing") {
       return;
     }
     const node = draftRef.current;
     if (node) {
       node.scrollTop = node.scrollHeight;
     }
-  }, [html, isGenerating]);
+  }, [html, incomplete]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -221,15 +226,20 @@ export function CopilotHtmlArtifact({
   return (
     <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-white">
       <div className="flex items-center justify-between gap-2 border-b border-zinc-100 bg-zinc-50 px-3 py-2">
-        {isGenerating ? (
+        {incomplete === "writing" ? (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500">
             <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.5} />
             報表編輯中
           </span>
+        ) : incomplete === "truncated" ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
+            <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.5} />
+            報表未完成
+          </span>
         ) : (
           <span className="text-xs font-medium text-zinc-500">報表</span>
         )}
-        {isGenerating ? null : (
+        {incomplete ? null : (
           <div className="flex items-center gap-1">
             {onToggleLive ? (
               <button
@@ -359,17 +369,19 @@ export function CopilotHtmlArtifact({
         </div>
       ) : null}
 
-      {isGenerating ? (
+      {incomplete ? (
         <>
           <pre
             ref={draftRef}
-            aria-label="報表產生中的原始碼"
+            aria-label={incomplete === "writing" ? "報表產生中的原始碼" : "未完成報表的原始碼"}
             className="max-h-72 overflow-auto bg-zinc-900 px-3 py-3 text-xs leading-relaxed text-zinc-100"
           >
             <code>{html}</code>
           </pre>
           <p className="border-t border-zinc-100 bg-zinc-50 px-3 py-2 text-[11px] leading-4 text-zinc-500">
-            Copilot 正在撰寫這份報表，目前只能預覽內容；完成後會自動顯示並可以操作。
+            {incomplete === "writing"
+              ? "Copilot 正在撰寫這份報表，目前只能預覽內容；完成後會自動顯示並可以操作。"
+              : "這份報表沒有寫完就停下了，因此沒有執行。請再問一次讓 Copilot 重新產生。"}
           </p>
         </>
       ) : showSource ? (

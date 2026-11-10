@@ -98,6 +98,7 @@ export default function CopilotPage() {
   const autoRepairCountRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isComposingRef = useRef(false);
+  const compositionGenerationRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -630,13 +631,21 @@ export default function CopilotPage() {
                     resizeComposer();
                   }}
                   onCompositionStart={() => {
+                    compositionGenerationRef.current += 1;
                     isComposingRef.current = true;
                   }}
                   onCompositionEnd={() => {
                     // Safari dispatches the candidate-picking Enter's keydown right after
-                    // compositionend, so the flag has to outlive this task to catch it.
+                    // compositionend, so the flag has to outlive this task to catch it. The
+                    // generation guard keeps that delay from clearing a *later* composition:
+                    // committing one word and starting the next within the same task would
+                    // otherwise leave this timer to unset the flag mid-compose, and Safari
+                    // has no native flag to fall back on.
+                    const generation = compositionGenerationRef.current;
                     setTimeout(() => {
-                      isComposingRef.current = false;
+                      if (compositionGenerationRef.current === generation) {
+                        isComposingRef.current = false;
+                      }
                     }, 0);
                   }}
                   onKeyDown={(event) => {

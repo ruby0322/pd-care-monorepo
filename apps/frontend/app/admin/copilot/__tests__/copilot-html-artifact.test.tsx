@@ -105,7 +105,7 @@ describe("CopilotHtmlArtifact while the report is being written", () => {
       <CopilotHtmlArtifact
         html={html}
         liveEnabled
-        isGenerating
+        incomplete="writing"
         onToggleLive={jest.fn()}
         onSaveAsModule={jest.fn()}
       />,
@@ -132,12 +132,17 @@ describe("CopilotHtmlArtifact while the report is being written", () => {
 
   it("shows the source as it arrives, so the write is still visible", () => {
     const { rerender, container } = render(
-      <CopilotHtmlArtifact html="<div>partial" liveEnabled isGenerating onToggleLive={jest.fn()} />,
+      <CopilotHtmlArtifact html="<div>partial" liveEnabled incomplete="writing" onToggleLive={jest.fn()} />,
     );
     expect(screen.getByLabelText("報表產生中的原始碼")).toHaveTextContent("<div>partial");
 
     rerender(
-      <CopilotHtmlArtifact html="<div>partial</div><p>更多" liveEnabled isGenerating onToggleLive={jest.fn()} />,
+      <CopilotHtmlArtifact
+        html="<div>partial</div><p>更多"
+        liveEnabled
+        incomplete="writing"
+        onToggleLive={jest.fn()}
+      />,
     );
     expect(screen.getByLabelText("報表產生中的原始碼")).toHaveTextContent("<div>partial</div><p>更多");
     expect(container.querySelector("iframe")).toBeNull();
@@ -148,6 +153,21 @@ describe("CopilotHtmlArtifact while the report is being written", () => {
     for (const name of [/即時資料/, /重新整理報表/, /檢視 HTML 原始碼/, /下載 HTML/, /儲存為模組/, /全螢幕檢視/]) {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     }
+  });
+
+  /**
+   * A stopped or cut-off turn leaves a block whose fence never closed. Mounting it would run
+   * half a report and report faults against code the model never finished, which the frame
+   * would then ask the model to "repair".
+   */
+  it("leaves a turn that stopped mid-block unmounted, and says it is unfinished", () => {
+    const { container } = render(
+      <CopilotHtmlArtifact html="<div>partial" liveEnabled incomplete="truncated" onToggleLive={jest.fn()} />,
+    );
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(screen.getByText("報表未完成")).toBeInTheDocument();
+    expect(screen.getByText(/沒有寫完就停下了/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /儲存為模組/ })).not.toBeInTheDocument();
   });
 
   it("renders and becomes operable once the block is complete", () => {
