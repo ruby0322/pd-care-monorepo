@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { shouldSendOnEnter } from "@/app/admin/copilot/_components/composer-keys";
 import { getReadableApiError } from "@/lib/api/client";
 import {
   createCopilotSession,
@@ -96,6 +97,8 @@ export default function CopilotPage() {
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
   const autoRepairCountRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const isComposingRef = useRef(false);
+  const compositionGenerationRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -627,8 +630,26 @@ export default function CopilotPage() {
                     setInput(event.target.value);
                     resizeComposer();
                   }}
+                  onCompositionStart={() => {
+                    compositionGenerationRef.current += 1;
+                    isComposingRef.current = true;
+                  }}
+                  onCompositionEnd={() => {
+                    // Safari dispatches the candidate-picking Enter's keydown right after
+                    // compositionend, so the flag has to outlive this task to catch it. The
+                    // generation guard keeps that delay from clearing a *later* composition:
+                    // committing one word and starting the next within the same task would
+                    // otherwise leave this timer to unset the flag mid-compose, and Safari
+                    // has no native flag to fall back on.
+                    const generation = compositionGenerationRef.current;
+                    setTimeout(() => {
+                      if (compositionGenerationRef.current === generation) {
+                        isComposingRef.current = false;
+                      }
+                    }, 0);
+                  }}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
+                    if (shouldSendOnEnter(event, isComposingRef.current)) {
                       event.preventDefault();
                       void handleSend(input);
                     }

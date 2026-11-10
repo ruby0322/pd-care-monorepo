@@ -68,8 +68,10 @@ const BRIDGE_SCRIPT = `
   // line/column are reported as their own numeric fields, not only baked into the message
   // text: this frame holds fully identified patient data, so the parent sends the automatic
   // repair request with the location alone and keeps message/detail for the manual button,
-  // where a human reads them first. (No backticks in here -- this whole script is a
-  // template literal.)
+  // where a human reads them first. (This whole script is a TS template literal, so no
+  // backticks in here, and a JS string that needs a double quote inside it is written with
+  // single quotes: a backslash-escaped quote would be collapsed by the template literal
+  // before the browser ever sees it, ending the string early and breaking the parse.)
   function report(kind, message, detail, line, column) {
     try {
       parent.postMessage({
@@ -108,7 +110,7 @@ const BRIDGE_SCRIPT = `
       entry.resolve(data.data);
     } else {
       var err = new Error(data.error || "query failed");
-      report("query", "window.pdcare.query(\"" + entry.tool + "\") failed: " + err.message);
+      report("query", 'window.pdcare.query("' + entry.tool + '") failed: ' + err.message);
       entry.reject(err);
     }
   });
@@ -299,9 +301,20 @@ export function createHtmlFencePattern(): RegExp {
 
 /** Extracts fenced ```html blocks, returning the prose around them and the blocks themselves. */
 export type ParsedAssistantContent = {
-  segments: Array<{ kind: "text"; value: string } | { kind: "html"; value: string }>;
+  segments: Array<HtmlSegment | { kind: "text"; value: string }>;
   hasHtml: boolean;
 };
+
+/**
+ * One fenced ```html block.
+ *
+ * `closed` is false while the block is still being written: the pattern ends at `$` as well
+ * as at a closing fence, so a report appears here from its first line. Rendering a half-
+ * written block is worse than not rendering it — the browser runs an unterminated `<script>`
+ * at EOF, so every streamed token executes a truncated copy of the report in a frame that
+ * reloads under the reader's cursor. The viewer waits for a closed fence before it renders.
+ */
+export type HtmlSegment = { kind: "html"; value: string; closed: boolean };
 
 export function parseAssistantContent(content: string): ParsedAssistantContent {
   const segments: ParsedAssistantContent["segments"] = [];
@@ -317,7 +330,7 @@ export function parseAssistantContent(content: string): ParsedAssistantContent {
     }
     const html = match[1].trim();
     if (html) {
-      segments.push({ kind: "html", value: html });
+      segments.push({ kind: "html", value: html, closed: match[0].endsWith("```") });
       hasHtml = true;
     }
     lastIndex = match.index + match[0].length;

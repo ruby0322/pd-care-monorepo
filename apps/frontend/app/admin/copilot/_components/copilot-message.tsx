@@ -101,6 +101,7 @@ export function CopilotMessage({
               onRequestRepair={onRequestRepair}
               onAutoRepair={message.isStreaming ? undefined : onAutoRepair}
               onSaveAsModule={setSaveHtml}
+              incomplete={segment.closed ? undefined : message.isStreaming ? "writing" : "truncated"}
             />
           ),
         )}

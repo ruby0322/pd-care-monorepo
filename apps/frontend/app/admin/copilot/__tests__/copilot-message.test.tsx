@@ -310,3 +310,41 @@ describe("CopilotMessage", () => {
     ]);
   });
 });
+
+/**
+ * The `&&` between the two layers: `parseAssistantContent` knows whether a fence closed and
+ * the viewer knows not to mount an open block, but only this mapping decides which state a
+ * streaming message is in -- and getting it wrong brings back the per-token reload.
+ */
+describe("CopilotMessage artifact state while streaming", () => {
+  function renderMessage(content: string, isStreaming: boolean) {
+    return render(
+      <CopilotMessage
+        message={{ key: "streaming", role: "assistant", content, toolTrace: [], isStreaming }}
+      />,
+    );
+  }
+
+  it("mounts no frame for a fence the model has not closed yet", () => {
+    const { container } = renderMessage("先看趨勢：\n\n```html\n<div id=\"root\"></div>\n<script>\nconst d = await pdcare", true);
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(screen.getByText("報表編輯中")).toBeInTheDocument();
+  });
+
+  it("mounts a frame for a closed fence even while prose is still streaming", () => {
+    const { container } = renderMessage("```html\n<p>chart</p>\n```\n\n結論：這份報表", true);
+    expect(container.querySelector("iframe")).not.toBeNull();
+    expect(screen.queryByText("報表編輯中")).not.toBeInTheDocument();
+  });
+
+  it("marks a block the stopped turn never closed as unfinished rather than running it", () => {
+    const { container } = renderMessage("```html\n<div>partial", false);
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(screen.getByText("報表未完成")).toBeInTheDocument();
+  });
+
+  it("mounts a finished report from a persisted message", () => {
+    const { container } = renderMessage("```html\n<p>chart</p>\n```", false);
+    expect(container.querySelector("iframe")).not.toBeNull();
+  });
+});
