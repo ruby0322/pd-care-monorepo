@@ -5,8 +5,13 @@ import { useState } from "react";
 
 import type { CopilotVisibility } from "@/lib/api/copilot";
 
-const VISIBILITY_OPTIONS: Array<{ value: CopilotVisibility; label: string; hint: string; adminOnly?: boolean }> = [
-  { value: "private", label: "僅自己可見", hint: "只有你能看到這個對話。" },
+export const VISIBILITY_OPTIONS: Array<{
+  value: CopilotVisibility;
+  label: string;
+  hint: string;
+  adminOnly?: boolean;
+}> = [
+  { value: "private", label: "僅自己可見", hint: "只有你能看到。" },
   { value: "staff", label: "護理師與管理員可見", hint: "其他護理師與管理員可唯讀檢視。" },
   { value: "admin", label: "僅管理員可見", hint: "只有管理員可唯讀檢視。", adminOnly: true },
 ];
@@ -100,6 +105,12 @@ export function CopilotNewSessionDialog({
             ))}
           </div>
           <p className="mt-2 text-xs text-zinc-400">分享出去的對話對其他人唯讀，只有你能繼續提問。</p>
+          {/* The handle gate hides patient names in what the *model* wrote; it cannot touch
+              the viewer's own user-role turns, which render verbatim for everyone who can
+              read the transcript. */}
+          <p className="mt-1 text-xs text-amber-600">
+            分享會一併公開你自己輸入的內容。若對話中打過病患姓名或病歷號，請選「僅自己可見」。
+          </p>
         </fieldset>
 
         <div className="flex justify-end gap-2">

@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  Blocks,
   Bolt,
   CalendarDays,
   ChartNoAxesCombined,
@@ -194,6 +195,18 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
               PD Copilot
             </Link>
             <Link
+              href="/admin/modules"
+              onClick={closeMobileSidebar}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                pathname === "/admin/modules"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <Blocks className="w-4 h-4" strokeWidth={1.5} />
+              模組
+            </Link>
+            <Link
               href="/admin/history-overview"
               onClick={closeMobileSidebar}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
@@ -361,6 +374,21 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
             >
               <Sparkles className="w-4 h-4" strokeWidth={1.5} />
               {!isSidebarCollapsed ? "PD Copilot" : null}
+            </Link>
+            <Link
+              href="/admin/modules"
+              className={`flex items-center rounded-xl transition-colors text-sm ${
+                isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+              } ${
+                pathname === "/admin/modules"
+                  ? "bg-zinc-900 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+              aria-label="模組"
+              title={isSidebarCollapsed ? "模組" : undefined}
+            >
+              <Blocks className="w-4 h-4" strokeWidth={1.5} />
+              {!isSidebarCollapsed ? "模組" : null}
             </Link>
             <Link
               href="/admin/history-overview"

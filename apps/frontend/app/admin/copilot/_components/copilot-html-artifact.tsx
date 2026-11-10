@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Code2, Download, Maximize2, RefreshCw, Wrench, X, Zap } from "lucide-react";
+import { AlertTriangle, Code2, Download, Maximize2, RefreshCw, Save, Wrench, X, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { queryCopilotProxy } from "@/lib/api/copilot";
@@ -20,7 +20,12 @@ type Props = {
   html: string;
   /** Live data is opt-in: an artifact only reaches the proxy once the user turns it on. */
   liveEnabled: boolean;
-  onToggleLive: (next: boolean) => void;
+  /**
+   * Omitted where the reader has no say over it -- a saved module always runs live, since
+   * a module that only ever showed the day it was saved would be pointless. The 即時資料
+   * control is then hidden rather than rendered as a button that does nothing.
+   */
+  onToggleLive?: (next: boolean) => void;
   /** Lets the thread offer to send the failure back so the assistant can repair its own HTML. */
   onRequestRepair?: (errors: ArtifactErrorMessage[]) => void;
   /**
@@ -30,9 +35,22 @@ type Props = {
    * button as the fallback.
    */
   onAutoRepair?: (errors: ArtifactErrorMessage[]) => boolean;
+  /**
+   * Offers to persist this report as a reusable module. Omitted entirely on a module's own
+   * rendering (e.g. the modules browsing page), so a saved module cannot be re-saved from
+   * itself; the thread that owns the save dialog and the API call supplies it instead.
+   */
+  onSaveAsModule?: (html: string) => void;
 };
 
-export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequestRepair, onAutoRepair }: Props) {
+export function CopilotHtmlArtifact({
+  html,
+  liveEnabled,
+  onToggleLive,
+  onRequestRepair,
+  onAutoRepair,
+  onSaveAsModule,
+}: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [height, setHeight] = useState(320);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -185,24 +203,26 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequest
       <div className="flex items-center justify-between gap-2 border-b border-zinc-100 bg-zinc-50 px-3 py-2">
         <span className="text-xs font-medium text-zinc-500">報表</span>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => {
-              if (!liveEnabled) {
-                setBlockedWhileOff(false);
-                setRuntimeErrors([]);
-                setReloadKey((key) => key + 1);
-              }
-              onToggleLive(!liveEnabled);
-            }}
-            className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
-              liveEnabled ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
-            }`}
-            title="允許此報表即時向後端查詢資料"
-          >
-            <Zap className="h-3.5 w-3.5" strokeWidth={1.5} />
-            即時資料
-          </button>
+          {onToggleLive ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (!liveEnabled) {
+                  setBlockedWhileOff(false);
+                  setRuntimeErrors([]);
+                  setReloadKey((key) => key + 1);
+                }
+                onToggleLive(!liveEnabled);
+              }}
+              className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
+                liveEnabled ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+              }`}
+              title="允許此報表即時向後端查詢資料"
+            >
+              <Zap className="h-3.5 w-3.5" strokeWidth={1.5} />
+              即時資料
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => {
@@ -231,6 +251,16 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequest
           >
             <Download className="h-3.5 w-3.5" strokeWidth={1.5} />
           </button>
+          {onSaveAsModule ? (
+            <button
+              type="button"
+              onClick={() => onSaveAsModule(html)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+              aria-label="儲存為模組"
+            >
+              <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setIsFullscreen(true)}
@@ -246,7 +276,7 @@ export function CopilotHtmlArtifact({ html, liveEnabled, onToggleLive, onRequest
         <p className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">{lastError}</p>
       ) : null}
 
-      {blockedWhileOff && !liveEnabled ? (
+      {blockedWhileOff && !liveEnabled && onToggleLive ? (
         <div className="flex items-center gap-2 border-b border-amber-100 bg-amber-50 px-3 py-2.5">
           <Zap className="h-3.5 w-3.5 shrink-0 text-amber-600" strokeWidth={1.5} />
           <p className="flex-1 text-xs text-amber-800">

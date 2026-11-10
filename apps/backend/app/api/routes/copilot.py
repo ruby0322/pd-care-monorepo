@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -10,7 +11,6 @@ from app.api.deps.auth import (
     bearer_scheme,
     get_current_principal,
     get_session,
-    load_identity,
     require_staff_or_admin,
 )
 from app.core.logging import get_logger
@@ -18,6 +18,11 @@ from app.schemas.copilot import (
     CopilotMessageCreateRequest,
     CopilotMessageItem,
     CopilotModelsResponse,
+    CopilotModuleCreateRequest,
+    CopilotModuleDetail,
+    CopilotModuleListResponse,
+    CopilotModuleSummary,
+    CopilotModuleUpdateRequest,
     CopilotProxyRequest,
     CopilotProxyResponse,
     CopilotSessionCreateRequest,
@@ -29,18 +34,26 @@ from app.schemas.copilot import (
 from app.services.copilot.agent import CopilotUnavailableError, build_openai_client, run_agent_turn
 from app.services.copilot.sessions import (
     append_message,
+    assert_shared_module_fetches_live,
     assert_visibility_allowed,
     copilot_proxy_rate_limiter,
+    create_module,
     create_session,
     derive_title,
+    get_owned_module,
     get_owned_session,
+    get_readable_module,
     get_readable_session,
     history_pairs,
+    label_for_handle,
+    list_handles,
     list_messages,
+    list_visible_modules,
     list_visible_sessions,
     message_count,
     owner_name,
     parse_tool_trace,
+    resolve_handles,
     touch_session,
 )
 from app.services.copilot.tools import CopilotToolError, dispatch_tool_call, resolve_tool
@@ -187,6 +200,7 @@ async def get_copilot_session(
                 )
                 for message in messages
             ],
+            handles=resolve_handles(session, copilot_session_id=row.id, principal=principal),
         )
     finally:
         session.close()
@@ -248,6 +262,181 @@ async def delete_copilot_session(
         session.close()
 
 
+def _to_module_summary(row, *, owner_display: str | None, identity_id: int) -> CopilotModuleSummary:
+    is_owner = row.owner_identity_id == identity_id
+    return CopilotModuleSummary(
+        module_id=row.id,
+        title=row.title,
+        description=row.description,
+        visibility=row.visibility,  # type: ignore[arg-type]
+        owner_identity_id=row.owner_identity_id,
+        owner_name=owner_display,
+        is_owner=is_owner,
+        can_write=is_owner,
+        source_session_id=row.source_session_id,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _to_module_detail(row, *, owner_display: str | None, identity_id: int) -> CopilotModuleDetail:
+    return CopilotModuleDetail(
+        **_to_module_summary(row, owner_display=owner_display, identity_id=identity_id).model_dump(),
+        html=row.html,
+    )
+
+
+@router.get("/v1/copilot/modules", response_model=CopilotModuleListResponse)
+async def list_copilot_modules(
+    request: Request,
+    credentials=Depends(bearer_scheme),
+) -> CopilotModuleListResponse:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        rows = list_visible_modules(session, identity_id=principal.identity_id, role=principal.role)
+        return CopilotModuleListResponse(
+            items=[
+                _to_module_summary(row, owner_display=display, identity_id=principal.identity_id)
+                for row, display in rows
+            ]
+        )
+    finally:
+        session.close()
+
+
+@router.post("/v1/copilot/modules", response_model=CopilotModuleDetail, status_code=status.HTTP_201_CREATED)
+async def create_copilot_module(
+    request: Request,
+    payload: CopilotModuleCreateRequest,
+    credentials=Depends(bearer_scheme),
+) -> CopilotModuleDetail:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    assert_visibility_allowed(payload.visibility, role=principal.role)
+    assert_shared_module_fetches_live(payload.html, visibility=payload.visibility)
+    session = get_session(request)
+    try:
+        row = create_module(
+            session,
+            owner_identity_id=principal.identity_id,
+            title=payload.title.strip() or payload.title,
+            description=(payload.description.strip() or None) if payload.description else None,
+            html=payload.html,
+            visibility=payload.visibility,
+            source_session_id=payload.source_session_id,
+            source_message_id=payload.source_message_id,
+        )
+        return _to_module_detail(
+            row,
+            owner_display=owner_name(session, identity_id=principal.identity_id),
+            identity_id=principal.identity_id,
+        )
+    finally:
+        session.close()
+
+
+@router.get("/v1/copilot/modules/{module_id}", response_model=CopilotModuleDetail)
+async def get_copilot_module(
+    request: Request,
+    module_id: int,
+    credentials=Depends(bearer_scheme),
+) -> CopilotModuleDetail:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        row = get_readable_module(
+            session,
+            module_id=module_id,
+            identity_id=principal.identity_id,
+            role=principal.role,
+        )
+        return _to_module_detail(
+            row,
+            owner_display=owner_name(session, identity_id=row.owner_identity_id),
+            identity_id=principal.identity_id,
+        )
+    finally:
+        session.close()
+
+
+@router.patch("/v1/copilot/modules/{module_id}", response_model=CopilotModuleDetail)
+async def update_copilot_module(
+    request: Request,
+    module_id: int,
+    payload: CopilotModuleUpdateRequest,
+    credentials=Depends(bearer_scheme),
+) -> CopilotModuleDetail:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        row = get_owned_module(
+            session,
+            module_id=module_id,
+            identity_id=principal.identity_id,
+            role=principal.role,
+        )
+        if payload.visibility is not None:
+            assert_visibility_allowed(payload.visibility, role=principal.role)
+        # Checked against the state this PATCH would leave behind, before anything is
+        # mutated: promoting a static module to `staff` and replacing a shared module's
+        # HTML with a static version are the same defect as saving one. A PATCH that
+        # touches neither field is exempt, so renaming a row that predates this rule
+        # stays possible — the check exists to stop the state being *entered*, and a
+        # title edit does not enter it.
+        if payload.html is not None or payload.visibility is not None:
+            assert_shared_module_fetches_live(
+                payload.html if payload.html is not None else row.html,
+                visibility=payload.visibility if payload.visibility is not None else row.visibility,
+            )
+
+        if payload.title is not None:
+            row.title = payload.title.strip() or row.title
+        if payload.description is not None:
+            row.description = payload.description.strip() or None
+        if payload.html is not None:
+            row.html = payload.html
+        if payload.visibility is not None:
+            row.visibility = payload.visibility
+        # The list is ordered by `updated_at`, and the API hands it to clients as the
+        # module's last-changed time; `server_default=func.now()` only covers the insert.
+        row.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return _to_module_detail(
+            row,
+            owner_display=owner_name(session, identity_id=row.owner_identity_id),
+            identity_id=principal.identity_id,
+        )
+    finally:
+        session.close()
+
+
+@router.delete("/v1/copilot/modules/{module_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_copilot_module(
+    request: Request,
+    module_id: int,
+    credentials=Depends(bearer_scheme),
+) -> None:
+    _require_enabled(request)
+    principal = require_staff_or_admin(get_current_principal(request, credentials))
+    session = get_session(request)
+    try:
+        row = get_owned_module(
+            session,
+            module_id=module_id,
+            identity_id=principal.identity_id,
+            role=principal.role,
+        )
+        session.delete(row)
+        session.commit()
+    finally:
+        session.close()
+
+
 def _sse(event: str, data: dict) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n".encode("utf-8")
 
@@ -274,13 +463,14 @@ async def post_copilot_message(
         )
         model = row.model
         history = history_pairs(list_messages(session, session_id=row.id))
-        identity = load_identity(session, principal)
-        display_name = identity.real_name or identity.display_name
         user_message = append_message(session, session_id=row.id, role="user", content=payload.content)
         if len(history) == 0 and (row.title == "新對話" or not row.title.strip()):
             row.title = derive_title(payload.content)
             session.commit()
         user_message_id = user_message.id
+        # Handles already minted in earlier turns of this session: never re-announce
+        # them, only ones first minted during *this* turn.
+        known_handles = {handle_row.handle for handle_row in list_handles(session, copilot_session_id=row.id)}
     finally:
         session.close()
 
@@ -294,6 +484,37 @@ async def post_copilot_message(
 
     app = request.app
 
+    def _newly_minted_handle_events() -> list[bytes]:
+        """Diff the handles minted so far against `known_handles`, emitting one `handle`
+        event per handle first seen during this turn, labelled for this same principal.
+
+        Opens its own short-lived session, mirroring `_deidentify_for_session` in
+        `tools.py`: the handle rows it reads were just committed by that same helper on
+        its own session, so a fresh read here sees them.
+        """
+        handle_session = app.state.db_session_factory()
+        try:
+            events: list[bytes] = []
+            for handle_row in list_handles(handle_session, copilot_session_id=session_id):
+                if handle_row.handle in known_handles:
+                    continue
+                known_handles.add(handle_row.handle)
+                label = label_for_handle(
+                    handle_session,
+                    principal=principal,
+                    entity_type=handle_row.entity_type,
+                    entity_id=handle_row.entity_id,
+                )
+                events.append(
+                    _sse(
+                        "handle",
+                        {"handle": handle_row.handle, "entity_type": handle_row.entity_type, "label": label},
+                    )
+                )
+            return events
+        finally:
+            handle_session.close()
+
     async def event_stream() -> AsyncIterator[bytes]:
         yield _sse("user_message", {"message_id": user_message_id})
         turn: dict | None = None
@@ -303,17 +524,22 @@ async def post_copilot_message(
                 app=app,
                 model=model,
                 role=principal.role,
-                display_name=display_name,
                 history=history,
                 user_message=payload.content,
                 authorization=authorization,
                 max_tool_iterations=settings.copilot_max_tool_iterations,
                 tool_result_max_bytes=settings.copilot_tool_result_max_bytes,
+                copilot_session_id=session_id,
             ):
                 if event.type == "turn":
                     turn = event.data
                     continue
                 yield _sse(event.type, event.data)
+                if event.type == "tool_result":
+                    # A tool result is exactly when `deidentify_payload` may have just
+                    # minted new handles; announce them right after.
+                    for handle_event in _newly_minted_handle_events():
+                        yield handle_event
         except Exception as exc:  # noqa: BLE001 - the stream has already started; report and close cleanly
             LOGGER.exception("Copilot turn failed for session %s", session_id)
             yield _sse("error", {"message": f"分析過程發生錯誤：{exc}"})
@@ -378,12 +604,15 @@ async def post_copilot_proxy(
 
     try:
         tool = resolve_tool(payload.tool, role=principal.role)
+        # Generated reports render to the signed-in nurse in their own browser, so the
+        # proxy keeps full identified data — it must never de-identify.
         result = await dispatch_tool_call(
             app=request.app,
             tool=tool,
             arguments=payload.params,
             authorization=_authorization_header(request),
             max_bytes=settings.copilot_tool_result_max_bytes,
+            deidentify_for_session_id=None,
         )
     except CopilotToolError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

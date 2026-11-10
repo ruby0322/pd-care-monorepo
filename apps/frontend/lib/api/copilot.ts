@@ -41,9 +41,21 @@ export type CopilotMessageItem = {
   created_at: string;
 };
 
+/**
+ * A de-identified handle's real-world label, resolved for one viewer. `label` is
+ * `null` whenever the viewer may not see the underlying entity (e.g. a patient not
+ * assigned to this staff member) — that is a permission denial, not a missing value,
+ * so the UI must render the bare handle rather than treating it as "unknown".
+ */
+export type CopilotHandleLabel = {
+  entity_type: string;
+  label: string | null;
+};
+
 export type CopilotSessionDetail = {
   session: CopilotSessionSummary;
   messages: CopilotMessageItem[];
+  handles: Record<string, CopilotHandleLabel>;
 };
 
 export async function fetchCopilotModels(): Promise<CopilotModelsResponse> {
@@ -82,6 +94,50 @@ export async function deleteCopilotSession(sessionId: number): Promise<void> {
   await apiClient.delete(`/v1/copilot/sessions/${sessionId}`);
 }
 
+export type CopilotModuleSummary = {
+  module_id: number;
+  title: string;
+  description: string | null;
+  visibility: CopilotVisibility;
+  owner_identity_id: number;
+  owner_name: string | null;
+  is_owner: boolean;
+  can_write: boolean;
+  source_session_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CopilotModuleDetail = CopilotModuleSummary & {
+  html: string;
+};
+
+export async function fetchCopilotModules(): Promise<CopilotModuleSummary[]> {
+  const response = await apiClient.get<{ items: CopilotModuleSummary[] }>("/v1/copilot/modules");
+  return response.data.items;
+}
+
+export async function createCopilotModule(payload: {
+  title: string;
+  description?: string;
+  html: string;
+  visibility: CopilotVisibility;
+  source_session_id?: number;
+  source_message_id?: number;
+}): Promise<CopilotModuleDetail> {
+  const response = await apiClient.post<CopilotModuleDetail>("/v1/copilot/modules", payload);
+  return response.data;
+}
+
+export async function fetchCopilotModule(moduleId: number): Promise<CopilotModuleDetail> {
+  const response = await apiClient.get<CopilotModuleDetail>(`/v1/copilot/modules/${moduleId}`);
+  return response.data;
+}
+
+export async function deleteCopilotModule(moduleId: number): Promise<void> {
+  await apiClient.delete(`/v1/copilot/modules/${moduleId}`);
+}
+
 export type CopilotProxyResult = {
   tool: string;
   ok: boolean;
@@ -100,6 +156,7 @@ export type CopilotStreamEvent =
   | { type: "tool_call"; tool: string; params: Record<string, unknown> }
   | { type: "tool_result"; tool: string; ok: boolean; status: number | null; truncated: boolean; duration_ms: number }
   | { type: "message_saved"; message_id: number; content: string; tool_trace: CopilotToolTraceEntry[] }
+  | { type: "handle"; handle: string; entity_type: string; label: string | null }
   | { type: "error"; message: string }
   | { type: "done" };
 

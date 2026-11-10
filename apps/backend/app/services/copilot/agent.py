@@ -13,6 +13,7 @@ from app.services.copilot.prompt import build_system_prompt
 from app.services.copilot.tools import (
     CopilotToolError,
     ToolCallResult,
+    build_handle_resolver,
     dispatch_tool_call,
     openai_tool_definitions,
     resolve_tool,
@@ -114,20 +115,27 @@ async def run_agent_turn(
     app: Any,
     model: str,
     role: str,
-    display_name: str | None,
     history: Sequence[tuple[str, str]],
     user_message: str,
     authorization: str,
     max_tool_iterations: int,
     tool_result_max_bytes: int,
+    copilot_session_id: int,
 ) -> AsyncIterator[AgentEvent]:
     """Stream one assistant turn, running allowlisted tool calls as needed.
 
     Yields `token`, `tool_call`, `tool_result`, `error` and finally `turn` events. The
     `turn` event carries the TurnRecord the caller persists.
+
+    `copilot_session_id` is threaded straight into every `dispatch_tool_call` as
+    `deidentify_for_session_id` — every tool result the model sees on this path is
+    de-identified. This is the one path where that must always happen; the live-data
+    proxy route calls `dispatch_tool_call` separately and passes `None` instead.
     """
-    system_prompt = build_system_prompt(role=role, display_name=display_name)
-    tools = openai_tool_definitions(role)
+    system_prompt = build_system_prompt(role=role)
+    # This path always de-identifies, so the schema must advertise the handle strings the
+    # model has actually been shown rather than integer ids it would have to invent.
+    tools = openai_tool_definitions(role, deidentified=True)
     conversation: list[dict[str, Any]] = history_to_input(history)
     conversation.append({"role": "user", "content": user_message})
 
@@ -204,8 +212,15 @@ async def run_agent_turn(
                 arguments = _parse_arguments(getattr(call, "arguments", None))
                 tool = resolve_tool(name, role=role)
                 # Validated here, before the call is announced, so a rejected call still
-                # emits exactly one tool_call/tool_result pair.
-                tool.build_path(arguments)
+                # emits exactly one tool_call/tool_result pair. The same resolver the
+                # dispatch will use is passed in, so a handle the model made up is caught
+                # as a plain rejection instead of raising mid-dispatch.
+                tool.build_path(
+                    arguments,
+                    handle_resolver=build_handle_resolver(
+                        app, copilot_session_id=copilot_session_id, tool_name=name
+                    ),
+                )
             except CopilotToolError as exc:
                 rejection = str(exc)
 
@@ -221,13 +236,24 @@ async def run_agent_turn(
                     ),
                 )
             else:
-                result = await dispatch_tool_call(
-                    app=app,
-                    tool=tool,
-                    arguments=arguments,
-                    authorization=authorization,
-                    max_bytes=tool_result_max_bytes,
-                )
+                try:
+                    result = await dispatch_tool_call(
+                        app=app,
+                        tool=tool,
+                        arguments=arguments,
+                        authorization=authorization,
+                        max_bytes=tool_result_max_bytes,
+                        deidentify_for_session_id=copilot_session_id,
+                    )
+                except CopilotToolError as exc:
+                    # The pre-validation above normally catches these; this covers the
+                    # narrow window where a handle stops resolving between the two (and
+                    # keeps a rejected argument from killing the whole stream).
+                    result = ToolCallResult(
+                        ok=False,
+                        status_code=None,
+                        content=json.dumps({"error": True, "detail": str(exc)}, ensure_ascii=False),
+                    )
 
             duration_ms = int((time.monotonic() - started) * 1000)
             record.tool_trace.append(

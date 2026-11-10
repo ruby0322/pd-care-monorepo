@@ -11,12 +11,15 @@ allowlisted path templates are reachable, the surface is read-only by constructi
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import httpx
 
 from app.core.logging import get_logger
+from app.services.copilot.deidentify import HANDLE_SPECS, deidentify_payload, resolve_handle
 
 LOGGER = get_logger(__name__)
 
@@ -25,6 +28,39 @@ Role = Literal["staff", "admin"]
 
 class CopilotToolError(Exception):
     """Raised when a tool call is rejected before it reaches the API."""
+
+
+# Turns one session-scoped handle back into the real row id it stands for:
+# `(entity_type, handle) -> entity_id`. Raises `CopilotToolError` when the handle was
+# never minted in this conversation. `build_handle_resolver` is the only production
+# implementation; `build_path` takes it as an argument so the pure path-building logic
+# stays testable without a database.
+HandleResolver = Callable[[str, str], int]
+
+
+def _handle_pattern(prefix: str) -> str:
+    """The JSON Schema / validation pattern for one handle namespace, e.g. `^P#[0-9]+$`."""
+    return "^{0}#[0-9]+$".format(prefix)
+
+
+def _require_handle(raw: Any, *, prefix: str, param: str, tool_name: str) -> str:
+    """Accept only a well-formed handle string, normalised to the stored casing.
+
+    Deliberately strict, and deliberately *not* tolerant of an integer: on the agent path
+    the model has never been shown a real id, so a number here is an invention. Letting it
+    through is the wrong-patient failure this whole boundary exists to prevent — an
+    invented id that happens to name another assigned patient returns a perfectly coherent
+    per-patient narrative under the wrong name.
+    """
+    if isinstance(raw, str):
+        candidate = raw.strip().upper()
+        if re.fullmatch(_handle_pattern(prefix), candidate):
+            return candidate
+    raise CopilotToolError(
+        "Parameter '{0}' for tool '{1}' must be a {2}#n handle copied exactly from an "
+        "earlier tool result (got {3!r}). This conversation has no real ids: call a listing "
+        "tool first and reuse the handle it returned.".format(param, tool_name, prefix, raw)
+    )
 
 
 @dataclass(frozen=True)
@@ -39,12 +75,28 @@ class CopilotTool:
     required: tuple[str, ...] = ()
     required_role: Role = "staff"
 
-    def build_path(self, arguments: dict[str, Any]) -> str:
+    def build_path(self, arguments: dict[str, Any], *, handle_resolver: HandleResolver | None = None) -> str:
+        """Fill the path template from `arguments`, resolving handles when asked to.
+
+        `handle_resolver` is what makes the boundary two-way. Pass one (the agent path,
+        where every result the model saw was de-identified) and any path parameter listed
+        in `HANDLE_SPECS` must arrive as the handle the model was given — `P#1` — which is
+        resolved back to the real row id here. Pass `None` (the `/v1/copilot/proxy` path,
+        which never de-identified anything) and those parameters are plain integer ids as
+        before. Either way the value interpolated into the URL is an `int`, which is what
+        keeps arbitrary strings and path traversal out of the request.
+        """
         values: dict[str, int] = {}
         for name in self.path_params:
             if name not in arguments:
                 raise CopilotToolError(f"Missing required parameter '{name}' for tool '{self.name}'")
             raw = arguments[name]
+            spec = HANDLE_SPECS.get(name) if handle_resolver is not None else None
+            if spec is not None and handle_resolver is not None:
+                entity_type, prefix = spec
+                handle = _require_handle(raw, prefix=prefix, param=name, tool_name=self.name)
+                values[name] = handle_resolver(entity_type, handle)
+                continue
             try:
                 # Coercing to int is what keeps arbitrary strings (and path traversal) out of the URL.
                 values[name] = int(raw)
@@ -66,10 +118,34 @@ class CopilotTool:
                 query[name] = str(value)
         return query
 
-    def json_schema(self) -> dict[str, Any]:
-        properties: dict[str, Any] = {
-            name: {"type": "integer", "description": f"{name} (integer id)"} for name in self.path_params
-        }
+    def json_schema(self, *, deidentified: bool) -> dict[str, Any]:
+        """The parameter schema handed to the model.
+
+        `deidentified` must match what the dispatch will do with the call, because the
+        schema is the strongest instruction the model gets. Advertising `patient_id` as a
+        required *integer* while every result it has seen says `P#1` does not merely break
+        the call: a structured-output model will satisfy the schema by inventing a number,
+        and an invented id that happens to name another patient assigned to this nurse
+        returns a coherent narrative under the wrong name. So on the de-identified path
+        these parameters are advertised as handle strings, which the model can actually
+        supply from what it was given.
+        """
+        properties: dict[str, Any] = {}
+        for name in self.path_params:
+            spec = HANDLE_SPECS.get(name) if deidentified else None
+            if spec is None:
+                properties[name] = {"type": "integer", "description": f"{name} (integer id)"}
+                continue
+            _entity_type, prefix = spec
+            properties[name] = {
+                "type": "string",
+                "pattern": _handle_pattern(prefix),
+                "description": (
+                    f"The {prefix}#n handle for this {name.removesuffix('_id')}, copied exactly as it "
+                    f"appeared in an earlier tool result (e.g. \"{prefix}#1\"). Never pass a number and "
+                    "never invent a handle: real ids do not exist in this conversation."
+                ),
+            }
         properties.update(self.query_params)
         return {
             "type": "object",
@@ -139,7 +215,10 @@ COPILOT_TOOLS: tuple[CopilotTool, ...] = (
     ),
     CopilotTool(
         name="list_patient_annotations",
-        description="Nurse annotations (label and comment) recorded for one patient's uploads.",
+        description=(
+            "Nurse annotation labels recorded for one patient's uploads. Free-text comments "
+            "are withheld from this tool and never returned."
+        ),
         path_template="/v1/staff/patients/{patient_id}/annotations",
         path_params=("patient_id",),
     ),
@@ -185,6 +264,11 @@ COPILOT_TOOLS: tuple[CopilotTool, ...] = (
         name="get_workbench_dashboard",
         description="The nurse workbench summary: today's counts plus the trailing week.",
         path_template="/v1/staff/dashboard/workbench",
+        query_params={
+            "local_date": {"type": "string", "description": "Target day, YYYY-MM-DD (Taipei local date)."},
+            "week_start": {"type": "string", "description": "First day of the week to summarize, YYYY-MM-DD."},
+        },
+        required=("local_date", "week_start"),
     ),
     # --- De-identified cohort aggregates (counts/trends only, no patient identity) ---
     CopilotTool(
@@ -254,13 +338,16 @@ def resolve_tool(name: str, *, role: str) -> CopilotTool:
     return tool
 
 
-def openai_tool_definitions(role: str) -> list[dict[str, Any]]:
+def openai_tool_definitions(role: str, *, deidentified: bool) -> list[dict[str, Any]]:
+    """Tool definitions for one role. `deidentified` has no default on purpose: it must
+    mirror the dispatch's `deidentify_for_session_id`, and a wrong guess here is what
+    pushes the model to invent a patient id (see `CopilotTool.json_schema`)."""
     return [
         {
             "type": "function",
             "name": tool.name,
             "description": tool.description,
-            "parameters": tool.json_schema(),
+            "parameters": tool.json_schema(deidentified=deidentified),
         }
         for tool in tools_for_role(role)
     ]
@@ -302,6 +389,56 @@ class ToolCallResult:
     truncated: bool = False
 
 
+def _deidentify_for_session(app: Any, *, copilot_session_id: int, payload: Any) -> Any:
+    """Open a short-lived DB session to run `payload` through the de-identification boundary.
+
+    A fresh session is opened per tool call (rather than reusing one across the turn)
+    because `dispatch_tool_call` has no session of its own to borrow — it only ever
+    receives the ASGI `app`. The handle-insert commits here so the next tool call's own
+    fresh session can see it and reuse the same handle for the same underlying id.
+    """
+    session_factory = app.state.db_session_factory
+    session = session_factory()
+    try:
+        result = deidentify_payload(session, copilot_session_id=copilot_session_id, payload=payload)
+        session.commit()
+        return result
+    finally:
+        session.close()
+
+
+def build_handle_resolver(app: Any, *, copilot_session_id: int, tool_name: str) -> HandleResolver:
+    """The inbound counterpart of `_deidentify_for_session`.
+
+    Opens its own short-lived DB session per lookup for the same reason that helper does:
+    the dispatch only ever receives the ASGI `app`, never a session. An unknown handle —
+    one never minted in this conversation, or one from another session or another
+    namespace — raises `CopilotToolError`, and there is deliberately no fallback that
+    treats the argument as a real id instead.
+    """
+
+    def resolve(entity_type: str, handle: str) -> int:
+        session = app.state.db_session_factory()
+        try:
+            entity_id = resolve_handle(
+                session,
+                copilot_session_id=copilot_session_id,
+                entity_type=entity_type,
+                handle=handle,
+            )
+        finally:
+            session.close()
+        if entity_id is None:
+            raise CopilotToolError(
+                "Handle '{0}' is not known in this conversation, so tool '{1}' was not called. "
+                "Only use handles that appeared in an earlier tool result of this same "
+                "conversation.".format(handle, tool_name)
+            )
+        return entity_id
+
+    return resolve
+
+
 async def dispatch_tool_call(
     *,
     app: Any,
@@ -309,10 +446,27 @@ async def dispatch_tool_call(
     arguments: dict[str, Any],
     authorization: str,
     max_bytes: int,
+    deidentify_for_session_id: int | None,
     timeout_seconds: float = 30.0,
 ) -> ToolCallResult:
-    """Run one allowlisted GET against this app, as the signed-in user."""
-    path = tool.build_path(arguments)
+    """Run one allowlisted GET against this app, as the signed-in user.
+
+    `deidentify_for_session_id` is the single choke point between a tool result and the
+    model: pass the real copilot session id to strip and re-label identifiers before the
+    model ever sees this payload, or `None` to return the payload identified as-is. There
+    is no default — every caller must choose explicitly (see `deidentify.py`'s module
+    docstring for why a silent default would defeat the whole boundary).
+
+    It governs the *inbound* direction too, because the two have to agree: a caller whose
+    results were de-identified must spend handles (`patient_id="P#1"`), resolved here
+    against that same session; a caller that saw identified data passes real ids.
+    """
+    handle_resolver = (
+        build_handle_resolver(app, copilot_session_id=deidentify_for_session_id, tool_name=tool.name)
+        if deidentify_for_session_id is not None
+        else None
+    )
+    path = tool.build_path(arguments, handle_resolver=handle_resolver)
     params = tool.build_query(arguments)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
@@ -329,18 +483,33 @@ async def dispatch_tool_call(
         except ValueError:
             detail = response.text[:500]
         LOGGER.info("Copilot tool '%s' rejected with %s", tool.name, response.status_code)
+        if deidentify_for_session_id is not None:
+            # `detail` is left out of the dict entirely here, rather than filtered out by
+            # `deidentify_payload` after the fact: `detail` is often itself a dict (e.g.
+            # `{"detail": "..."}` echoed back from the downstream endpoint's own error
+            # body), and `filter_payload` always keeps a dict-valued key regardless of its
+            # name — it would survive as an emptied `{}`, not disappear. `error` + `status`
+            # is enough for the model to know it hit a boundary (the system prompt explains
+            # what a 403/404 means); `detail` carries unbounded text that could echo an
+            # identifier straight back, so it never reaches de-identified payloads at all.
+            error_payload: Any = _deidentify_for_session(
+                app,
+                copilot_session_id=deidentify_for_session_id,
+                payload={"error": True, "status": response.status_code},
+            )
+        else:
+            error_payload = {"error": True, "status": response.status_code, "detail": detail}
         # Surfaced to the model (not raised) so it can explain the permission boundary in its answer.
-        content = json.dumps(
-            {"error": True, "status": response.status_code, "detail": detail},
-            ensure_ascii=False,
-            default=str,
-        )
+        content = json.dumps(error_payload, ensure_ascii=False, default=str)
         return ToolCallResult(ok=False, status_code=response.status_code, content=content)
 
     try:
         payload = response.json()
     except ValueError:
         return ToolCallResult(ok=False, status_code=response.status_code, content='{"error":true,"detail":"non-JSON response"}')
+
+    if deidentify_for_session_id is not None:
+        payload = _deidentify_for_session(app, copilot_session_id=deidentify_for_session_id, payload=payload)
 
     text, truncated = _truncate_payload(payload, max_bytes=max_bytes)
     return ToolCallResult(ok=True, status_code=response.status_code, content=text, truncated=truncated)

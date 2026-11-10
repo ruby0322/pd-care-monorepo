@@ -70,12 +70,41 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+type ApiValidationIssue = { msg?: unknown; loc?: unknown; type?: unknown };
+
 type ApiErrorPayload =
   | {
-      detail?: string | { code?: string; message?: string };
+      detail?: string | { code?: string; message?: string } | ApiValidationIssue[];
     }
   | string
   | null;
+
+/**
+ * pydantic reports a request-validation failure as `detail: [{ loc, msg, type }, ...]`.
+ * Without reading that shape, such a response falls through to a bare `HTTP 422` and the
+ * message the backend wrote for the reader — a size limit, a rejected module — is lost.
+ */
+function messageFromValidationIssues(detail: unknown): string | null {
+  if (!Array.isArray(detail)) {
+    return null;
+  }
+  const messages = detail
+    .map((issue): string | null => {
+      if (typeof issue === "string") {
+        return issue;
+      }
+      if (typeof issue === "object" && issue !== null && typeof (issue as { msg?: unknown }).msg === "string") {
+        return (issue as { msg: string }).msg;
+      }
+      return null;
+    })
+    .filter((message): message is string => message !== null)
+    // pydantic prefixes a custom validator's own ValueError with "Value error, ".
+    .map((message) => message.replace(/^value error,\s*/i, "").trim())
+    .filter((message) => message.length > 0);
+
+  return messages.length > 0 ? messages.join("；").slice(0, 300) : null;
+}
 
 export function getApiErrorDetail(error: unknown): string | null {
   if (!(error instanceof AxiosError)) {
@@ -90,6 +119,12 @@ export function getApiErrorDetail(error: unknown): string | null {
       typeof (payload as { detail?: unknown }).detail === "string"
     ) {
       return (payload as { detail: string }).detail;
+    }
+    if (typeof payload === "object" && payload !== null && "detail" in payload) {
+      const validationMessage = messageFromValidationIssues((payload as { detail?: unknown }).detail);
+      if (validationMessage) {
+        return validationMessage;
+      }
     }
     if (
       typeof payload === "object" &&

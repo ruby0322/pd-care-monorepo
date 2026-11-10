@@ -2,10 +2,14 @@ import {
   usesLiveBridge,
   ARTIFACT_ALLOWED_TOOLS,
   buildArtifactDocument,
+  buildAutoRepairPrompt,
+  buildManualRepairPrompt,
+  describeErrorLocation,
   isAllowedArtifactTool,
   parseArtifactError,
   parseArtifactQuery,
   parseAssistantContent,
+  type ArtifactErrorMessage,
 } from "@/app/admin/copilot/_components/artifact-bridge";
 
 describe("isAllowedArtifactTool", () => {
@@ -61,13 +65,34 @@ describe("usesLiveBridge", () => {
 describe("parseArtifactError", () => {
   it("parses a reported runtime error", () => {
     expect(
-      parseArtifactError({ type: "pdcare:error", kind: "script", message: "boom", detail: "stack" }),
-    ).toEqual({ type: "pdcare:error", kind: "script", message: "boom", detail: "stack" });
+      parseArtifactError({
+        type: "pdcare:error",
+        kind: "script",
+        message: "boom",
+        detail: "stack",
+        line: 12,
+        column: 5,
+      }),
+    ).toEqual({
+      type: "pdcare:error",
+      kind: "script",
+      message: "boom",
+      detail: "stack",
+      line: 12,
+      column: 5,
+    });
   });
 
-  it("defaults kind and detail when absent", () => {
+  it("defaults kind, detail and location when absent", () => {
     const parsed = parseArtifactError({ type: "pdcare:error", message: "boom" });
-    expect(parsed).toEqual({ type: "pdcare:error", kind: "script", message: "boom", detail: "" });
+    expect(parsed).toEqual({
+      type: "pdcare:error",
+      kind: "script",
+      message: "boom",
+      detail: "",
+      line: null,
+      column: null,
+    });
   });
 
   it("truncates very long payloads", () => {
@@ -78,6 +103,12 @@ describe("parseArtifactError", () => {
     });
     expect(parsed?.message.length).toBe(500);
     expect(parsed?.detail.length).toBe(2000);
+  });
+
+  it("ignores a non-numeric location", () => {
+    const parsed = parseArtifactError({ type: "pdcare:error", message: "boom", line: "12", column: NaN });
+    expect(parsed?.line).toBeNull();
+    expect(parsed?.column).toBeNull();
   });
 
   it("ignores unrelated messages", () => {
@@ -141,5 +172,44 @@ describe("parseAssistantContent", () => {
   it("does not treat a non-html fence as an artifact", () => {
     const { hasHtml } = parseAssistantContent("```json\n{}\n```");
     expect(hasHtml).toBe(false);
+  });
+});
+
+describe("repair prompts", () => {
+  // The iframe runs with fully identified data, and the system prompt encourages reports
+  // that throw explanatory errors -- so this is the shape of error a real report produces.
+  const identifying: ArtifactErrorMessage = {
+    type: "pdcare:error",
+    kind: "script",
+    message: "找不到 王小明 的資料 (line 12:5)",
+    detail: "Error: 找不到 王小明 的資料\n    at render (about:srcdoc:12:5)",
+    line: 12,
+    column: 5,
+  };
+
+  it("sends no error text on the automatic path, only type and location", () => {
+    const prompt = buildAutoRepairPrompt([identifying]);
+    expect(prompt).not.toContain("王小明");
+    expect(prompt).not.toContain(identifying.message);
+    expect(prompt).not.toContain(identifying.detail);
+    expect(prompt).toContain("script");
+    expect(prompt).toContain("第 12 行第 5 欄");
+  });
+
+  it("keeps the full error text on the manual path", () => {
+    const prompt = buildManualRepairPrompt([identifying]);
+    expect(prompt).toContain(identifying.message);
+    expect(prompt).toContain(identifying.detail);
+  });
+
+  it("describes a missing location without inventing one", () => {
+    expect(describeErrorLocation({ ...identifying, line: null, column: null })).toBe("位置不明");
+    expect(describeErrorLocation({ ...identifying, column: null })).toBe("第 12 行");
+  });
+
+  it("caps how many faults it forwards automatically", () => {
+    const many = Array.from({ length: 9 }, (_item, index) => ({ ...identifying, line: index + 1 }));
+    const prompt = buildAutoRepairPrompt(many);
+    expect(prompt.split("- [script]").length - 1).toBe(5);
   });
 });
