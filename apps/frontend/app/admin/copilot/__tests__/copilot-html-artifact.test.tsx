@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { CopilotHtmlArtifact } from "@/app/admin/copilot/_components/copilot-html-artifact";
@@ -96,6 +96,49 @@ describe("CopilotHtmlArtifact bridge", () => {
     const { onToggleLive } = renderArtifact(false);
     await userEvent.click(screen.getByRole("button", { name: /即時資料/ }));
     expect(onToggleLive).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("CopilotHtmlArtifact height", () => {
+  /**
+   * The frame measures, the parent applies, the frame measures again -- so the applied height
+   * has to be a fixed point. It was not: the parent added a margin to whatever arrived, the
+   * frame reported the viewport floor (its own, now taller, height) on the next tick, and the
+   * pair climbed 8px every 500ms until the 2400px cap. Every report grew, whatever was in it.
+   */
+  it("does not climb when the frame reports back the height it was given", () => {
+    const { iframe } = renderArtifact();
+
+    act(() => postFromFrame(iframe, { type: "pdcare:height", height: 320 }));
+    const applied = iframe.style.height;
+    expect(applied).toBe("320px");
+
+    // What the frame measures next: a viewport-floored read is exactly what it was given.
+    for (let tick = 0; tick < 5; tick += 1) {
+      act(() => postFromFrame(iframe, { type: "pdcare:height", height: parseInt(iframe.style.height, 10) }));
+    }
+
+    expect(iframe.style.height).toBe(applied);
+  });
+
+  it("follows the content when it genuinely changes size", () => {
+    const { iframe } = renderArtifact();
+
+    act(() => postFromFrame(iframe, { type: "pdcare:height", height: 700 }));
+    expect(iframe.style.height).toBe("700px");
+
+    act(() => postFromFrame(iframe, { type: "pdcare:height", height: 240 }));
+    expect(iframe.style.height).toBe("240px");
+  });
+
+  it("keeps a floor and a ceiling", () => {
+    const { iframe } = renderArtifact();
+
+    act(() => postFromFrame(iframe, { type: "pdcare:height", height: 10 }));
+    expect(iframe.style.height).toBe("160px");
+
+    act(() => postFromFrame(iframe, { type: "pdcare:height", height: 99999 }));
+    expect(iframe.style.height).toBe("2400px");
   });
 });
 

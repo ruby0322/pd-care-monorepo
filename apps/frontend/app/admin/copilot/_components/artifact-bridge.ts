@@ -130,11 +130,20 @@ const BRIDGE_SCRIPT = `
       });
     }
   };
+  // documentElement is the scrolling box, so its scrollHeight is floored at the viewport --
+  // which here is the height the parent has just applied to this frame. Reporting it handed
+  // the parent its own number back, and with both sides polling, the frame climbed every
+  // tick to the parent's ceiling. So it is read only when it exceeds the viewport, where it
+  // means something the body's box does not: content overflowing a frame that is too short.
+  // Otherwise the body's own box answers, and it does not grow when the frame does -- which
+  // is what makes the height the parent applies leave the next measurement unchanged.
   function postHeight() {
-    var height = Math.max(
-      document.body ? document.body.scrollHeight : 0,
-      document.documentElement ? document.documentElement.scrollHeight : 0
-    );
+    var body = document.body;
+    if (!body) return;
+    var root = document.documentElement;
+    var viewport = window.innerHeight || 0;
+    var overflowing = root && root.scrollHeight > viewport ? root.scrollHeight : 0;
+    var height = Math.ceil(Math.max(body.scrollHeight, body.offsetHeight, overflowing));
     parent.postMessage({ type: "pdcare:height", height: height }, "*");
   }
   window.addEventListener("load", postHeight);

@@ -15,6 +15,13 @@ import {
 
 const MAX_CONCURRENT_QUERIES = 3;
 const MIN_QUERY_INTERVAL_MS = 400;
+/**
+ * The frame's reported height is applied as-is between these bounds -- deliberately with no
+ * margin added. The frame re-measures every 500ms, so a margin would be measured back as
+ * content on the next tick and the two sides would ratchet upwards until this ceiling.
+ */
+const MIN_FRAME_HEIGHT = 160;
+const MAX_FRAME_HEIGHT = 2400;
 
 type Props = {
   html: string;
@@ -110,7 +117,7 @@ export function CopilotHtmlArtifact({
 
       const heightPayload = event.data as { type?: string; height?: number } | null;
       if (heightPayload && heightPayload.type === "pdcare:height" && typeof heightPayload.height === "number") {
-        const next = Math.min(Math.max(heightPayload.height + 8, 160), 2400);
+        const next = Math.min(Math.max(heightPayload.height, MIN_FRAME_HEIGHT), MAX_FRAME_HEIGHT);
         setHeight((current) => (Math.abs(current - next) > 4 ? next : current));
         return;
       }
