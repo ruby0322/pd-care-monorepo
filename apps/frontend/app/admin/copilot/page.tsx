@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { shouldSendOnEnter } from "@/app/admin/copilot/_components/composer-keys";
 import { getReadableApiError } from "@/lib/api/client";
 import {
   createCopilotSession,
@@ -96,6 +97,7 @@ export default function CopilotPage() {
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
   const autoRepairCountRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const isComposingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -627,8 +629,18 @@ export default function CopilotPage() {
                     setInput(event.target.value);
                     resizeComposer();
                   }}
+                  onCompositionStart={() => {
+                    isComposingRef.current = true;
+                  }}
+                  onCompositionEnd={() => {
+                    // Safari dispatches the candidate-picking Enter's keydown right after
+                    // compositionend, so the flag has to outlive this task to catch it.
+                    setTimeout(() => {
+                      isComposingRef.current = false;
+                    }, 0);
+                  }}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
+                    if (shouldSendOnEnter(event, isComposingRef.current)) {
                       event.preventDefault();
                       void handleSend(input);
                     }
