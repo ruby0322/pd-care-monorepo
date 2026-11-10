@@ -40,7 +40,7 @@ export function CopilotMessage({
   role?: "staff" | "admin";
   /** Recorded as the new module's provenance when the artifact came from this session. */
   sessionId?: number;
-  onRequestRepair?: (errors: ArtifactErrorMessage[]) => void;
+  onRequestRepair?: (errors: ArtifactErrorMessage[], html: string) => void;
   onAutoRepair?: (errors: ArtifactErrorMessage[]) => boolean;
 }) {
   // Overrides only: the default comes from whether the report actually uses the bridge.

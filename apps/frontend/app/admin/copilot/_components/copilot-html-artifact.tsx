@@ -3,18 +3,28 @@
 import { AlertTriangle, Code2, Download, Loader2, Maximize2, RefreshCw, Save, Wrench, X, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { getReadableApiError } from "@/lib/api/client";
 import { queryCopilotProxy } from "@/lib/api/copilot";
 
 import {
   buildArtifactDocument,
+  formatProxyRejection,
   isAllowedArtifactTool,
   parseArtifactError,
   parseArtifactQuery,
   type ArtifactErrorMessage,
+  type ArtifactTool,
 } from "./artifact-bridge";
 
 const MAX_CONCURRENT_QUERIES = 3;
 const MIN_QUERY_INTERVAL_MS = 400;
+/**
+ * How many queries may wait their turn. The interval and concurrency caps now *pace* a
+ * report rather than refuse it: a dashboard that asks for six things as it loads is normal,
+ * and refusing the second one 400ms after the first turned a load order into a failed
+ * report. This bound is what still stops a runaway loop from queueing without end.
+ */
+const MAX_QUEUED_QUERIES = 24;
 /**
  * The frame's reported height is applied as-is between these bounds -- deliberately with no
  * margin added. The frame re-measures every 500ms, so a margin would be measured back as
@@ -22,6 +32,9 @@ const MIN_QUERY_INTERVAL_MS = 400;
  */
 const MIN_FRAME_HEIGHT = 160;
 const MAX_FRAME_HEIGHT = 2400;
+
+/** One query from the frame, waiting for its turn at the proxy. */
+type QueuedQuery = { frame: Window; id: string; tool: ArtifactTool; params: Record<string, unknown> };
 
 type Props = {
   html: string;
@@ -33,8 +46,11 @@ type Props = {
    * control is then hidden rather than rendered as a button that does nothing.
    */
   onToggleLive?: (next: boolean) => void;
-  /** Lets the thread offer to send the failure back so the assistant can repair its own HTML. */
-  onRequestRepair?: (errors: ArtifactErrorMessage[]) => void;
+  /**
+   * Lets the thread offer to send the failure back so the assistant can repair its own HTML.
+   * Receives the report's source as well, so the prompt can quote the code at the fault.
+   */
+  onRequestRepair?: (errors: ArtifactErrorMessage[], html: string) => void;
   /**
    * Fires once per rendered report when its own JS throws, so the assistant can repair
    * without the reader having to notice and click. Returns false when the thread declines
@@ -84,6 +100,8 @@ export function CopilotHtmlArtifact({
   const autoRepairFiredRef = useRef(false);
   const inFlightRef = useRef(0);
   const lastQueryAtRef = useRef(0);
+  const queueRef = useRef<QueuedQuery[]>([]);
+  const pumpTimerRef = useRef<number | null>(null);
 
   const document_ = useMemo(() => (incomplete ? "" : buildArtifactDocument(html)), [html, incomplete]);
 
@@ -107,6 +125,72 @@ export function CopilotHtmlArtifact({
       node.scrollTop = node.scrollHeight;
     }
   }, [html, incomplete]);
+
+  /**
+   * Sends queued queries, one every `MIN_QUERY_INTERVAL_MS` and at most
+   * `MAX_CONCURRENT_QUERIES` at a time. Re-entered from the interval timer and from every
+   * settled query, so the queue keeps draining without the frame having to retry.
+   */
+  const drainQueue = useCallback(
+    // Named so it can re-enter itself from the timer and from each settled query.
+    function drain(): void {
+      while (queueRef.current.length > 0 && inFlightRef.current < MAX_CONCURRENT_QUERIES) {
+        const waitMs = MIN_QUERY_INTERVAL_MS - (Date.now() - lastQueryAtRef.current);
+        if (waitMs > 0) {
+          if (pumpTimerRef.current === null) {
+            pumpTimerRef.current = window.setTimeout(() => {
+              pumpTimerRef.current = null;
+              drain();
+            }, waitMs);
+          }
+          return;
+        }
+        const next = queueRef.current.shift();
+        if (next === undefined) {
+          return;
+        }
+        lastQueryAtRef.current = Date.now();
+        inFlightRef.current += 1;
+        void queryCopilotProxy(next.tool, next.params)
+          .then((result) => {
+            if (!result.ok) {
+              // The endpoint's own detail, not just its status: see formatProxyRejection.
+              reply(next.frame, next.id, { ok: false, error: formatProxyRejection(result.status, result.data) });
+              return;
+            }
+            reply(next.frame, next.id, { ok: true, data: result.data });
+          })
+          .catch((error: unknown) => {
+            // The proxy's *own* refusals (its 429 rate limit, an expired session) come back
+            // as a failed request rather than an `ok: false` body, so the backend's detail
+            // has to be dug out of the error -- otherwise the report, and the model asked to
+            // repair it, see nothing but "Request failed with status code 429".
+            reply(next.frame, next.id, { ok: false, error: getReadableApiError(error) });
+          })
+          .finally(() => {
+            inFlightRef.current = Math.max(0, inFlightRef.current - 1);
+            drain();
+          });
+      }
+    },
+    [reply],
+  );
+
+  useEffect(
+    () => () => {
+      if (pumpTimerRef.current !== null) {
+        window.clearTimeout(pumpTimerRef.current);
+        pumpTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
+  // A reloaded frame will ask again; answering its predecessor's queue would reply into a
+  // document that no longer exists, and spend the interval doing it.
+  useEffect(() => {
+    queueRef.current = [];
+  }, [reloadKey]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -149,38 +233,21 @@ export function CopilotHtmlArtifact({
         reply(target, query.id, { ok: false, error: `Tool "${query.tool}" is not allowed.` });
         return;
       }
-      if (inFlightRef.current >= MAX_CONCURRENT_QUERIES) {
-        reply(target, query.id, { ok: false, error: "同時查詢過多，請稍後再試。" });
-        return;
-      }
-      const now = Date.now();
-      if (now - lastQueryAtRef.current < MIN_QUERY_INTERVAL_MS) {
-        reply(target, query.id, { ok: false, error: "查詢過於頻繁，請稍後再試。" });
+      if (queueRef.current.length >= MAX_QUEUED_QUERIES) {
+        reply(target, query.id, {
+          ok: false,
+          error: `等待中的查詢已達上限（${MAX_QUEUED_QUERIES} 筆），請減少同時發出的查詢數量。`,
+        });
         return;
       }
 
-      lastQueryAtRef.current = now;
-      inFlightRef.current += 1;
-      void queryCopilotProxy(query.tool, query.params)
-        .then((result) => {
-          if (!result.ok) {
-            reply(target, query.id, { ok: false, error: `查詢被拒絕（HTTP ${result.status ?? "?"}）。` });
-            return;
-          }
-          reply(target, query.id, { ok: true, data: result.data });
-        })
-        .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : "查詢失敗";
-          reply(target, query.id, { ok: false, error: message });
-        })
-        .finally(() => {
-          inFlightRef.current = Math.max(0, inFlightRef.current - 1);
-        });
+      queueRef.current.push({ frame: target, id: query.id, tool: query.tool, params: query.params });
+      drainQueue();
     }
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [liveEnabled, reply]);
+  }, [drainQueue, liveEnabled, reply]);
 
   // Only script/promise faults are the report's own bug. A failed query means rate
   // limiting, missing permission or live data switched off -- regenerating the HTML cannot
@@ -365,7 +432,7 @@ export function CopilotHtmlArtifact({
             ) : onRequestRepair ? (
               <button
                 type="button"
-                onClick={() => onRequestRepair(runtimeErrors)}
+                onClick={() => onRequestRepair(runtimeErrors, html)}
                 className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-rose-600 px-2 py-1 text-xs text-white transition-colors hover:bg-rose-700"
               >
                 <Wrench className="h-3 w-3" strokeWidth={1.5} />

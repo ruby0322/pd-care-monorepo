@@ -364,9 +364,14 @@ export default function CopilotPage() {
    * Manual fallback: the reader asks for a repair explicitly, so the full error text goes
    * with it — a human has already read it on screen and chosen to send it.
    */
-  function handleRequestRepair(errors: ArtifactErrorMessage[]) {
+  /**
+   * Manual repair. Carries the full error text, the location in the report's own source and
+   * the code at that location -- everything the automatic path withholds, because a nurse
+   * read the error and chose to send it.
+   */
+  function handleRequestRepair(errors: ArtifactErrorMessage[], html: string) {
     autoRepairCountRef.current = 0;
-    void handleSend(buildManualRepairPrompt(errors));
+    void handleSend(buildManualRepairPrompt(errors, html));
   }
 
   /**

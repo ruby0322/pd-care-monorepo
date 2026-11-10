@@ -497,6 +497,49 @@ def test_proxy_runs_allowlisted_tool_as_caller(tmp_path: Path) -> None:
         assert response.json()["data"]["lookback_days"] == 14
 
 
+def test_proxy_treats_a_blank_filter_as_no_filter(tmp_path: Path) -> None:
+    """A report whose search box starts empty posts `query: ""` on its first load.
+
+    Forwarded, that is a value, and `/v1/staff/patients` declares `query` with
+    `min_length=1` — so the artifact got a 422 it could not interpret, every time.
+    """
+    copilot_proxy_rate_limiter.reset()
+    with build_client(tmp_path, "proxy-blank-filter") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+        response = client.post(
+            "/v1/copilot/proxy",
+            json={"tool": "list_patients", "params": {"query": "", "limit": 20}},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True, body
+        assert body["status"] == 200
+
+
+def test_proxy_passes_an_upstream_rejection_detail_back_to_the_artifact(tmp_path: Path) -> None:
+    """The artifact has to be told *which* field was refused, not just the status.
+
+    The model repairs its own report from what the frame reports, so a rejection collapsed
+    to "HTTP 422" is unfixable by construction: it has to guess which parameter to change.
+    """
+    copilot_proxy_rate_limiter.reset()
+    with build_client(tmp_path, "proxy-detail") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+        response = client.post(
+            "/v1/copilot/proxy",
+            json={"tool": "list_patients", "params": {"limit": 5000}},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is False
+        assert body["status"] == 422
+        assert "limit" in json.dumps(body["data"], ensure_ascii=False)
+
+
 def test_proxy_rejects_unknown_tool_and_bad_path_param(tmp_path: Path) -> None:
     copilot_proxy_rate_limiter.reset()
     with build_client(tmp_path, "proxy-reject") as client:

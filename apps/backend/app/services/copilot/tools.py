@@ -107,11 +107,22 @@ class CopilotTool:
         return self.path_template.format(**values)
 
     def build_query(self, arguments: dict[str, Any]) -> dict[str, str]:
+        """Turn supplied arguments into query parameters, dropping the ones that say nothing.
+
+        A blank string is dropped alongside `None`. It reads as "no filter", but forwarded it is
+        a *value*, and a route that constrains the parameter refuses it: `list_patients`
+        declares `query` with `min_length=1`, so `query=""` is a 422. A generated report
+        whose search box starts empty sends exactly that on its first load, and the model
+        cannot see which field was refused, so it guesses — the loop observed in dev was it
+        adding *more* parameters each turn, keeping the empty one that caused the 422.
+        """
         query: dict[str, str] = {}
         for name, schema in self.query_params.items():
             if name not in arguments or arguments[name] is None:
                 continue
             value = arguments[name]
+            if isinstance(value, str) and not value.strip():
+                continue
             if schema.get("type") == "boolean":
                 query[name] = "true" if value in (True, "true", "True", 1) else "false"
             else:

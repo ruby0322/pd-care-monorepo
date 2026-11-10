@@ -1,6 +1,8 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { AxiosError } from "axios";
+
 import { CopilotHtmlArtifact } from "@/app/admin/copilot/_components/copilot-html-artifact";
 
 jest.mock("@/lib/api/copilot", () => ({
@@ -96,6 +98,122 @@ describe("CopilotHtmlArtifact bridge", () => {
     const { onToggleLive } = renderArtifact(false);
     await userEvent.click(screen.getByRole("button", { name: /即時資料/ }));
     expect(onToggleLive).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("CopilotHtmlArtifact query pacing", () => {
+  beforeEach(() => {
+    queryCopilotProxy.mockReset();
+    queryCopilotProxy.mockResolvedValue({ tool: "list_patients", ok: true, status: 200, data: { items: [] } });
+  });
+
+  function query(id: string, tool = "list_patients") {
+    return { type: "pdcare:query", id, tool, params: {} };
+  }
+
+  /**
+   * A dashboard asks for several things as it loads. The interval cap used to *refuse* the
+   * ones that arrived too soon -- a report doing two queries on startup got
+   * 「查詢過於頻繁」 for the second one on its very first render, which is not a rate problem
+   * but a load order. The caps now pace the queue instead.
+   */
+  it("paces a burst instead of refusing it", async () => {
+    jest.useFakeTimers();
+    try {
+      const { iframe } = renderArtifact();
+
+      act(() => {
+        postFromFrame(iframe, query("q1"));
+        postFromFrame(iframe, query("q2"));
+        postFromFrame(iframe, query("q3"));
+      });
+
+      expect(queryCopilotProxy).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(400);
+      });
+      expect(queryCopilotProxy).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        jest.advanceTimersByTime(400);
+      });
+      expect(queryCopilotProxy).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("refuses only once the queue itself is runaway", () => {
+    const { iframe } = renderArtifact();
+    const replies: unknown[] = [];
+    const target = iframe.contentWindow;
+    if (target) {
+      jest.spyOn(target, "postMessage").mockImplementation((payload: unknown) => replies.push(payload));
+    }
+
+    act(() => {
+      for (let index = 0; index < 40; index += 1) {
+        postFromFrame(iframe, query(`q${index}`));
+      }
+    });
+
+    const refusals = replies.filter(
+      (item) => typeof item === "object" && item !== null && (item as { ok?: boolean }).ok === false,
+    );
+    expect(refusals.length).toBeGreaterThan(0);
+    expect(JSON.stringify(refusals[0])).toContain("等待中的查詢已達上限");
+  });
+
+  it("hands the frame the backend's words when the proxy itself refuses the request", async () => {
+    // The proxy's rate limit is an HTTP error on the POST, not an `ok: false` body.
+    const rejection = new AxiosError("Request failed with status code 429");
+    rejection.response = {
+      status: 429,
+      data: { detail: "Too many live-data refreshes; slow down and retry shortly" },
+    } as never;
+    queryCopilotProxy.mockRejectedValue(rejection);
+
+    const { iframe } = renderArtifact();
+    const replies: unknown[] = [];
+    const target = iframe.contentWindow;
+    if (target) {
+      jest.spyOn(target, "postMessage").mockImplementation((payload: unknown) => replies.push(payload));
+    }
+
+    act(() => postFromFrame(iframe, query("q1")));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(JSON.stringify(replies)).toContain("Too many live-data refreshes");
+  });
+
+  it("hands the frame the reason the proxy refused, not just the status", async () => {
+    queryCopilotProxy.mockResolvedValue({
+      tool: "list_patients",
+      ok: false,
+      status: 422,
+      data: {
+        error: true,
+        status: 422,
+        detail: { detail: [{ loc: ["query", "query"], msg: "String should have at least 1 character", input: "" }] },
+      },
+    });
+    const { iframe } = renderArtifact();
+    const replies: unknown[] = [];
+    const target = iframe.contentWindow;
+    if (target) {
+      jest.spyOn(target, "postMessage").mockImplementation((payload: unknown) => replies.push(payload));
+    }
+
+    act(() => postFromFrame(iframe, query("q1")));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(JSON.stringify(replies)).toContain("參數 query");
+    expect(JSON.stringify(replies)).toContain("HTTP 422");
   });
 });
 

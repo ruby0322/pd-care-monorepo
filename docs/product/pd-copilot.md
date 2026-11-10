@@ -197,7 +197,19 @@ Generated HTML is rendered client-side under four independent constraints:
    client-side mirror of the allowlist, then calls `/v1/copilot/proxy` with the user's token.
    **The token never enters the frame.**
 4. Live data is **opt-in per artifact** and rate-limited (per-artifact concurrency and
-   interval caps in the client, per-identity per-minute cap on the server).
+   interval caps in the client, per-identity per-minute cap on the server). The client caps
+   *pace* a report rather than refuse it: queries queue and go out one per interval, because
+   a dashboard that asks for several things as it loads is normal, and refusing the second
+   one turned a load order into a failed report. A bounded queue is what still stops a
+   runaway loop.
+
+**A refused query is reported in the endpoint's own words.** The proxy answers an upstream
+rejection with that endpoint's `detail` — for a `422`, the field it refused and the value it
+got — and the viewer passes it to the frame. Reporting the status alone made such a failure
+unfixable by construction: the report displays 「HTTP 422」, the model is asked to repair it,
+and with no field named it can only guess. Line numbers are translated the same way: a
+browser reports the line of the *wrapped* document, ~100 lines below the report's own source,
+so `toReportLine` converts it before any repair prompt quotes it.
 
 **Nothing runs until the block is finished.** A report arrives token by token, and a frame fed
 every token would reload a few times a second — unreadable, and not inert either: the browser

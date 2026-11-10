@@ -9,6 +9,8 @@ import {
   parseArtifactError,
   parseArtifactQuery,
   parseAssistantContent,
+  formatProxyRejection,
+  toReportLine,
   type ArtifactErrorMessage,
 } from "@/app/admin/copilot/_components/artifact-bridge";
 
@@ -189,6 +191,18 @@ describe("parseAssistantContent", () => {
 });
 
 describe("repair prompts", () => {
+  /**
+   * A browser reports the line of the *wrapped document*, which carries ~100 lines of
+   * injected head before the report's first line, so a fixture that uses a bare number is
+   * testing a location the model could never act on. Derived from the builder so that
+   * editing the head moves the fixtures with it.
+   */
+  function documentLineFor(reportLine: number): number {
+    const marker = "__fixture_marker__";
+    const lines = buildArtifactDocument(marker).split("\n");
+    return lines.findIndex((line) => line.includes(marker)) + reportLine;
+  }
+
   // The iframe runs with fully identified data, and the system prompt encourages reports
   // that throw explanatory errors -- so this is the shape of error a real report produces.
   const identifying: ArtifactErrorMessage = {
@@ -196,7 +210,7 @@ describe("repair prompts", () => {
     kind: "script",
     message: "找不到 王小明 的資料 (line 12:5)",
     detail: "Error: 找不到 王小明 的資料\n    at render (about:srcdoc:12:5)",
-    line: 12,
+    line: documentLineFor(12),
     column: 5,
   };
 
@@ -206,7 +220,7 @@ describe("repair prompts", () => {
     expect(prompt).not.toContain(identifying.message);
     expect(prompt).not.toContain(identifying.detail);
     expect(prompt).toContain("script");
-    expect(prompt).toContain("第 12 行第 5 欄");
+    expect(prompt).toContain("你的 HTML 第 12 行第 5 欄");
   });
 
   it("keeps the full error text on the manual path", () => {
@@ -215,14 +229,107 @@ describe("repair prompts", () => {
     expect(prompt).toContain(identifying.detail);
   });
 
-  it("describes a missing location without inventing one", () => {
+  it("quotes the report's own code at the fault when it has the source", () => {
+    const html = ["<div id=\"root\"></div>", "<script>", "const rows = [];", "render(rows);", "</script>"].join("\n");
+    const prompt = buildManualRepairPrompt(
+      [{ ...identifying, line: documentLineFor(4), column: 1, message: "render is not defined" }],
+      html,
+    );
+
+    expect(prompt).toContain("你的 HTML 第 4 行");
+    expect(prompt).toContain("4| render(rows);   <-- 錯誤發生在這一行");
+    // Context around it, so the model can see what it was writing.
+    expect(prompt).toContain("3| const rows = [];");
+  });
+
+  it("tells the model what a rejected query means, so it does not guess", () => {
+    const prompt = buildManualRepairPrompt([
+      { ...identifying, kind: "query", message: '查詢被拒絕（HTTP 422）：參數 query：String should have at least 1 character（收到 ""）' },
+    ]);
+
+    expect(prompt).toContain("422");
+    expect(prompt).toContain("空字串請直接不要傳");
+  });
+
+  it("reports a location in its own injected code as not being the report's", () => {
     expect(describeErrorLocation({ ...identifying, line: null, column: null })).toBe("位置不明");
-    expect(describeErrorLocation({ ...identifying, column: null })).toBe("第 12 行");
+    expect(describeErrorLocation({ ...identifying, column: null })).toBe("你的 HTML 第 12 行");
+    // A line inside the wrapper's head belongs to the bridge, not to anything the model wrote.
+    expect(describeErrorLocation({ ...identifying, line: 12, column: null })).toBe(
+      "位置在系統注入的程式碼，不在你的 HTML 內",
+    );
+  });
+
+  it("translates a document line into the report's own line", () => {
+    expect(toReportLine(documentLineFor(1))).toBe(1);
+    expect(toReportLine(documentLineFor(40))).toBe(40);
+    expect(toReportLine(12)).toBeNull();
+    expect(toReportLine(null)).toBeNull();
   });
 
   it("caps how many faults it forwards automatically", () => {
     const many = Array.from({ length: 9 }, (_item, index) => ({ ...identifying, line: index + 1 }));
     const prompt = buildAutoRepairPrompt(many);
     expect(prompt.split("- [script]").length - 1).toBe(5);
+  });
+});
+
+/**
+ * The upstream endpoint's own words. The viewer used to collapse a rejection to its status,
+ * which left the model repairing a report from 「HTTP 422」 alone: in dev it responded by
+ * sending *more* parameters each turn, keeping the empty one that caused the 422.
+ */
+describe("formatProxyRejection", () => {
+  it("names the refused field and the value that refused it", () => {
+    const message = formatProxyRejection(422, {
+      error: true,
+      status: 422,
+      detail: {
+        detail: [
+          {
+            type: "string_too_short",
+            loc: ["query", "query"],
+            msg: "String should have at least 1 character",
+            input: "",
+          },
+        ],
+      },
+    });
+
+    expect(message).toContain("HTTP 422");
+    expect(message).toContain("參數 query");
+    expect(message).toContain("String should have at least 1 character");
+    expect(message).toContain('收到 ""');
+  });
+
+  // `loc[0]` is the wrapper and the rest is the field -- and here they are the same word.
+  it("keeps a field whose name matches its own wrapper", () => {
+    expect(formatProxyRejection(422, { detail: { detail: [{ loc: ["query", "query"], msg: "bad" }] } })).toContain(
+      "參數 query",
+    );
+    expect(formatProxyRejection(422, { detail: { detail: [{ loc: ["query", "limit"], msg: "bad" }] } })).toContain(
+      "參數 limit",
+    );
+  });
+
+  it("lists several refused fields, bounded", () => {
+    const items = Array.from({ length: 6 }, (_item, index) => ({
+      loc: ["query", `field${index}`],
+      msg: "nope",
+    }));
+    const message = formatProxyRejection(422, { detail: { detail: items } });
+
+    expect(message).toContain("參數 field0");
+    expect(message).toContain("參數 field2");
+    expect(message).not.toContain("參數 field3");
+  });
+
+  it("passes a plain string detail through", () => {
+    expect(formatProxyRejection(403, { detail: "此病患未分配給你" })).toContain("此病患未分配給你");
+  });
+
+  it("still says something useful when there is no detail at all", () => {
+    expect(formatProxyRejection(500, null)).toBe("查詢被拒絕（HTTP 500）。");
+    expect(formatProxyRejection(null, {})).toBe("查詢被拒絕（HTTP ?）。");
   });
 });

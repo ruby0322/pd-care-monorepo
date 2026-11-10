@@ -305,9 +305,11 @@ describe("CopilotMessage", () => {
     expect(await screen.findByText(/執行時發生錯誤/)).toBeInTheDocument();
     expect(screen.getByText("x is not defined (line 3:1)")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /請 Copilot 修正/ }));
-    expect(onRequestRepair).toHaveBeenCalledWith([
-      expect.objectContaining({ kind: "script", message: "x is not defined (line 3:1)" }),
-    ]);
+    expect(onRequestRepair).toHaveBeenCalledWith(
+      [expect.objectContaining({ kind: "script", message: "x is not defined (line 3:1)" })],
+      // The report's own source goes with it, so the prompt can quote the code at the fault.
+      expect.stringContaining("<p>c</p>"),
+    );
   });
 });
 

@@ -177,6 +177,103 @@ ${html}
 }
 
 /**
+ * How far the report's own source sits below the top of the document it runs in.
+ *
+ * `buildArtifactDocument` prepends a head — CSP, styles, the whole bridge script — so the
+ * line a browser reports for a fault is ~100 lines below the line the model actually wrote.
+ * Every repair prompt quoted the document's number at a report whose source was dozens of
+ * lines shorter, which pointed the model at nothing at all. Derived from the builder rather
+ * than hard-coded, so editing the head cannot silently put it back.
+ */
+const REPORT_LINE_OFFSET = (() => {
+  const marker = "__pdcare_report_source_marker__";
+  return buildArtifactDocument(marker)
+    .split("\n")
+    .findIndex((line) => line.includes(marker));
+})();
+
+/**
+ * A document line number as a line of the report's own source.
+ *
+ * Null when the fault did not land in the report at all: a line inside the injected head is
+ * the bridge's own code, and telling the model to look at its line 0 (or -40) is worse than
+ * telling it the location is unknown.
+ */
+export function toReportLine(documentLine: number | null): number | null {
+  if (documentLine === null) {
+    return null;
+  }
+  const line = documentLine - REPORT_LINE_OFFSET;
+  return line >= 1 ? line : null;
+}
+
+type ValidationItem = { loc?: unknown; msg?: unknown; input?: unknown };
+
+/**
+ * The field a FastAPI validation item is about.
+ *
+ * `loc[0]` names where the value came from (`query`, `body`, …) and the rest is the path to
+ * the field, so the head is dropped positionally rather than by name: the parameter that
+ * caused this whole investigation is itself called `query`, and filtering by name erased it
+ * along with its own wrapper.
+ */
+function validationField(item: ValidationItem): string | null {
+  if (!Array.isArray(item.loc) || item.loc.length === 0) {
+    return null;
+  }
+  const parts = (item.loc.length > 1 ? item.loc.slice(1) : item.loc).filter(
+    (part): part is string | number => typeof part === "string" || typeof part === "number",
+  );
+  return parts.length > 0 ? parts.join(".") : null;
+}
+
+function describeValidation(items: ValidationItem[]): string {
+  return items
+    .slice(0, 3)
+    .map((item) => {
+      const field = validationField(item);
+      const message = typeof item.msg === "string" ? item.msg : "參數不被接受";
+      const got = "input" in item ? `（收到 ${JSON.stringify(item.input)}）` : "";
+      return field ? `參數 ${field}：${message}${got}` : `${message}${got}`;
+    })
+    .join("；");
+}
+
+function describeDetail(data: unknown): string {
+  if (typeof data === "string") {
+    return data.slice(0, 400);
+  }
+  if (typeof data !== "object" || data === null) {
+    return "";
+  }
+  const detail = (data as { detail?: unknown }).detail;
+  if (detail === undefined) {
+    return "";
+  }
+  if (Array.isArray(detail)) {
+    return describeValidation(detail as ValidationItem[]).slice(0, 400);
+  }
+  // FastAPI's own error body is `{"detail": ...}`, which the proxy nests under `detail`.
+  return describeDetail(detail) || JSON.stringify(detail).slice(0, 400);
+}
+
+/**
+ * What the frame is told when the proxy refuses a query.
+ *
+ * The proxy answers an upstream rejection with that endpoint's own `detail` — for a 422,
+ * the field it refused and the value it got. Passing on the status alone made the failure
+ * unfixable by construction: the report displays "HTTP 422", the model is asked to repair
+ * it, and with no field named it can only guess. In dev it guessed by sending *more*
+ * parameters each turn, keeping the empty one that caused the 422, and said so outright:
+ * 「僅憑 HTTP 422，無法確認是哪個欄位被拒絕」.
+ */
+export function formatProxyRejection(status: number | null, data: unknown): string {
+  const base = `查詢被拒絕（HTTP ${status ?? "?"}）`;
+  const detail = describeDetail(data);
+  return detail ? `${base}：${detail}` : `${base}。`;
+}
+
+/**
  * True when the markup calls the live-data bridge. Such a report is inert without it, so
  * the thread enables live data for it by default rather than rendering a dead dashboard.
  */
@@ -245,10 +342,13 @@ export function parseArtifactError(data: unknown): ArtifactErrorMessage | null {
  * allowed to tell the model about it.
  */
 export function describeErrorLocation(error: ArtifactErrorMessage): string {
-  if (error.line === null) {
-    return "位置不明";
+  const line = toReportLine(error.line);
+  if (line === null) {
+    return error.line === null ? "位置不明" : "位置在系統注入的程式碼，不在你的 HTML 內";
   }
-  return error.column === null ? `第 ${error.line} 行` : `第 ${error.line} 行第 ${error.column} 欄`;
+  return error.column === null
+    ? `你的 HTML 第 ${line} 行`
+    : `你的 HTML 第 ${line} 行第 ${error.column} 欄`;
 }
 
 /**
@@ -275,22 +375,66 @@ export function buildAutoRepairPrompt(errors: ArtifactErrorMessage[]): string {
   ].join("\n");
 }
 
+const EXCERPT_RADIUS = 4;
+const MAX_EXCERPT_LINE_LENGTH = 200;
+
+/** The report's own source around one line, numbered the way the model can act on. */
+function sourceExcerpt(html: string, line: number): string[] {
+  const lines = html.split("\n");
+  if (line > lines.length) {
+    return [];
+  }
+  const from = Math.max(1, line - EXCERPT_RADIUS);
+  const to = Math.min(lines.length, line + EXCERPT_RADIUS);
+  const width = String(to).length;
+  const excerpt: string[] = [];
+  for (let number = from; number <= to; number += 1) {
+    const text = lines[number - 1].slice(0, MAX_EXCERPT_LINE_LENGTH);
+    const marker = number === line ? "   <-- 錯誤發生在這一行" : "";
+    excerpt.push(`${String(number).padStart(width, " ")}| ${text}${marker}`);
+  }
+  return excerpt;
+}
+
 /**
- * The manual repair request: the full error text, including `detail`.
+ * The manual repair request: every fault in full, where it is in the report's own source,
+ * and the code that sits there.
  *
  * Safe to include because this only runs from the 「請 Copilot 修正」 button — a nurse has
- * read the error on screen and chosen to send it.
+ * read the error on screen and chosen to send it. Which is also why it is the place to be
+ * generous: the automatic path is deliberately starved (type and location only, since the
+ * frame holds identified data), so this button is the one route by which the model learns
+ * what actually went wrong. It used to carry little more than the automatic path did — one
+ * `detail` block for the whole batch, no locations, no source — and a model given
+ * 「HTTP 422」 with no field name, or a line number from the wrapped document, cannot do
+ * anything but guess.
  */
-export function buildManualRepairPrompt(errors: ArtifactErrorMessage[]): string {
-  const lines = errors.slice(0, 5).map((item) => `- [${item.kind}] ${item.message}`);
-  const detailBlock = errors.find((item) => item.detail)?.detail;
+export function buildManualRepairPrompt(errors: ArtifactErrorMessage[], html?: string): string {
+  const blocks = errors.slice(0, 5).map((item, index) => {
+    const lines = [`### ${index + 1}. [${item.kind}] ${describeErrorLocation(item)}`, "", item.message];
+    if (item.detail) {
+      lines.push("", "```", item.detail.slice(0, 1200), "```");
+    }
+    const reportLine = toReportLine(item.line);
+    const excerpt = html !== undefined && reportLine !== null ? sourceExcerpt(html, reportLine) : [];
+    if (excerpt.length > 0) {
+      lines.push("", "出錯位置附近、你上一版輸出的程式碼：", "```", ...excerpt, "```");
+    }
+    return lines.join("\n");
+  });
+
   return [
-    "上一份報表在瀏覽器執行時發生錯誤：",
+    "上一份報表在瀏覽器執行時發生錯誤。以下是完整的錯誤訊息、在你 HTML 中的位置，",
+    "以及該位置附近你自己寫的程式碼：",
     "",
-    ...lines,
-    ...(detailBlock ? ["", "```", detailBlock.slice(0, 800), "```"] : []),
+    blocks.join("\n\n"),
     "",
-    "請修正根因並重新輸出完整的 ```html 區塊，保留原本的分析結論與數據。",
+    "請依照這些訊息修正根因，不要只用 try/catch 把錯誤藏起來，",
+    "並重新輸出完整的 ```html 區塊，保留原本的分析結論與數據。",
+    "",
+    "若錯誤來自 window.pdcare.query：HTTP 422 是查詢參數驗證失敗——上面會指出被拒絕的欄位，",
+    "照它修正那一個欄位（空字串請直接不要傳），不要改成多傳其他參數；403 是權限邊界；",
+    "429 是查詢過於頻繁，請降低查詢次數或改用聚合工具。",
   ].join("\n");
 }
 
