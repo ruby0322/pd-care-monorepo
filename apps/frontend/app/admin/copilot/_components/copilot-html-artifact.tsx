@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Code2, Download, Maximize2, RefreshCw, Save, Wrench, X, Zap } from "lucide-react";
+import { AlertTriangle, Code2, Download, Loader2, Maximize2, RefreshCw, Save, Wrench, X, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { queryCopilotProxy } from "@/lib/api/copilot";
@@ -41,6 +41,13 @@ type Props = {
    * itself; the thread that owns the save dialog and the API call supplies it instead.
    */
   onSaveAsModule?: (html: string) => void;
+  /**
+   * True while the assistant is still writing this block. The report is not rendered at all
+   * until it is complete: an unterminated `<script>` runs anyway at end of document, so a
+   * frame fed every streamed token re-executes a truncated report and reloads under the
+   * reader's cursor. The source is shown instead, so the write is still visible.
+   */
+  isGenerating?: boolean;
 };
 
 export function CopilotHtmlArtifact({
@@ -50,8 +57,10 @@ export function CopilotHtmlArtifact({
   onRequestRepair,
   onAutoRepair,
   onSaveAsModule,
+  isGenerating = false,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const draftRef = useRef<HTMLPreElement | null>(null);
   const [height, setHeight] = useState(320);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSource, setShowSource] = useState(false);
@@ -64,7 +73,7 @@ export function CopilotHtmlArtifact({
   const inFlightRef = useRef(0);
   const lastQueryAtRef = useRef(0);
 
-  const document_ = useMemo(() => buildArtifactDocument(html), [html]);
+  const document_ = useMemo(() => (isGenerating ? "" : buildArtifactDocument(html)), [html, isGenerating]);
 
   const reply = useCallback(
     (frame: Window, id: string, payload: { ok: boolean; data?: unknown; error?: string }) => {
@@ -75,6 +84,17 @@ export function CopilotHtmlArtifact({
     },
     [],
   );
+
+  // Keeps the newest line of a report being written in view, the way a reader follows it.
+  useEffect(() => {
+    if (!isGenerating) {
+      return;
+    }
+    const node = draftRef.current;
+    if (node) {
+      node.scrollTop = node.scrollHeight;
+    }
+  }, [html, isGenerating]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -201,75 +221,84 @@ export function CopilotHtmlArtifact({
   return (
     <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-white">
       <div className="flex items-center justify-between gap-2 border-b border-zinc-100 bg-zinc-50 px-3 py-2">
-        <span className="text-xs font-medium text-zinc-500">報表</span>
-        <div className="flex items-center gap-1">
-          {onToggleLive ? (
+        {isGenerating ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.5} />
+            報表編輯中
+          </span>
+        ) : (
+          <span className="text-xs font-medium text-zinc-500">報表</span>
+        )}
+        {isGenerating ? null : (
+          <div className="flex items-center gap-1">
+            {onToggleLive ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!liveEnabled) {
+                    setBlockedWhileOff(false);
+                    setRuntimeErrors([]);
+                    setReloadKey((key) => key + 1);
+                  }
+                  onToggleLive(!liveEnabled);
+                }}
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
+                  liveEnabled ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                }`}
+                title="允許此報表即時向後端查詢資料"
+              >
+                <Zap className="h-3.5 w-3.5" strokeWidth={1.5} />
+                即時資料
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => {
-                if (!liveEnabled) {
-                  setBlockedWhileOff(false);
-                  setRuntimeErrors([]);
-                  setReloadKey((key) => key + 1);
-                }
-                onToggleLive(!liveEnabled);
+                setRuntimeErrors([]);
+                setLastError(null);
+                setReloadKey((key) => key + 1);
               }}
-              className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-colors ${
-                liveEnabled ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
-              }`}
-              title="允許此報表即時向後端查詢資料"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+              aria-label="重新整理報表"
             >
-              <Zap className="h-3.5 w-3.5" strokeWidth={1.5} />
-              即時資料
+              <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              setRuntimeErrors([]);
-              setLastError(null);
-              setReloadKey((key) => key + 1);
-            }}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-            aria-label="重新整理報表"
-          >
-            <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowSource((value) => !value)}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-            aria-label="檢視 HTML 原始碼"
-          >
-            <Code2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-          </button>
-          <button
-            type="button"
-            onClick={downloadHtml}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-            aria-label="下載 HTML"
-          >
-            <Download className="h-3.5 w-3.5" strokeWidth={1.5} />
-          </button>
-          {onSaveAsModule ? (
             <button
               type="button"
-              onClick={() => onSaveAsModule(html)}
+              onClick={() => setShowSource((value) => !value)}
               className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-              aria-label="儲存為模組"
+              aria-label="檢視 HTML 原始碼"
             >
-              <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
+              <Code2 className="h-3.5 w-3.5" strokeWidth={1.5} />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => setIsFullscreen(true)}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-            aria-label="全螢幕檢視"
-          >
-            <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={downloadHtml}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+              aria-label="下載 HTML"
+            >
+              <Download className="h-3.5 w-3.5" strokeWidth={1.5} />
+            </button>
+            {onSaveAsModule ? (
+              <button
+                type="button"
+                onClick={() => onSaveAsModule(html)}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+                aria-label="儲存為模組"
+              >
+                <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(true)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+              aria-label="全螢幕檢視"
+            >
+              <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+            </button>
+          </div>
+        )}
       </div>
 
       {lastError ? (
@@ -330,7 +359,20 @@ export function CopilotHtmlArtifact({
         </div>
       ) : null}
 
-      {showSource ? (
+      {isGenerating ? (
+        <>
+          <pre
+            ref={draftRef}
+            aria-label="報表產生中的原始碼"
+            className="max-h-72 overflow-auto bg-zinc-900 px-3 py-3 text-xs leading-relaxed text-zinc-100"
+          >
+            <code>{html}</code>
+          </pre>
+          <p className="border-t border-zinc-100 bg-zinc-50 px-3 py-2 text-[11px] leading-4 text-zinc-500">
+            Copilot 正在撰寫這份報表，目前只能預覽內容；完成後會自動顯示並可以操作。
+          </p>
+        </>
+      ) : showSource ? (
         <pre className="max-h-80 overflow-auto bg-zinc-900 px-3 py-3 text-xs leading-relaxed text-zinc-100">
           <code>{html}</code>
         </pre>

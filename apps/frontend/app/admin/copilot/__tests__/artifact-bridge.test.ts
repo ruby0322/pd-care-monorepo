@@ -152,7 +152,7 @@ describe("parseAssistantContent", () => {
     expect(hasHtml).toBe(true);
     expect(segments).toEqual([
       { kind: "text", value: "結論如下。" },
-      { kind: "html", value: "<div>chart</div>" },
+      { kind: "html", value: "<div>chart</div>", closed: true },
       { kind: "text", value: "以上。" },
     ]);
   });
@@ -160,7 +160,20 @@ describe("parseAssistantContent", () => {
   it("handles an artifact that is still streaming without a closing fence", () => {
     const { segments, hasHtml } = parseAssistantContent("前言\n\n```html\n<div>partial");
     expect(hasHtml).toBe(true);
-    expect(segments[1]).toEqual({ kind: "html", value: "<div>partial" });
+    expect(segments[1]).toEqual({ kind: "html", value: "<div>partial", closed: false });
+  });
+
+  // `closed` is what the viewer waits for before it renders anything, so a block that the
+  // model has finished must not stay marked open just because prose is still arriving.
+  it("marks a finished block closed even when prose is still streaming after it", () => {
+    const { segments } = parseAssistantContent("```html\n<div>chart</div>\n```\n\n結論：這份報表");
+    expect(segments[0]).toEqual({ kind: "html", value: "<div>chart</div>", closed: true });
+    expect(segments[1]).toEqual({ kind: "text", value: "結論：這份報表" });
+  });
+
+  it("marks a block open while its script is only half written", () => {
+    const { segments } = parseAssistantContent("```html\n<div id=\"a\"></div>\n<script>\nconst x = await pdcare");
+    expect(segments[0]).toMatchObject({ kind: "html", closed: false });
   });
 
   it("returns plain prose untouched", () => {

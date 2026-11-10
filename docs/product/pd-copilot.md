@@ -199,6 +199,15 @@ Generated HTML is rendered client-side under four independent constraints:
 4. Live data is **opt-in per artifact** and rate-limited (per-artifact concurrency and
    interval caps in the client, per-identity per-minute cap on the server).
 
+**Nothing runs until the block is finished.** A report arrives token by token, and a frame fed
+every token would reload a few times a second — unreadable, and not inert either: the browser
+executes an unterminated `<script>` at end of document, so each reload runs a truncated copy of
+the report, which throws on its own half-written code. While the ```html fence is still open the
+viewer therefore renders no frame at all. It shows 「報表編輯中」 and the source as it is written,
+with no controls, and mounts the sandbox once the fence closes. `parseAssistantContent` reports
+that state as `closed` per block, so a finished report still appears while the model writes the
+prose after it.
+
 Bridge: [`artifact-bridge.ts`](../../apps/frontend/app/admin/copilot/_components/artifact-bridge.ts) ·
 renderer: [`copilot-html-artifact.tsx`](../../apps/frontend/app/admin/copilot/_components/copilot-html-artifact.tsx).
 

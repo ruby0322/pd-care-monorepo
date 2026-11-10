@@ -101,6 +101,7 @@ export function CopilotMessage({
               onRequestRepair={onRequestRepair}
               onAutoRepair={message.isStreaming ? undefined : onAutoRepair}
               onSaveAsModule={setSaveHtml}
+              isGenerating={Boolean(message.isStreaming) && !segment.closed}
             />
           ),
         )}
