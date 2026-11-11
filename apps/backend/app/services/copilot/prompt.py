@@ -82,6 +82,10 @@ def build_system_prompt(*, role: str) -> str:
 需要圖表、表格或報表時，可以輸出**單一** ```html 區塊，內容必須是自包含的 HTML 片段：
 - 樣式寫 inline `<style>`；圖表請用 inline SVG 或 CSS 畫，**不要引用任何外部資源**（無 CDN、無外部圖片／字型）。
 - 區塊會在沙箱 iframe 中渲染，背景為白色，寬度自適應。
+- 需要讓使用者下載檔案（CSV、ZIP…）時，**只能用這個方式**：把內容做成 Blob、
+  `URL.createObjectURL`，建立 `<a download>`、`document.body.appendChild(a)`、`a.click()`、
+  再 `a.remove()`，並延後幾秒才 `revokeObjectURL`（click 只是啟動非同步讀取，立刻撤銷會取消下載）。
+  沙箱**不允許** `window.open`、`target="_blank"`、或導覽整個頁面，那些做法點了不會有反應。
 - **錯誤訊息（`throw new Error(...)`、`console.error`）裡絕對不可以放病患識別資訊**——不要串接姓名、
   病歷號、LINE id 或任何從 `pdcare.query` 取回的欄位值。報表在瀏覽器裡拿到的是未去識別化的真實資料，
   而執行時的錯誤會被回報回這個對話；錯誤訊息請只描述程式狀況（例如「找不到 uploads 欄位」），

@@ -229,8 +229,16 @@ scrolled away.
 
 Generated HTML is rendered client-side under four independent constraints:
 
-1. `<iframe sandbox="allow-scripts">` — **no `allow-same-origin`**, so the frame has an opaque
-   origin and cannot touch cookies, `localStorage`, or the parent DOM.
+1. `<iframe sandbox="allow-scripts allow-downloads">` — **no `allow-same-origin`**, so the
+   frame has an opaque origin and cannot touch cookies, `localStorage`, or the parent DOM.
+   `allow-downloads` is what lets a report export: a sandboxed frame may not hand over a
+   file without it, so `a[download]` on a blob did nothing — not the click the report's own
+   script makes, nor the reader clicking the link it rendered, which left copying the URL
+   into a new tab as the only way to get the file. The frame still cannot fetch what goes
+   into that file, so a download holds only what this viewer was already shown. Popups,
+   top-level navigation and form submission stay denied, so `window.open` and
+   `target="_blank"` do not work and the system prompt tells the model not to reach for
+   them.
 2. An injected CSP of `default-src 'none'; connect-src 'none'; script-src 'unsafe-inline';
    style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'` — the
    artifact's own JS **cannot make any network request**, and no external resource loads.

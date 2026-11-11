@@ -301,7 +301,8 @@ describe("ModulesPage", () => {
     // The spec's requirement is "no divergent rendering path", so this pins the posture
     // itself, not merely that the shared component was used: opaque origin, and the same
     // document -- injected CSP included -- that the chat path builds.
-    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
+    const sandbox = (iframe.getAttribute("sandbox") ?? "").split(" ").filter(Boolean);
+    expect(sandbox.sort()).toEqual(["allow-downloads", "allow-scripts"]);
     expect(iframe.srcdoc).toBe(buildArtifactDocument(html));
     expect(iframe.srcdoc).toContain("default-src 'none'");
     expect(iframe.srcdoc).toContain("connect-src 'none'");

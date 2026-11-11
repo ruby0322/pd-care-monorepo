@@ -300,7 +300,16 @@ export function CopilotHtmlArtifact({
       // No allow-same-origin: the frame gets an opaque origin, so it cannot touch
       // localStorage, cookies, or the parent DOM. Combined with connect-src 'none' in
       // the injected CSP, the postMessage bridge is its only path to data.
-      sandbox="allow-scripts"
+      //
+      // allow-downloads is what lets a report export: without it a sandboxed frame's
+      // download is refused outright, so `a[download]` on a blob did nothing at all --
+      // neither the click the report's own script makes nor the reader clicking the link
+      // it rendered, which is why copying the URL into a new tab was the only way to get
+      // the file. It grants exactly that: the frame may hand the reader a file. It cannot
+      // reach the network for its contents (connect-src 'none'), so a download can only
+      // contain what this viewer was already shown, saved to their own disk. Popups and
+      // top-level navigation stay denied.
+      sandbox="allow-scripts allow-downloads"
       srcDoc={document_}
       title="PD Copilot 報表"
       className="w-full border-0 bg-white"

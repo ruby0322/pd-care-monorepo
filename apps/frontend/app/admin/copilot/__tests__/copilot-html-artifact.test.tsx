@@ -30,10 +30,21 @@ function postFromFrame(iframe: HTMLIFrameElement, data: unknown) {
 }
 
 describe("CopilotHtmlArtifact sandbox", () => {
-  it("renders the frame without same-origin access", () => {
+  /**
+   * `allow-downloads` is the one capability a report needs beyond running its own script:
+   * exports are built in the frame as a blob and handed over through `a[download]`, which a
+   * sandboxed frame may not do without it. Everything that would give the frame reach --
+   * an origin, a popup, the top frame, form submission -- stays denied, which is what this
+   * test is really for.
+   */
+  it("lets a report hand over a file, and nothing more", () => {
     const { iframe } = renderArtifact();
-    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
-    expect(iframe.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    const sandbox = (iframe.getAttribute("sandbox") ?? "").split(" ").filter(Boolean);
+    expect(sandbox).toEqual(expect.arrayContaining(["allow-scripts", "allow-downloads"]));
+    expect(sandbox).not.toContain("allow-same-origin");
+    expect(sandbox).not.toContain("allow-popups");
+    expect(sandbox).not.toContain("allow-top-navigation");
+    expect(sandbox).not.toContain("allow-forms");
     expect(iframe.getAttribute("srcDoc") ?? iframe.srcdoc).toContain("connect-src 'none'");
   });
 

@@ -52,7 +52,8 @@ describe("CopilotMessage", () => {
     );
     expect(screen.getByText("結論在圖中。")).toBeInTheDocument();
     const iframe = container.querySelector("iframe");
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(iframe?.getAttribute("sandbox")).toContain("allow-scripts");
+    expect(iframe?.getAttribute("sandbox")).not.toContain("allow-same-origin");
   });
 
   it("shows query steps with a permission-denied label", async () => {
