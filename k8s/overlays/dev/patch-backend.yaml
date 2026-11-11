@@ -4,6 +4,9 @@ metadata:
   name: backend
 spec:
   replicas: 1
+  # A cold backend pull is ~1.2 GB over a slow link; the 600s default marks
+  # the rollout failed (and ArgoCD Degraded) while the pull is still healthy.
+  progressDeadlineSeconds: 3600
   template:
     spec:
       containers:

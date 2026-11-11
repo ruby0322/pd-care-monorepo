@@ -122,6 +122,10 @@ jobs:
           secrets: |
             hf_token=${{ secrets.HF_TOKEN }}
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.BACKEND_IMAGE }}:${{ env.BACKEND_TAG }}
+          # Single-stage image, so mode=min already covers every layer we need
+          # and keeps the cache far under the 10 GB per-repo limit.
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=min,scope=backend
 
       - name: Build and push dev frontend image
         if: steps.paths.outputs.frontend_changed == 'true'
@@ -134,6 +138,9 @@ jobs:
             NEXT_PUBLIC_LIFF_ID=${{ vars.PDCARE_DEV_LIFF_ID }}
             NEXT_PUBLIC_SITE_URL=https://test.pd.lu.im.ntu.edu.tw
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE }}:${{ env.DEV_FRONTEND_TAG }}
+          # Multi-stage build: mode=max also caches the deps and builder stages.
+          cache-from: type=gha,scope=frontend-dev
+          cache-to: type=gha,mode=max,scope=frontend-dev
 
       - name: Build and push prod frontend image
         if: steps.paths.outputs.frontend_changed == 'true'
@@ -146,6 +153,10 @@ jobs:
             NEXT_PUBLIC_LIFF_ID=${{ vars.PDCARE_PROD_LIFF_ID }}
             NEXT_PUBLIC_SITE_URL=https://pd.lu.im.ntu.edu.tw
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.FRONTEND_IMAGE }}:${{ env.PROD_FRONTEND_TAG }}
+          # Separate scope from the dev build: the NEXT_PUBLIC_* build-args
+          # differ, so the two share no final layers.
+          cache-from: type=gha,scope=frontend-prod
+          cache-to: type=gha,mode=max,scope=frontend-prod
 
       - name: Update dev overlay image tags
         if: steps.paths.outputs.should_run == 'true'
