@@ -1412,6 +1412,58 @@ def test_staff_history_overview_endpoints_return_expected_shape(tmp_path: Path) 
         assert isinstance(day_0529_calendar["unhandled_patient_count"], int)
 
 
+def test_staff_history_overview_names_the_annotator_so_one_query_spans_patients(
+    tmp_path: Path,
+) -> None:
+    """A cross-patient report needs the annotator from the day view, not per patient.
+
+    Without it, "uploads plus annotations plus who annotated them" could only be assembled
+    by calling the per-patient annotation tool in a loop -- N+1 through a bridge that paces
+    one query per 400ms and a server cap of 60/minute, so the report was slow and flaky by
+    construction. One day view now answers it.
+    """
+    settings = make_settings(tmp_path / "staff-history-overview-annotator.db")
+    app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))
+    with TestClient(app) as client:
+        staff_identity_id = _seed_staff(client)
+        seeded = _seed_history_overview_data(client, staff_identity_id=staff_identity_id)
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=seeded["patient_a_id"])
+        _assign_staff_patient(client, staff_identity_id=staff_identity_id, patient_id=seeded["patient_b_id"])
+        token = _login_staff_token(client)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # The same day the fixture seeds, as the neighbouring overview test uses.
+        overview = client.get(
+            "/v1/staff/uploads/history-overview", headers=headers, params={"local_date": "2026-05-29"}
+        )
+        assert overview.status_code == 200
+        items = overview.json()["items"]
+        assert items
+
+        annotated = [item for item in items if item["annotation_label"] is not None]
+        assert annotated, "the fixture is expected to carry at least one annotation"
+        for item in annotated:
+            assert item["annotation_reviewer_identity_id"] == staff_identity_id
+            assert "annotation_reviewer_name" in item
+
+        # An upload nobody annotated reports no annotator rather than omitting the field.
+        for item in items:
+            if item["annotation_label"] is None:
+                assert item["annotation_reviewer_identity_id"] is None
+                assert item["annotation_reviewer_name"] is None
+
+        grouped = client.get(
+            "/v1/staff/uploads/history-overview",
+            headers=headers,
+            params={"local_date": "2026-05-29", "group_by_user": "true"},
+        )
+        assert grouped.status_code == 200
+        nested = [upload for group in grouped.json()["groups"] for upload in group["uploads"]]
+        assert nested, "grouped view is expected to carry the same uploads"
+        # The grouped view builds the item a second time; it must not drop the annotator.
+        assert all("annotation_reviewer_identity_id" in upload for upload in nested)
+
+
 def test_staff_history_overview_uses_linked_admin_identity_profile(tmp_path: Path) -> None:
     settings = make_settings(tmp_path / "staff-history-overview-admin-profile.db")
     app = create_app(settings=settings, loaded_model=SimpleNamespace(device="cpu"))

@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AIResult, Annotation, LiffIdentity, Patient, Upload
@@ -59,6 +59,10 @@ class HistoryOverviewUploadItemData:
     symptom_cloudy_dialysate: bool
     annotation_label: str | None
     annotation_comment: str | None
+    # Who recorded the annotation. The id is what the copilot's boundary turns into an `R#n`
+    # handle; the name is for the reader's own screen and is dropped before the model sees it.
+    annotation_reviewer_identity_id: int | None
+    annotation_reviewer_name: str | None
     risk_rank: int
 
 
@@ -130,6 +134,8 @@ class _RawUploadRow:
     symptom_cloudy_dialysate: bool
     annotation_label: str | None
     annotation_comment: str | None
+    annotation_reviewer_identity_id: int | None
+    annotation_reviewer_name: str | None
     local_date: date
 
 
@@ -148,6 +154,23 @@ def _load_identity_by_patient(session: Session, *, patient_ids: set[int]) -> dic
         if row.patient_id not in result:
             result[row.patient_id] = row
     return result
+
+
+def _load_reviewer_names(session: Session, *, identity_ids: set[int]) -> dict[int, str | None]:
+    """`identity_id -> display name` for the annotators on this day's uploads.
+
+    One query for the whole page rather than one per upload: the alternative, and what the
+    copilot had to do without it, is `list_patient_annotations` per patient, which is N+1
+    through a bridge that paces one query per 400ms.
+    """
+    if not identity_ids:
+        return {}
+    rows = session.execute(
+        select(LiffIdentity.id, func.coalesce(LiffIdentity.real_name, LiffIdentity.display_name)).where(
+            LiffIdentity.id.in_(identity_ids)
+        )
+    ).all()
+    return {identity_id: name for identity_id, name in rows}
 
 
 def _load_latest_annotation_by_upload(session: Session, *, upload_ids: set[int]) -> dict[int, Annotation]:
@@ -275,6 +298,10 @@ def _raw_rows(
     upload_ids = {upload.id for upload, _, _ in upload_rows}
     identity_by_patient = _load_identity_by_patient(session, patient_ids=patient_ids)
     latest_annotation_by_upload = _load_latest_annotation_by_upload(session, upload_ids=upload_ids)
+    reviewer_names = _load_reviewer_names(
+        session,
+        identity_ids={annotation.reviewer_identity_id for annotation in latest_annotation_by_upload.values()},
+    )
 
     result: list[_RawUploadRow] = []
     for upload, ai_result, patient in upload_rows:
@@ -303,6 +330,10 @@ def _raw_rows(
                 symptom_cloudy_dialysate=upload.symptom_cloudy_dialysate,
                 annotation_label=annotation.label if annotation else None,
                 annotation_comment=annotation.comment if annotation else None,
+                annotation_reviewer_identity_id=annotation.reviewer_identity_id if annotation else None,
+                annotation_reviewer_name=(
+                    reviewer_names.get(annotation.reviewer_identity_id) if annotation else None
+                ),
                 local_date=to_taipei_date(upload.created_at),
             )
         )
@@ -379,6 +410,8 @@ def _to_upload_item(row: _RawUploadRow) -> HistoryOverviewUploadItemData:
         symptom_cloudy_dialysate=row.symptom_cloudy_dialysate,
         annotation_label=row.annotation_label,
         annotation_comment=row.annotation_comment,
+        annotation_reviewer_identity_id=row.annotation_reviewer_identity_id,
+        annotation_reviewer_name=row.annotation_reviewer_name,
         risk_rank=_risk_rank(
             screening_result=row.screening_result,
             annotation_label=row.annotation_label,

@@ -873,6 +873,8 @@ async def get_staff_history_overview(
                     ),
                     annotation_label=item.annotation_label,
                     annotation_comment=item.annotation_comment,
+                    annotation_reviewer_identity_id=item.annotation_reviewer_identity_id,
+                    annotation_reviewer_name=item.annotation_reviewer_name,
                     risk_rank=item.risk_rank,
                 )
                 for item in data.items
@@ -918,6 +920,8 @@ async def get_staff_history_overview(
                             ),
                             annotation_label=item.annotation_label,
                             annotation_comment=item.annotation_comment,
+                            annotation_reviewer_identity_id=item.annotation_reviewer_identity_id,
+                            annotation_reviewer_name=item.annotation_reviewer_name,
                             risk_rank=item.risk_rank,
                         )
                         for item in group.uploads

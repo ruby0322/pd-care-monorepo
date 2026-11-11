@@ -84,6 +84,8 @@ function makeUpload(overrides?: Partial<StaffHistoryOverviewUploadItem>): StaffH
     symptom_aware_priority: "suspected",
     annotation_label: null,
     annotation_comment: null,
+    annotation_reviewer_identity_id: null,
+    annotation_reviewer_name: null,
     risk_rank: 1,
     ...overrides,
   };

@@ -265,7 +265,11 @@ COPILOT_TOOLS: tuple[CopilotTool, ...] = (
     ),
     CopilotTool(
         name="get_history_overview",
-        description="All uploads for one calendar day with KPIs, optionally grouped by patient.",
+        description=(
+            "All uploads for one calendar day with KPIs, optionally grouped by patient, each "
+            "upload carrying its nurse annotation and who recorded it. Use this for reports "
+            "that span patients rather than calling the per-patient annotation tool in a loop."
+        ),
         path_template="/v1/staff/uploads/history-overview",
         query_params={
             "local_date": {"type": "string", "description": "Target day, YYYY-MM-DD (Taipei local date)."},

@@ -242,6 +242,9 @@ export type StaffHistoryOverviewUploadItem = {
   symptom_aware_priority: "normal" | "suspected";
   annotation_label: "normal" | "suspected" | "confirmed_infection" | "rejected" | null;
   annotation_comment: string | null;
+  annotation_reviewer_identity_id: number | null;
+  /** Null when the annotator has no name on file. */
+  annotation_reviewer_name: string | null;
   risk_rank: number;
 };
 

@@ -226,6 +226,11 @@ class StaffHistoryOverviewUploadItem(BaseModel):
     symptom_aware_priority: Literal["normal", "suspected"]
     annotation_label: str | None
     annotation_comment: str | None
+    # Who annotated it. `annotation_reviewer_identity_id` is what the copilot's boundary
+    # re-labels as `R#n`; `annotation_reviewer_name` is withheld from the model by the field
+    # allowlist and exists for the reader's own screen.
+    annotation_reviewer_identity_id: int | None
+    annotation_reviewer_name: str | None
     risk_rank: int
 
 
