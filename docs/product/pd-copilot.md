@@ -134,11 +134,20 @@ for sessions. `/admin/modules` lists every module the signed-in user can see and
 selected one in the same sandboxed iframe used in chat (see "HTML artifact sandbox" below),
 with live data forced on — a module has no point if it only ever shows the day it was saved.
 
-**A module you do not own does not run until you ask it to.** Opening the page selects one of
-your *own* modules, or nothing at all; it never auto-runs whichever colleague saved most
-recently, even though that module may sit at the top of the list. Selecting someone else's
-module shows its title, description and author alongside an explicit 「執行此模組」 button, and
-only that click mounts the frame. The reason is the bridge: a module's HTML is code a colleague
+`/admin/modules` is a grid of cards — each one the module's own rendering, shrunk and inert —
+and a module opens at its own address, `/admin/modules/[id]`, so it can be linked to and the
+browser's back button returns to the grid.
+
+**A card previews without running anything that matters.** The preview is the same sandboxed
+document the chat path builds, but queries are refused locally by the card, so nothing reaches
+`/v1/copilot/proxy` and no permission is spent on a module nobody opened; the module paints
+its own empty state instead. The HTML it needs is fetched per card and only once that card has
+been scrolled into view, so a page of thirty modules does not mean thirty fetches and thirty
+executing frames on load.
+
+**A module you do not own does not run until you ask it to.** Its page shows the title,
+description and author alongside an explicit 「執行此模組」 button, and only that click mounts
+the frame. The reason is the bridge: a module's HTML is code a colleague
 wrote, running in *your* browser, and the parent answers its `pdcare.query` calls with **your**
 token — so it reads whatever you can read, not what the author could. That is a capability
 worth granting deliberately. The consent covers that one module and is dropped when the

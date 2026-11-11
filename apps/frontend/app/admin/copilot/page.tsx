@@ -3,14 +3,11 @@
 import {
   ArrowDown,
   Eye,
-  Lock,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  Shield,
   Sparkles,
   Trash2,
-  Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -40,13 +37,8 @@ import {
 import { CopilotMessage, type CopilotMessageViewModel } from "./_components/copilot-message";
 import { CopilotComposer } from "./_components/copilot-composer";
 import { groupSessions } from "./_components/session-groups";
+import { VISIBILITY_META } from "./_components/visibility-meta";
 import { visibilityOptionsFor } from "./_components/visibility-options";
-
-const VISIBILITY_META: Record<CopilotVisibility, { label: string; Icon: typeof Lock }> = {
-  private: { label: "僅自己", Icon: Lock },
-  staff: { label: "護理師可見", Icon: Users },
-  admin: { label: "管理員可見", Icon: Shield },
-};
 
 const SUGGESTIONS = [
   { title: "今日需關注", prompt: "今天有哪些病患需要優先關注？" },

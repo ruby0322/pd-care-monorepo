@@ -198,7 +198,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
               href="/admin/modules"
               onClick={closeMobileSidebar}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${
-                pathname === "/admin/modules"
+                pathname === "/admin/modules" || pathname.startsWith("/admin/modules/")
                   ? "bg-zinc-900 text-white"
                   : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
               }`}
@@ -380,7 +380,7 @@ export default function AdminLayoutClient({ children }: { children: React.ReactN
               className={`flex items-center rounded-xl transition-colors text-sm ${
                 isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
               } ${
-                pathname === "/admin/modules"
+                pathname === "/admin/modules" || pathname.startsWith("/admin/modules/")
                   ? "bg-zinc-900 text-white"
                   : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
               }`}
