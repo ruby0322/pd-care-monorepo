@@ -17,16 +17,23 @@ function session(id: number, updatedAt: string): CopilotSessionSummary {
   };
 }
 
-const now = new Date("2026-11-11T09:30:00+08:00");
+// Local time throughout, because the grouping is about the viewer's calendar day: fixtures
+// written as fixed `+08:00` instants passed in Taipei and failed on a UTC runner, which is
+// a bug in the test rather than in the grouping.
+const now = new Date(2026, 10, 11, 9, 30);
+
+/** An instant `daysAgo` before `now`, at a local wall-clock time. */
+function localIso(daysAgo: number, hour: number, minute = 0, base: Date = now): string {
+  const when = new Date(base);
+  when.setDate(when.getDate() - daysAgo);
+  when.setHours(hour, minute, 0, 0);
+  return when.toISOString();
+}
 
 describe("groupSessions", () => {
   it("splits today, the past week and everything earlier", () => {
     const groups = groupSessions(
-      [
-        session(1, "2026-11-11T08:00:00+08:00"),
-        session(2, "2026-11-08T12:00:00+08:00"),
-        session(3, "2026-09-01T12:00:00+08:00"),
-      ],
+      [session(1, localIso(0, 8)), session(2, localIso(3, 12)), session(3, localIso(70, 12))],
       now,
     );
 
@@ -39,20 +46,19 @@ describe("groupSessions", () => {
 
   /** Elapsed hours would put last night's thread under 今天 at 00:10. A reader would not. */
   it("buckets by calendar day, not by elapsed hours", () => {
-    const groups = groupSessions([session(1, "2026-11-10T23:50:00+08:00")], new Date("2026-11-11T00:10:00+08:00"));
-    expect(groups[0].label).toBe("近 7 天");
+    const justAfterMidnight = new Date(2026, 10, 11, 0, 10);
+    const lastNight = localIso(1, 23, 50, justAfterMidnight);
+
+    expect(groupSessions([session(1, lastNight)], justAfterMidnight)[0].label).toBe("近 7 天");
   });
 
   it("orders newest first inside a group", () => {
-    const groups = groupSessions(
-      [session(1, "2026-11-11T02:00:00+08:00"), session(2, "2026-11-11T08:00:00+08:00")],
-      now,
-    );
+    const groups = groupSessions([session(1, localIso(0, 2)), session(2, localIso(0, 8))], now);
     expect(groups[0].sessions.map((s) => s.session_id)).toEqual([2, 1]);
   });
 
   it("drops groups that would render an empty heading", () => {
-    const groups = groupSessions([session(1, "2026-11-11T08:00:00+08:00")], now);
+    const groups = groupSessions([session(1, localIso(0, 8))], now);
     expect(groups.map((group) => group.key)).toEqual(["today"]);
   });
 
