@@ -23,7 +23,10 @@ spec:
       containers:
         - name: migrate
           image: pd-care-backend:latest
-          imagePullPolicy: Always
+          # Tags are commit-derived and immutable, so Always only buys a mandatory
+          # registry round-trip, which stalls this PreSync hook whenever ghcr.io is
+          # flaky even though the node already has the layers.
+          imagePullPolicy: IfNotPresent
           command: ["python3", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"]
           envFrom:
             - configMapRef:

@@ -17,7 +17,11 @@ spec:
       containers:
         - name: backend
           image: pd-care-backend:latest
-          imagePullPolicy: Always
+          # Overlays pin a commit-derived, immutable tag, so Always cannot find a
+          # newer image behind it and only adds a required ghcr.io round-trip that
+          # stalls rollouts when the registry is flaky. IfNotPresent still pulls
+          # whenever the node lacks the tag, so a promoted tag rolls out as before.
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
               name: http
