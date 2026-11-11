@@ -23,4 +23,11 @@ images:
     newTag: dev-sha-8d1a4b00d143
   - name: pd-care-backend
     newName: ghcr.io/ruby0322/pd-care-backend
-    newTag: sha-5fda651b7dfb
+    # Was sha-5fda651b7dfb, whose layer b410846cc72c is unservable from ghcr: it
+    # fails immediately and identically from two independent daemons while the
+    # other 15 layers pull fine, so the rollout could never converge. 6f230eb is
+    # already cached on the node and 6f230eb..5fda651 touches only CI, Dockerfile
+    # layer order and overlay tags -- no app code -- so this is the same backend.
+    # A CD promotion supersedes this tag normally. Build that next image with the
+    # gha cache bypassed once, or it will reuse the same unservable blob.
+    newTag: sha-6f230eb88612
