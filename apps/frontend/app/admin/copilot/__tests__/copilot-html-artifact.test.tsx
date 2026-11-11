@@ -101,6 +101,92 @@ describe("CopilotHtmlArtifact bridge", () => {
   });
 });
 
+describe("CopilotHtmlArtifact download", () => {
+  /**
+   * The button did nothing, twice over: a `download` click on an anchor that is not in the
+   * document is ignored outside Chromium, and the click only starts an asynchronous read of
+   * the blob -- revoking the URL in the same task cancelled it. Both failures are silent,
+   * which is exactly how it was reported ("按了沒用").
+   */
+  it("clicks an anchor that is in the document, and keeps the blob alive past the click", () => {
+    const createObjectURL = jest.fn(() => "blob:report");
+    const revokeObjectURL = jest.fn();
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
+    jest.useFakeTimers();
+
+    const clicked: Array<{ download: string; href: string; inDocument: boolean }> = [];
+    const click = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked.push({
+        download: this.download,
+        href: this.getAttribute("href") ?? "",
+        inDocument: document.body.contains(this),
+      });
+    });
+
+    try {
+      renderArtifact();
+      act(() => {
+        screen.getByRole("button", { name: /下載 HTML/ }).click();
+      });
+
+      expect(clicked).toHaveLength(1);
+      expect(clicked[0].inDocument).toBe(true);
+      expect(clicked[0].href).toBe("blob:report");
+      expect(clicked[0].download).toMatch(/^pd-copilot-report-\d+\.html$/);
+
+      // Not revoked while the browser may still be reading it...
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+      act(() => {
+        jest.advanceTimersByTime(10_000);
+      });
+      // ...but not leaked for the rest of the session either.
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:report");
+
+      // The anchor is cleaned up rather than left behind in the page.
+      expect(document.querySelectorAll("a[download]")).toHaveLength(0);
+    } finally {
+      click.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it("downloads the wrapped document, so the file opens standalone", () => {
+    const blobs: BlobPart[][] = [];
+    const createObjectURL = jest.fn((blob: Blob) => {
+      // jsdom Blob keeps no readable parts; capture what was passed instead.
+      void blob;
+      return "blob:report";
+    });
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: jest.fn(), configurable: true });
+    const BlobSpy = jest.spyOn(global, "Blob").mockImplementation(function (parts: BlobPart[]) {
+      blobs.push(parts);
+      return { size: 0, type: "text/html" } as Blob;
+    } as never);
+    // Stubbed so jsdom does not try to navigate to the blob URL.
+    const click = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    try {
+      renderArtifact();
+      act(() => {
+        screen.getByRole("button", { name: /下載 HTML/ }).click();
+      });
+
+      const written = String(blobs[0]?.[0] ?? "");
+      expect(written).toContain("<!DOCTYPE html>");
+      expect(written).toContain("<p>chart</p>");
+      // The bridge goes with it, so a saved report is not a dead page.
+      expect(written).toContain("window.pdcare");
+    } finally {
+      BlobSpy.mockRestore();
+      click.mockRestore();
+    }
+  });
+});
+
 describe("CopilotHtmlArtifact query pacing", () => {
   beforeEach(() => {
     queryCopilotProxy.mockReset();

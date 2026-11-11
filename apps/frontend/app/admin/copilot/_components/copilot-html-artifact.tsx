@@ -26,6 +26,11 @@ const MIN_QUERY_INTERVAL_MS = 400;
  */
 const MAX_QUEUED_QUERIES = 24;
 /**
+ * How long a download's blob URL is kept alive. Long enough that the browser has certainly
+ * read it, short enough that the report is not held in memory for the rest of the session.
+ */
+const REVOKE_DOWNLOAD_URL_AFTER_MS = 10_000;
+/**
  * The frame's reported height is applied as-is between these bounds -- deliberately with no
  * margin added. The frame re-measures every 500ms, so a margin would be measured back as
  * content on the next tick and the two sides would ratchet upwards until this ceiling.
@@ -275,8 +280,14 @@ export function CopilotHtmlArtifact({
     const anchor = window.document.createElement("a");
     anchor.href = url;
     anchor.download = `pd-copilot-report-${Date.now()}.html`;
+    // Both of these are why the button used to do nothing at all. A `download` click on a
+    // detached anchor is ignored outside Chromium, so it goes into the document first; and
+    // the click only *starts* an asynchronous fetch of the blob, so revoking the URL in the
+    // same task cancels the download before it reads anything.
+    window.document.body.appendChild(anchor);
     anchor.click();
-    URL.revokeObjectURL(url);
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), REVOKE_DOWNLOAD_URL_AFTER_MS);
   }
 
   // Exactly one iframe carries the ref, because the bridge only answers messages whose
