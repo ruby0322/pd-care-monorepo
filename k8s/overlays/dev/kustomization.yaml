@@ -30,4 +30,4 @@ images:
     # layer order and overlay tags -- no app code -- so this is the same backend.
     # A CD promotion supersedes this tag normally. Build that next image with the
     # gha cache bypassed once, or it will reuse the same unservable blob.
-    newTag: sha-6f230eb88612
+    newTag: sha-a50669966b5b
