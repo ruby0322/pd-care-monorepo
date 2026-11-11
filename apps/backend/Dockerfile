@@ -32,7 +32,6 @@ ARG PRESCREEN_MODEL_REPO_ID=ruby0322/pd-exit-site-clip-linear-probe
 ARG PRESCREEN_MODEL_REVISION=
 ARG PRESCREEN_MODEL_CACHE_DIR=/models/prescreen
 ARG HF_HOME=/models/hf-cache
-ARG HF_TOKEN=
 
 ENV MODEL_URL=${MODEL_URL} \
     MODEL_PATH=${MODEL_PATH} \
@@ -40,11 +39,16 @@ ENV MODEL_URL=${MODEL_URL} \
     PRESCREEN_MODEL_REVISION=${PRESCREEN_MODEL_REVISION} \
     PRESCREEN_MODEL_CACHE_DIR=${PRESCREEN_MODEL_CACHE_DIR} \
     HF_HOME=${HF_HOME} \
-    TRANSFORMERS_CACHE=${HF_HOME} \
-    HF_TOKEN=${HF_TOKEN}
+    TRANSFORMERS_CACHE=${HF_HOME}
 
 RUN mkdir -p /models "${HF_HOME}"
-RUN python ./scripts/bake_models.py && \
+# HF_TOKEN is build-time only. The secret mount keeps it out of the image
+# layers, the image config and the build provenance; the inline assignment
+# scopes it to this one process. Runtime reads its own HF_TOKEN from the
+# deployment secret (k8s pd-care-secrets / compose PDCARE_HF_TOKEN).
+RUN --mount=type=secret,id=hf_token \
+    HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)" \
+    python ./scripts/bake_models.py && \
     chown -R appuser:appuser ${APP_HOME} /models
 
 USER appuser

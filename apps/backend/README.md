@@ -173,12 +173,16 @@ The production image installs CPU-only PyTorch wheels (not the default CUDA buil
 docker build -t pd-exit-site-inference-api .
 ```
 
-Build with optional `HF_TOKEN` (for private repos or Hub rate limits):
+Build with optional `HF_TOKEN` (for private repos or Hub rate limits). It is
+passed as a BuildKit secret, so it is never baked into the image:
 
 ```bash
-export HF_TOKEN=...
-docker build -t pd-exit-site-inference-api .
+HF_TOKEN=... docker build --secret id=hf_token,env=HF_TOKEN -t pd-exit-site-inference-api .
 ```
+
+The token is only needed to download the prescreen bundle during the build. The
+running container gets its own `HF_TOKEN` from the deployment secret, not from
+the image.
 
 ### Run from monorepo root
 

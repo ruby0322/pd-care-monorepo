@@ -119,8 +119,8 @@ jobs:
         with:
           context: ./apps/backend
           push: true
-          build-args: |
-            HF_TOKEN=${{ secrets.HF_TOKEN }}
+          secrets: |
+            hf_token=${{ secrets.HF_TOKEN }}
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.BACKEND_IMAGE }}:${{ env.BACKEND_TAG }}
 
       - name: Build and push dev frontend image
