@@ -244,6 +244,7 @@ async def run_agent_turn(
                         authorization=authorization,
                         max_bytes=tool_result_max_bytes,
                         deidentify_for_session_id=copilot_session_id,
+                        role=role,
                     )
                 except CopilotToolError as exc:
                     # The pre-validation above normally catches these; this covers the

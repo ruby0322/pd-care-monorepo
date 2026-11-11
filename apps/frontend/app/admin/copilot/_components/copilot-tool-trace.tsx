@@ -30,11 +30,19 @@ export function toolLabel(tool: string): string {
 export function CopilotToolTrace({
   entries,
   pendingTool,
+  isStreaming = false,
 }: {
   entries: CopilotToolTraceEntry[];
   pendingTool?: string | null;
+  /** While the turn runs the steps are shown as they land; it folds up when it ends. */
+  isStreaming?: boolean;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  // Unpinned, the trace follows the turn: open while it runs, closed once it is over. A
+  // click pins it either way, but only for the phase it was made in -- when the turn ends
+  // the pin lapses, which is what folds the trace away without having to reset state from
+  // an effect (and a reader who folded it mid-turn still finds it folded afterwards).
+  const [pin, setPin] = useState<{ open: boolean; whileStreaming: boolean } | null>(null);
+  const isOpen = pin !== null && pin.whileStreaming === isStreaming ? pin.open : isStreaming;
 
   if (entries.length === 0 && !pendingTool) {
     return null;
@@ -46,7 +54,7 @@ export function CopilotToolTrace({
     <div className="mb-2.5">
       <button
         type="button"
-        onClick={() => setIsOpen((value) => !value)}
+        onClick={() => setPin({ open: !isOpen, whileStreaming: isStreaming })}
         className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700"
       >
         {isOpen ? (
@@ -98,6 +106,14 @@ export function CopilotToolTrace({
               ) : null}
             </li>
           ))}
+          {pendingTool ? (
+            <li className="text-xs">
+              <div className="flex items-center gap-1.5 text-zinc-500">
+                <Loader2 className="h-3 w-3 animate-spin" strokeWidth={1.5} />
+                {toolLabel(pendingTool)}…
+              </div>
+            </li>
+          ) : null}
         </ol>
       ) : null}
     </div>

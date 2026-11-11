@@ -88,7 +88,11 @@ export function CopilotMessage({
         <Sparkles className="h-3.5 w-3.5 text-white" strokeWidth={1.5} />
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
-        <CopilotToolTrace entries={message.toolTrace} pendingTool={message.pendingTool} />
+        <CopilotToolTrace
+          entries={message.toolTrace}
+          pendingTool={message.pendingTool}
+          isStreaming={message.isStreaming}
+        />
         {segments.map((segment, index) =>
           segment.kind === "text" ? (
             <CopilotMarkdown key={index} content={applyHandleLabels(segment.value, handles ?? {})} />

@@ -360,6 +360,22 @@ def append_message(
     return row
 
 
+def rename_session(session: Session, *, session_id: int, title: str) -> CopilotSession | None:
+    """Set a session's title, or do nothing if it has been deleted meanwhile.
+
+    None rather than an exception: the only caller is the model-generated name that lands
+    after a turn, and a thread deleted while its answer was streaming is a normal race, not
+    a fault worth surfacing.
+    """
+    row = session.get(CopilotSession, session_id)
+    if row is None:
+        return None
+    row.title = title
+    session.commit()
+    session.refresh(row)
+    return row
+
+
 def touch_session(session: Session, *, session_id: int) -> None:
     row = session.get(CopilotSession, session_id)
     if row is None:

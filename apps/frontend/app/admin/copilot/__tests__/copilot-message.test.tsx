@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { CopilotMessage } from "@/app/admin/copilot/_components/copilot-message";
+import { CopilotMessage, type CopilotMessageViewModel } from "@/app/admin/copilot/_components/copilot-message";
 import { CopilotMarkdown } from "@/app/admin/copilot/_components/copilot-markdown";
 
 jest.mock("@/lib/api/copilot", () => ({
@@ -350,3 +350,59 @@ describe("CopilotMessage artifact state while streaming", () => {
     expect(container.querySelector("iframe")).not.toBeNull();
   });
 });
+
+/**
+ * The trace is how a turn shows its work, so it is open while the work happens and folds
+ * away once the answer is there -- it used to start collapsed, which made a multi-step turn
+ * look like nothing was happening behind a 「查詢步驟 3」 pill nobody clicked.
+ */
+describe("CopilotToolTrace follows the turn", () => {
+  const trace = [
+    { tool: "list_patients", params: {}, ok: true, status: 200, truncated: false, duration_ms: 12 },
+  ];
+
+  function message(overrides: Partial<CopilotMessageViewModel> = {}): CopilotMessageViewModel {
+    return {
+      key: "m-1",
+      role: "assistant",
+      content: "結論。",
+      toolTrace: trace,
+      ...overrides,
+    };
+  }
+
+  it("shows the steps while the turn is still running", () => {
+    render(<CopilotMessage message={message({ isStreaming: true, pendingTool: "get_today_attention" })} />);
+
+    expect(screen.getByText("查詢病患清單")).toBeInTheDocument();
+    // The step in flight is in the list too, not only in the pill.
+    expect(screen.getAllByText(/查詢今日需關注病患…/).length).toBeGreaterThan(0);
+  });
+
+  it("folds away once the turn is over", () => {
+    const { rerender } = render(<CopilotMessage message={message({ isStreaming: true })} />);
+    expect(screen.getByText("查詢病患清單")).toBeInTheDocument();
+
+    rerender(<CopilotMessage message={message({ isStreaming: false })} />);
+    expect(screen.queryByText("查詢病患清單")).not.toBeInTheDocument();
+  });
+
+  it("can be opened again by hand afterwards", async () => {
+    render(<CopilotMessage message={message()} />);
+    expect(screen.queryByText("查詢病患清單")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /查詢步驟/ }));
+    expect(screen.getByText("查詢病患清單")).toBeInTheDocument();
+  });
+
+  it("respects a reader who folds it mid-turn", async () => {
+    const { rerender } = render(<CopilotMessage message={message({ isStreaming: true })} />);
+    await userEvent.click(screen.getByRole("button", { name: /查詢步驟/ }));
+    expect(screen.queryByText("查詢病患清單")).not.toBeInTheDocument();
+
+    // Still folded when the turn ends, rather than springing open.
+    rerender(<CopilotMessage message={message({ isStreaming: false })} />);
+    expect(screen.queryByText("查詢病患清單")).not.toBeInTheDocument();
+  });
+});
+

@@ -157,6 +157,8 @@ export type CopilotStreamEvent =
   | { type: "tool_result"; tool: string; ok: boolean; status: number | null; truncated: boolean; duration_ms: number }
   | { type: "message_saved"; message_id: number; content: string; tool_trace: CopilotToolTraceEntry[] }
   | { type: "handle"; handle: string; entity_type: string; label: string | null }
+  // The name the small model picked for a brand-new thread, sent after the first answer.
+  | { type: "session_title"; title: string }
   | { type: "error"; message: string }
   | { type: "done" };
 

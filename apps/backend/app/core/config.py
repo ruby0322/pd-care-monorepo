@@ -103,6 +103,7 @@ class Settings:
     openai_api_key: str | None = None
     copilot_models: tuple[str, ...] = DEFAULT_COPILOT_MODELS
     copilot_default_model: str = DEFAULT_COPILOT_MODELS[0]
+    copilot_title_model: str = "gpt-6-luna"
     copilot_max_tool_iterations: int = 12
     copilot_request_timeout_seconds: float = 180.0
     copilot_tool_result_max_bytes: int = 24576
@@ -195,6 +196,10 @@ def get_settings() -> Settings:
         openai_api_key=(os.getenv("OPENAI_API_KEY") or "").strip() or None,
         copilot_models=copilot_models,
         copilot_default_model=copilot_default_model,
+        # Deliberately not restricted to COPILOT_MODELS: naming is a one-shot call with no
+        # tools and no transcript, so the cheapest model available is the right one for it,
+        # whether or not it is offered in the picker.
+        copilot_title_model=os.getenv("COPILOT_TITLE_MODEL", "").strip() or "gpt-6-luna",
         copilot_max_tool_iterations=_parse_int("COPILOT_MAX_TOOL_ITERATIONS", 12),
         copilot_request_timeout_seconds=_parse_float("COPILOT_REQUEST_TIMEOUT_SECONDS", 180.0),
         copilot_tool_result_max_bytes=_parse_int("COPILOT_TOOL_RESULT_MAX_BYTES", 24576),

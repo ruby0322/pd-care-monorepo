@@ -285,6 +285,11 @@ class StaffAnnotationItem(BaseModel):
     label: str
     comment: str | None
     reviewer_line_user_id: str
+    # Who recorded it. `reviewer_identity_id` is what the copilot's boundary turns into an
+    # `R#n` handle; `reviewer_name` is for the reader's own screen and is withheld from the
+    # model by the field allowlist, which keeps names out of the transcript.
+    reviewer_identity_id: int
+    reviewer_name: str | None
     created_at: datetime
 
 

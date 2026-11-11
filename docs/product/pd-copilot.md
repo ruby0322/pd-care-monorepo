@@ -35,7 +35,8 @@ Allowlist and dispatcher: [`app/services/copilot/tools.py`](../../apps/backend/a
 | --- | --- | --- |
 | Individual patient history | existing `/v1/staff/patients/*` | staff (assigned patients only), admin (all) |
 | De-identified cohort aggregates | `/v1/staff/analytics/*` | staff + admin — counts and trends, no patient identity |
-| Operational detail incl. per-nurse annotation attribution | **not exposed to Copilot** | — |
+| Who annotated an upload | existing `/v1/staff/patients/{id}/annotations` | same access as the patient's history |
+| Per-nurse performance comparison or ranking | **not exposed to Copilot** | — |
 
 `/v1/staff/analytics/*` ([`cohort_analytics.py`](../../apps/backend/app/api/routes/staff_parts/cohort_analytics.py))
 reuses the same service functions as the admin-only `/v1/staff/admin/analytics/*` with
@@ -63,6 +64,12 @@ Two data paths exist, and they are de-identified differently on purpose:
      the same label in a different session can be a different patient entirely.
   `list_patient_annotations` additionally withholds free-text `comment` outright, since prose
   can carry a name no field-name allowlist would ever catch.
+
+  The annotator crosses the boundary the way a patient does: the endpoint returns both
+  `reviewer_identity_id` and `reviewer_name`, the allowlist keeps the first (re-labelled
+  `R#n`) and drops the second, so the model reasons about 「R#2 標注了這筆」 while the name
+  exists only on the reader's own screen — through the per-viewer handle labels in a
+  transcript, or through the proxy in a live report.
 - **`/v1/copilot/proxy`** is the one path that is **exempt** and returns fully identified
   data. It exists only so a generated HTML report's own JS can re-query live data
   (`window.pdcare.query`) after the report is already rendered — and that result lands
@@ -183,6 +190,41 @@ can create one). **Writes are always owner-only**, so a shared session is a read
 transcript for everyone else — no concurrent writes to one thread, and authorship stays clear.
 A non-visible session returns `404` rather than `403` so it is not discoverable.
 
+### The agent can read its own API reference
+
+`describe_available_queries` returns every other tool's parameters — types, enum values,
+minima and maxima — plus the rules for passing them, and is answered from the tool registry
+without an HTTP call. It exists because the schemas the function-calling contract advertises
+only cover the calls the *model* makes: when it writes a report, the calls go out from that
+report's own JavaScript through `window.pdcare.query`, a surface nothing described to it. Left
+to guess after a rejection, it guessed badly — a refused `list_patients` turned into a turn
+that sent *more* parameters each round instead of fixing the one that was refused. The system
+prompt points at this tool for both cases: before writing a live report, and after any call is
+rejected as invalid.
+
+### Opening a thread, and what it gets called
+
+There is no create dialog. The thread area shows a composer when nothing is selected, with
+the model and the visibility beside it, and asking the question is what creates the session:
+`POST /v1/copilot/sessions` followed immediately by the message. A creation that fails leaves
+nothing behind and the composer keeps the text, so a question is never swallowed by a failed
+submit.
+
+Which means a thread has no name of its own at the moment it is created, so it is named from
+the question that opened it. The truncated question (`derive_title`) goes in synchronously,
+because a rail full of 「新對話」 is useless; then, once the first answer is saved,
+`COPILOT_TITLE_MODEL` is asked for a short topic name and the result is persisted and pushed
+to the client as a `session_title` event. That ordering is deliberate: naming is cosmetic and
+must never sit between the nurse and the first token, so it runs after the turn and every
+failure in it is swallowed — a timeout or a bad response just leaves the derived title in
+place. Only the first turn is named, and a title the user set themselves is never replaced.
+
+The naming call sees the nurse's own question and nothing else — no transcript, no tool
+results — which is text the turn itself is already sending to the same provider, so naming
+crosses no boundary the conversation had not crossed already. Its prompt still forbids
+identifiers in the output, because a title is read in a list long after the question has
+scrolled away.
+
 ### HTML artifact sandbox
 
 Generated HTML is rendered client-side under four independent constraints:
@@ -233,6 +275,7 @@ renderer: [`copilot-html-artifact.tsx`](../../apps/frontend/app/admin/copilot/_c
 | `OPENAI_API_KEY` | — | Secret. Without it the feature reports itself unavailable. |
 | `COPILOT_MODELS` | `gpt-6.1-terra,gpt-6.1-sol,gpt-6-luna` | Comma-separated; drives the model picker. |
 | `COPILOT_DEFAULT_MODEL` | first of `COPILOT_MODELS` | Falls back to the first listed model if not in the list. |
+| `COPILOT_TITLE_MODEL` | `gpt-6-luna` | Names a new thread from its first question. Not restricted to `COPILOT_MODELS`. |
 | `COPILOT_MAX_TOOL_ITERATIONS` | `12` | Agent loop cap. |
 | `COPILOT_REQUEST_TIMEOUT_SECONDS` | `180` | OpenAI client timeout. |
 | `COPILOT_TOOL_RESULT_MAX_BYTES` | `24576` | Larger results get their arrays shortened and flagged `_truncated`. |
@@ -266,8 +309,9 @@ whose 15s timeout and response buffering do not suit SSE.
 - Stopping a turn (or disconnecting) discards that assistant reply: the user's message is
   persisted before streaming starts, so the transcript keeps the question without an answer.
   Partial replies are not saved.
-- The agent is explicitly instructed not to diagnose or prescribe, and not to analyse
-  individual nurse performance.
+- The agent is explicitly instructed not to diagnose or prescribe, and not to compare or
+  rank individual nurses. Attribution is allowed — which nurse annotated an upload is part
+  of that upload's record and a report may show it — but "who annotates fastest" is not.
 - De-identification only covers data coming *from* the API (see "De-identification
   boundary" above). A nurse's own typed chat input is not filtered — if they type a real
   name or case number, it reaches the model as-is, and sharing that session shows it to

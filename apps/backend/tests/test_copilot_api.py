@@ -181,20 +181,36 @@ class _FakeStream:
         return gen()
 
 
+class _FakeTitleResponse:
+    """A non-streamed answer, which is the shape the title call expects."""
+
+    def __init__(self, text: str) -> None:
+        self.output_text = text
+
+
 class _FakeResponses:
-    def __init__(self, turns: list[list[_FakeEvent]]) -> None:
+    def __init__(self, turns: list[list[_FakeEvent]], title: str | Exception | None) -> None:
         self._turns = turns
+        self._title = title
         self.calls: list[dict] = []
+        self.title_calls: list[dict] = []
 
     async def create(self, **kwargs):
+        # The agent streams; the session-title call does not. That is what tells them apart,
+        # and it keeps a titling call from consuming one of the scripted turns.
+        if not kwargs.get("stream"):
+            self.title_calls.append(kwargs)
+            if isinstance(self._title, Exception):
+                raise self._title
+            return _FakeTitleResponse(self._title or "")
         self.calls.append(kwargs)
         index = min(len(self.calls) - 1, len(self._turns) - 1)
         return _FakeStream(self._turns[index])
 
 
 class FakeOpenAI:
-    def __init__(self, turns: list[list[_FakeEvent]]) -> None:
-        self.responses = _FakeResponses(turns)
+    def __init__(self, turns: list[list[_FakeEvent]], title: str | Exception | None = None) -> None:
+        self.responses = _FakeResponses(turns, title)
 
 
 def completed(text: str = "", calls: list[_FakeFunctionCall] | None = None) -> _FakeEvent:
@@ -209,8 +225,13 @@ def text_turn(text: str) -> list[_FakeEvent]:
     return [_FakeEvent("response.output_text.delta", delta=text), completed(text)]
 
 
-def install_fake_openai(monkeypatch: pytest.MonkeyPatch, turns: list[list[_FakeEvent]]) -> FakeOpenAI:
-    fake = FakeOpenAI(turns)
+def install_fake_openai(
+    monkeypatch: pytest.MonkeyPatch,
+    turns: list[list[_FakeEvent]],
+    *,
+    title: str | Exception | None = None,
+) -> FakeOpenAI:
+    fake = FakeOpenAI(turns, title)
     # The route imports build_openai_client into its own namespace, so that is the binding
     # a test has to replace; patching the agent module alone would leave the real client in place.
     monkeypatch.setattr(copilot_routes, "build_openai_client", lambda **_kwargs: fake)
@@ -667,7 +688,12 @@ def test_every_allowlisted_tool_points_at_a_registered_get_route(tmp_path: Path)
     # loudly instead of silently making the assertion below vacuous.
     assert len(paths) > 50
 
-    unresolved = [tool.name for tool in COPILOT_TOOLS if "get" not in (paths.get(tool.path_template) or {})]
+    # `describe_available_queries` is answered from the registry itself and has no route.
+    unresolved = [
+        tool.name
+        for tool in COPILOT_TOOLS
+        if tool.path_template and "get" not in (paths.get(tool.path_template) or {})
+    ]
     assert unresolved == []
 
 
@@ -719,6 +745,8 @@ def test_tool_declares_every_query_param_the_route_requires(tmp_path: Path) -> N
         paths = client.app.openapi()["paths"]
 
     for tool in COPILOT_TOOLS:
+        if not tool.path_template:
+            continue  # answered locally; it has no route whose parameters could disagree
         route_params = paths[tool.path_template]["get"].get("parameters", [])
         required_query_names = {
             param["name"] for param in route_params if param.get("in") == "query" and param.get("required")
@@ -783,6 +811,119 @@ def test_agent_turn_dispatches_tool_and_persists_transcript(tmp_path: Path, monk
         offered = {tool["name"] for tool in fake.responses.calls[0]["tools"]}
         assert "get_cohort_suspected_summary" in offered
         assert all(not name.startswith("delete") for name in offered)
+
+
+def test_first_turn_names_the_session_with_the_small_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A nurse opens a thread by asking, not by naming it.
+
+    The truncated question goes in immediately so the row is never a bare 「新對話」, and the
+    small model's name replaces it once the answer is done -- announced on the stream, so the
+    sidebar does not have to refetch to stop showing a sentence fragment.
+    """
+    copilot_proxy_rate_limiter.reset()
+    fake = install_fake_openai(monkeypatch, [text_turn("近期疑似感染比例穩定。")], title="出口感染趨勢分析")
+    with build_client(tmp_path, "title-ok") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+
+        response = client.post(
+            f"/v1/copilot/sessions/{session_id}/messages",
+            json={"content": "最近出口感染的比例有變多嗎？想看近三個月的趨勢"},
+            headers=headers,
+        )
+        events = read_sse(response)
+        kinds = [kind for kind, _ in events]
+
+        titled = next(data for kind, data in events if kind == "session_title")
+        assert titled["title"] == "出口感染趨勢分析"
+        # Named after the answer was saved, never before it.
+        assert kinds.index("session_title") > kinds.index("message_saved")
+        assert kinds[-1] == "done"
+
+        detail = client.get(f"/v1/copilot/sessions/{session_id}", headers=headers).json()
+        assert detail["session"]["title"] == "出口感染趨勢分析"
+
+        # One naming call, on the configured small model, carrying only the question.
+        assert len(fake.responses.title_calls) == 1
+        call = fake.responses.title_calls[0]
+        assert call["model"] == "gpt-6-luna"
+        assert "tools" not in call
+        assert "出口感染" in str(call["input"])
+        assert "近期疑似感染比例穩定。" not in str(call["input"])
+
+
+def test_a_failing_title_model_costs_nothing_but_the_better_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    copilot_proxy_rate_limiter.reset()
+    install_fake_openai(monkeypatch, [text_turn("已完成分析。")], title=RuntimeError("502 upstream"))
+    with build_client(tmp_path, "title-fail") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+
+        response = client.post(
+            f"/v1/copilot/sessions/{session_id}/messages",
+            json={"content": "請分析上傳頻率"},
+            headers=headers,
+        )
+        events = read_sse(response)
+        kinds = [kind for kind, _ in events]
+
+        # The answer is unaffected; only the nicer title is missing.
+        assert "message_saved" in kinds
+        assert kinds[-1] == "done"
+        assert "session_title" not in kinds
+        detail = client.get(f"/v1/copilot/sessions/{session_id}", headers=headers).json()
+        assert detail["session"]["title"] == "請分析上傳頻率"
+
+
+def test_only_the_first_turn_is_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    copilot_proxy_rate_limiter.reset()
+    fake = install_fake_openai(
+        monkeypatch, [text_turn("第一個回答。"), text_turn("第二個回答。")], title="上傳頻率追蹤"
+    )
+    with build_client(tmp_path, "title-once") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+        session_id = client.post("/v1/copilot/sessions", json={}, headers=headers).json()["session_id"]
+
+        for content in ("請分析上傳頻率", "再看看年齡分布"):
+            client.post(
+                f"/v1/copilot/sessions/{session_id}/messages",
+                json={"content": content},
+                headers=headers,
+            )
+
+        assert len(fake.responses.title_calls) == 1
+        detail = client.get(f"/v1/copilot/sessions/{session_id}", headers=headers).json()
+        assert detail["session"]["title"] == "上傳頻率追蹤"
+
+
+def test_a_session_the_user_named_is_not_renamed_by_the_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    copilot_proxy_rate_limiter.reset()
+    fake = install_fake_openai(monkeypatch, [text_turn("好的。")], title="模型想的標題")
+    with build_client(tmp_path, "title-manual") as client:
+        staff_id = seed_identity(client, line_user_id="U_STAFF", role="staff")
+        headers = headers_for(client, staff_id, role="staff", line_user_id="U_STAFF")
+        session_id = client.post(
+            "/v1/copilot/sessions", json={"title": "我自己取的名字"}, headers=headers
+        ).json()["session_id"]
+
+        client.post(
+            f"/v1/copilot/sessions/{session_id}/messages",
+            json={"content": "請分析上傳頻率"},
+            headers=headers,
+        )
+
+        assert fake.responses.title_calls == []
+        detail = client.get(f"/v1/copilot/sessions/{session_id}", headers=headers).json()
+        assert detail["session"]["title"] == "我自己取的名字"
 
 
 def test_system_prompt_leaks_no_user_name_to_the_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1061,6 +1202,7 @@ def dispatch_for_test(tmp_path: Path, tool_name: str, *, deidentify_for_session_
                 authorization=headers["Authorization"],
                 max_bytes=10_000_000,
                 deidentify_for_session_id=deidentify_for_session_id,
+                role="staff",
             )
 
     return asyncio.run(_run())
@@ -1162,6 +1304,7 @@ def test_rejected_tool_call_leaks_no_detail_but_keeps_error_and_status(tmp_path:
                 authorization=headers["Authorization"],
                 max_bytes=10_000_000,
                 deidentify_for_session_id=1,
+                role="staff",
             )
 
     result = asyncio.run(_run())

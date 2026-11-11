@@ -1008,6 +1008,8 @@ async def upsert_staff_annotation(
             label=annotation.label,
             comment=annotation.comment,
             reviewer_line_user_id=reviewer.line_user_id,
+            reviewer_identity_id=annotation.reviewer_identity_id,
+            reviewer_name=reviewer.real_name or reviewer.display_name,
             created_at=annotation.created_at,
         )
     finally:
@@ -1039,9 +1041,11 @@ async def get_staff_annotations(
                     label=annotation.label,
                     comment=annotation.comment,
                     reviewer_line_user_id=line_user_id,
+                    reviewer_identity_id=annotation.reviewer_identity_id,
+                    reviewer_name=reviewer_name,
                     created_at=annotation.created_at,
                 )
-                for annotation, line_user_id in rows
+                for annotation, line_user_id, reviewer_name in rows
             ]
         )
     finally:

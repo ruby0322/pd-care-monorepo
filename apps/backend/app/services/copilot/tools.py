@@ -177,6 +177,19 @@ _DATE_RANGE = {
 }
 
 
+DESCRIBE_QUERIES_TOOL = CopilotTool(
+    name="describe_available_queries",
+    description=(
+        "The full reference for every other tool: each one's parameters, their types, "
+        "allowed values and ranges, plus the rules for passing them. Call this before "
+        "building a report that queries live data, or whenever a call was rejected as "
+        "invalid, instead of guessing which parameter to change."
+    ),
+    # Answered from the registry, never dispatched: see `describe_available_queries`.
+    path_template="",
+)
+
+
 COPILOT_TOOLS: tuple[CopilotTool, ...] = (
     CopilotTool(
         name="list_patients",
@@ -328,10 +341,51 @@ COPILOT_TOOLS: tuple[CopilotTool, ...] = (
             "interval": {"type": "string", "enum": ["day", "week"]},
         },
     ),
+    # Last, and answered from this registry rather than dispatched over HTTP.
+    DESCRIBE_QUERIES_TOOL,
 )
 
 
 TOOLS_BY_NAME: dict[str, CopilotTool] = {tool.name: tool for tool in COPILOT_TOOLS}
+
+
+def describe_available_queries(*, role: str, deidentified: bool) -> dict[str, Any]:
+    """The tool catalogue, as data the model can read mid-conversation.
+
+    The schemas are already advertised in the tool definitions, but a model writing a report
+    is composing calls it will not make itself -- the report's own JS will, through
+    `window.pdcare.query` -- and nothing in the function-calling contract describes that
+    surface. Left to guess, it guessed: a rejected `list_patients` turned into a turn that
+    added *more* parameters each round rather than fixing the one that was refused.
+
+    `deidentified` decides how patient parameters are described, the same way it does for the
+    function definitions: handles on the agent's own path, integers on the report's.
+    """
+    return {
+        "usage": [
+            "每個查詢的參數全部都是選填，沒傳就用後端預設值。只傳你要篩選的欄位。",
+            "不要傳空字串（例如搜尋框還沒輸入時的 query: \"\"）——空字串是一個值而不是「不篩選」，"
+            "某些欄位會因此被驗證拒絕。",
+            "enum 欄位只接受列出的值；integer 欄位請遵守 minimum / maximum。",
+            (
+                "在 HTML 報表裡用 window.pdcare.query(tool, params) 呼叫這些查詢時，patient_id 要帶"
+                "bridge 回傳的整數 id，不是 P#n 代稱。"
+                if deidentified
+                else "patient_id 等路徑參數請帶整數 id。"
+            ),
+            "查詢被拒絕時，錯誤訊息會指出被拒絕的欄位；照那個欄位修正，不要改成多傳其他參數。",
+        ],
+        "queries": [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.json_schema(deidentified=deidentified)["properties"],
+                "required": list(tool.required),
+            }
+            for tool in tools_for_role(role)
+            if tool.name != DESCRIBE_QUERIES_TOOL.name
+        ],
+    }
 
 
 def tools_for_role(role: str) -> tuple[CopilotTool, ...]:
@@ -458,6 +512,7 @@ async def dispatch_tool_call(
     authorization: str,
     max_bytes: int,
     deidentify_for_session_id: int | None,
+    role: str,
     timeout_seconds: float = 30.0,
 ) -> ToolCallResult:
     """Run one allowlisted GET against this app, as the signed-in user.
@@ -472,6 +527,19 @@ async def dispatch_tool_call(
     results were de-identified must spend handles (`patient_id="P#1"`), resolved here
     against that same session; a caller that saw identified data passes real ids.
     """
+    if tool.name == DESCRIBE_QUERIES_TOOL.name:
+        # Documentation, not data: answered from the registry, so it never leaves the process
+        # and carries nothing to de-identify.
+        reference = describe_available_queries(
+            role=role,
+            deidentified=deidentify_for_session_id is not None,
+        )
+        return ToolCallResult(
+            ok=True,
+            status_code=200,
+            content=json.dumps(reference, ensure_ascii=False),
+        )
+
     handle_resolver = (
         build_handle_resolver(app, copilot_session_id=deidentify_for_session_id, tool_name=tool.name)
         if deidentify_for_session_id is not None

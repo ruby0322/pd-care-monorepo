@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import type { CopilotVisibility } from "@/lib/api/copilot";
 
-import { VISIBILITY_OPTIONS } from "./copilot-new-session-dialog";
+import { VISIBILITY_OPTIONS } from "./visibility-options";
 
 export function SaveModuleDialog({
   role,

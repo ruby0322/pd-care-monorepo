@@ -40,6 +40,7 @@ from app.services.copilot.sessions import (
     create_module,
     create_session,
     derive_title,
+    rename_session,
     get_owned_module,
     get_owned_session,
     get_readable_module,
@@ -56,6 +57,7 @@ from app.services.copilot.sessions import (
     resolve_handles,
     touch_session,
 )
+from app.services.copilot.titles import generate_session_title
 from app.services.copilot.tools import CopilotToolError, dispatch_tool_call, resolve_tool
 
 LOGGER = get_logger(__name__)
@@ -464,7 +466,11 @@ async def post_copilot_message(
         model = row.model
         history = history_pairs(list_messages(session, session_id=row.id))
         user_message = append_message(session, session_id=row.id, role="user", content=payload.content)
-        if len(history) == 0 and (row.title == "新對話" or not row.title.strip()):
+        # The truncated question goes in straight away so the row is never a bare 「新對話」,
+        # and the small model is asked for a better one once the turn is done -- naming must
+        # not stand between the nurse and the first token.
+        is_first_turn = len(history) == 0 and (row.title == "新對話" or not row.title.strip())
+        if is_first_turn:
             row.title = derive_title(payload.content)
             session.commit()
         user_message_id = user_message.id
@@ -569,6 +575,21 @@ async def post_copilot_message(
             finally:
                 persist_session.close()
 
+        if is_first_turn:
+            named = await generate_session_title(
+                client=client,
+                model=settings.copilot_title_model,
+                question=payload.content,
+            )
+            if named is not None:
+                title_session = app.state.db_session_factory()
+                try:
+                    renamed = rename_session(title_session, session_id=session_id, title=named)
+                    if renamed is not None:
+                        yield _sse("session_title", {"title": renamed.title})
+                finally:
+                    title_session.close()
+
         yield _sse("done", {})
 
     return StreamingResponse(
@@ -613,6 +634,7 @@ async def post_copilot_proxy(
             authorization=_authorization_header(request),
             max_bytes=settings.copilot_tool_result_max_bytes,
             deidentify_for_session_id=None,
+            role=principal.role,
         )
     except CopilotToolError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

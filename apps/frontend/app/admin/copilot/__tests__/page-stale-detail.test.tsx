@@ -110,7 +110,7 @@ describe("copilot page transcript loading", () => {
     await waitFor(() => expect(resolveFirst).not.toBeNull());
 
     // Switch away while session 1 is still in flight; session 2 resolves immediately.
-    await userEvent.click(screen.getByRole("button", { name: /對話 2/ }));
+    await userEvent.click(screen.getByRole("button", { name: "對話 2" }));
     await flushTimers();
     expect(await screen.findByText("第二個對話的結論")).toBeInTheDocument();
 

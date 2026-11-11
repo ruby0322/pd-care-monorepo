@@ -296,6 +296,9 @@ export type StaffAnnotationItem = {
   label: "normal" | "suspected" | "confirmed_infection" | "rejected";
   comment: string | null;
   reviewer_line_user_id: string;
+  reviewer_identity_id: number;
+  /** Null when the annotator has no name on file. */
+  reviewer_name: string | null;
   created_at: string;
 };
 

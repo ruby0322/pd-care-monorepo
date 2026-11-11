@@ -819,7 +819,12 @@ def test_staff_can_upsert_annotation(tmp_path: Path) -> None:
 
         list_response = client.get(f"/v1/staff/patients/{patient_id}/annotations", headers=headers)
         assert list_response.status_code == 200
-        assert list_response.json()["items"][0]["upload_id"] == upload_id
+        listed = list_response.json()["items"][0]
+        assert listed["upload_id"] == upload_id
+        # Who annotated it, which is what lets a report name the annotator: the identity id
+        # (the copilot turns it into an `R#n` handle) and the name its reader sees.
+        assert listed["reviewer_identity_id"] > 0
+        assert "reviewer_name" in listed
         session_factory = client.app.state.db_session_factory
         with session_factory() as session:
             annotation = session.query(Annotation).filter(Annotation.upload_id == upload_id).one()

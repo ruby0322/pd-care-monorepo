@@ -723,14 +723,26 @@ def upsert_annotation_for_upload(
     return annotation
 
 
-def list_annotations_for_patient(session: Session, *, patient_id: int) -> list[tuple[Annotation, str]]:
+def list_annotations_for_patient(
+    session: Session, *, patient_id: int
+) -> list[tuple[Annotation, str, str | None]]:
+    """One patient's annotations, each with who recorded it: `(annotation, line_user_id, name)`.
+
+    The name is what a report shows its reader, and it is why this returns more than the LINE
+    id it used to: "which nurse annotated this upload" was unanswerable from the API, so a
+    report asked for uploads *and* their annotators could not be written at all.
+    """
     rows = session.execute(
-        select(Annotation, LiffIdentity.line_user_id)
+        select(
+            Annotation,
+            LiffIdentity.line_user_id,
+            func.coalesce(LiffIdentity.real_name, LiffIdentity.display_name),
+        )
         .join(LiffIdentity, LiffIdentity.id == Annotation.reviewer_identity_id)
         .where(Annotation.patient_id == patient_id)
         .order_by(Annotation.created_at.desc())
     ).all()
-    return rows
+    return [(annotation, line_user_id, name) for annotation, line_user_id, name in rows]
 
 
 def list_pending_bindings(session: Session) -> list[tuple[PendingBinding, list[Patient]]]:

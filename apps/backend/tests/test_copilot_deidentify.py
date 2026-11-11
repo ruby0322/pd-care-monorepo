@@ -144,3 +144,36 @@ def test_resolve_handle_does_not_cross_namespaces(db_session):
 
 def test_resolve_handle_returns_none_for_a_handle_never_minted(db_session):
     assert resolve_handle(db_session, copilot_session_id=1, entity_type="patient", handle="P#9") is None
+
+
+def test_an_annotation_reaches_the_model_as_a_handle_and_the_reader_as_a_name(db_session):
+    """Annotation attribution, with the boundary intact.
+
+    A report may show which nurse annotated an upload, so the API returns both the reviewer's
+    identity id and their name. The model is told the handle and nothing else: `reviewer_name`
+    is absent from the allowlist, so the field filter drops it the way it drops every field
+    nobody allowlisted, and the name only ever exists in the reader's own browser.
+    """
+    payload = {
+        "items": [
+            {
+                "annotation_id": 5,
+                "upload_id": 31,
+                "patient_id": 412,
+                "annotation_label": "suspected",
+                "reviewer_identity_id": 7,
+                "reviewer_name": "陳護理師",
+                "reviewer_line_user_id": "U_NURSE",
+            }
+        ]
+    }
+
+    out = deidentify_payload(db_session, copilot_session_id=1, payload=payload)
+    item = out["items"][0]
+
+    assert item["reviewer_identity_id"] == "R#1"
+    assert item["annotation_label"] == "suspected"
+    assert "reviewer_name" not in item
+    assert "reviewer_line_user_id" not in item
+    assert "陳護理師" not in json.dumps(out, ensure_ascii=False)
+
