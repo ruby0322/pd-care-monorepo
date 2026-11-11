@@ -5,6 +5,6 @@ metadata:
 data:
   APP_ENV: "development"
   S3_BUCKET_NAME: "pd-care-dev-private"
-  # Dev only. Base keeps this false so prod stays dark until deliberately enabled.
+  # Base keeps this false, so each overlay opts in deliberately.
   # Requires OPENAI_API_KEY in the pd-care-secrets Secret, which is applied out of band.
   COPILOT_ENABLED: "true"

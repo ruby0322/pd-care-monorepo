@@ -5,3 +5,7 @@ metadata:
 data:
   APP_ENV: "production"
   S3_BUCKET_NAME: "pd-care-prod-private"
+  # Base keeps this false, so each overlay opts in deliberately.
+  # Requires OPENAI_API_KEY in the pd-care-secrets Secret, which is applied out of band;
+  # the backend reports itself unavailable when the flag is on but the key is missing.
+  COPILOT_ENABLED: "true"
