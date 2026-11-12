@@ -89,6 +89,11 @@ export default function CopilotPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
   const autoRepairCountRef = useRef(0);
+  // A session this page has just created, whose (empty) transcript it already holds. The
+  // selection effect would otherwise fetch it straight away, and that response -- taken
+  // before the server has written the question down -- would land on top of the question
+  // already on screen and erase it.
+  const freshlyCreatedSessionIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,6 +157,11 @@ export default function CopilotPage() {
 
   useEffect(() => {
     if (activeSessionId === null) {
+      return;
+    }
+    if (freshlyCreatedSessionIdRef.current === activeSessionId) {
+      // Once: the turn's own refetch brings the authoritative transcript when it finishes.
+      freshlyCreatedSessionIdRef.current = null;
       return;
     }
     const timer = window.setTimeout(() => {
@@ -231,6 +241,7 @@ export default function CopilotPage() {
       setIsCreating(false);
     }
     setSessions((current) => [created, ...current]);
+    freshlyCreatedSessionIdRef.current = created.session_id;
     setActiveSessionId(created.session_id);
     setDetail({ session: created, messages: [], handles: {} });
     setHandles({ sessionId: created.session_id, map: {} });

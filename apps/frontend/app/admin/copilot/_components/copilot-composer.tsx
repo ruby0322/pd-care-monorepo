@@ -63,12 +63,19 @@ export function CopilotComposer({
     if (!content.trim() || isStreaming || !canWrite) {
       return;
     }
-    // The text stays put when the send is refused (no session, read-only, a turn already
-    // running), so a question is never silently swallowed by a failed submit.
+    // Cleared the moment the question is handed over, not when it is answered: `onSend`
+    // resolves at the *end* of the turn, so waiting for it left the question sitting in the
+    // box for the length of the whole answer, looking like a send that had not happened.
+    setInput("");
+    window.setTimeout(resize, 0);
+
     if (await onSend(content)) {
-      setInput("");
-      window.setTimeout(resize, 0);
+      return;
     }
+    // Refused (no session, read-only, a turn already running): put it back, so a question
+    // is never silently swallowed -- but not over something typed in the meantime.
+    setInput((current) => (current === "" ? content : current));
+    window.setTimeout(resize, 0);
   }
 
   return (

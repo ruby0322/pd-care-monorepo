@@ -89,6 +89,50 @@ describe("copilot new-chat screen", () => {
     );
   });
 
+  /**
+   * The composer used to clear only once `onSend` resolved, and that promise resolves at the
+   * *end* of the turn -- so the question sat in the box for the length of the whole answer
+   * and looked like a send that had not happened.
+   */
+  it("clears the composer as soon as the question is on its way", async () => {
+    streamCopilotMessage.mockImplementation(async () => {
+      await new Promise(() => {});
+    });
+
+    render(<CopilotPage />);
+    await flushTimers();
+
+    const textarea = await screen.findByPlaceholderText("問 PD Copilot…");
+    await userEvent.type(textarea, "最近出口感染有變多嗎？");
+    await userEvent.click(screen.getByRole("button", { name: "送出" }));
+    await flushTimers();
+
+    expect(textarea).toHaveValue("");
+    expect(streamCopilotMessage).toHaveBeenCalled();
+  });
+
+  /**
+   * Creating a thread selects it, and selecting a thread fetches its transcript -- which the
+   * server has not written the question into yet. That empty response landed on top of the
+   * question the page had already put on screen, so the first message vanished, sometimes.
+   */
+  it("keeps the first question on screen while the answer is still streaming", async () => {
+    streamCopilotMessage.mockImplementation(async () => {
+      await new Promise(() => {});
+    });
+    // The transcript as the server has it at that moment: the session exists, empty.
+    fetchCopilotSession.mockResolvedValue(detail(summary()));
+
+    render(<CopilotPage />);
+    await flushTimers();
+
+    await userEvent.type(screen.getByPlaceholderText("問 PD Copilot…"), "最近出口感染有變多嗎？");
+    await userEvent.click(screen.getByRole("button", { name: "送出" }));
+    await flushTimers();
+
+    expect(screen.getByText("最近出口感染有變多嗎？")).toBeInTheDocument();
+  });
+
   it("opens the thread with the model and scope chosen next to the input", async () => {
     render(<CopilotPage />);
     await flushTimers();
