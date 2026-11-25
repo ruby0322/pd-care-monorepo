@@ -19,7 +19,7 @@ import { getTaipeiTodayKey } from "@/lib/utils/upload-calendar";
 
 import { buildUploadChartData, type UploadChartMode } from "./upload-trend-chart-data";
 
-const LOOKBACK_OPTIONS = [30, 60, 90] as const;
+const LOOKBACK_OPTIONS = [30, 60, 90, 180, 360] as const;
 const TODAY_LABELED_BAR_COLOR = "#ea580c";
 const TODAY_UNLABELED_BAR_COLOR = "#fdba74";
 

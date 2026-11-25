@@ -18,7 +18,7 @@ import { getReadableApiError } from "@/lib/api/client";
 import type { AdminDailySuspectedSeriesPoint } from "@/lib/api/staff";
 import { fetchAdminDailySuspectedSeries } from "@/lib/api/staff";
 
-const LOOKBACK_OPTIONS = [30, 60, 90] as const;
+const LOOKBACK_OPTIONS = [30, 60, 90, 180, 360] as const;
 
 const dailyChartConfig = {
   suspected_uploads: { label: "疑似上傳", color: "#dc2626" },

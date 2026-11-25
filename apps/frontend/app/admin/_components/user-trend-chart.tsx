@@ -16,7 +16,7 @@ import type { AdminActiveUsersSeriesPoint } from "@/lib/api/staff";
 import { fetchAdminActiveUsersSeries } from "@/lib/api/staff";
 
 const ACTIVE_WINDOW_OPTIONS = [3, 7, 14, 30] as const;
-const LOOKBACK_OPTIONS = [30, 60, 90] as const;
+const LOOKBACK_OPTIONS = [30, 60, 90, 180, 360] as const;
 
 const userTrendChartConfig = {
   registered_users: { label: "已綁定用戶", color: "#0f766e" },
