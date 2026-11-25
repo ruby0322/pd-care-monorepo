@@ -20,7 +20,7 @@ patches:
 images:
   - name: pd-care-frontend
     newName: ghcr.io/ruby0322/pd-care-frontend
-    newTag: dev-sha-f5516b626060
+    newTag: dev-sha-7e5e53325ca2
   - name: pd-care-backend
     newName: ghcr.io/ruby0322/pd-care-backend
     # Was sha-5fda651b7dfb, whose layer b410846cc72c is unservable from ghcr: it
